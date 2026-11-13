@@ -1,0 +1,49 @@
+# Operating System
+.DS_Store
+Thumbs.db
+
+# Node.js & Dependencies
+node_modules/
+vendor/
+
+# Go Binaries & Tests
+backend/bin/
+backend/tmp/
+*.exe
+*.test
+*.out
+
+# Next.js Build Output
+.next/
+out/
+
+# Vite / React Build Output
+dist/
+dist-ssr/
+
+# Environment Configurations
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Docker State
+platform_postgres_data/
+store_postgres_data/
+redis_data/
+
+# Local runtime state (Redis snapshot, uploaded media, editor backups, TS cache)
+dump.rdb
+backend/uploads/
+*.exe~
+*.tsbuildinfo
+
+# Claude Code personal settings
+.claude/settings.local.json
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log

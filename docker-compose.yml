@@ -1,0 +1,103 @@
+version: '3.8'
+
+networks:
+  ecom_network:
+    name: ecom_network
+    driver: bridge
+
+volumes:
+  platform_postgres_data:
+  store_postgres_data:
+  redis_data:
+
+services:
+  # Local Reverse Proxy & Host Header Routing Engine
+  reverse-proxy:
+    image: nginx:1.25-alpine
+    container_name: ecom_nginx_proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ecom_network
+    depends_on:
+      - platform-db
+      - store-db-prototype
+      - redis
+
+  # Central Platform Database: Stores registry, tenant configs, domain bindings
+  platform-db:
+    image: postgres:16-alpine
+    container_name: ecom_platform_db
+    restart: always
+    environment:
+      POSTGRES_USER: platform_user
+      POSTGRES_PASSWORD: platform_secure_password_2026
+      POSTGRES_DB: ecom_platform_main
+    ports:
+      - "5432:5432"
+    volumes:
+      - platform_postgres_data:/var/lib/postgresql/data
+      - ./infra/docker/postgres/init-platform.sql:/docker-entrypoint-initdb.d/init-platform.sql:ro
+    networks:
+      - ecom_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform_user -d ecom_platform_main"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Dedicated Store Database Prototype: Prototype template for tenant provisioning
+  store-db-prototype:
+    image: postgres:16-alpine
+    container_name: ecom_store_db_prototype
+    restart: always
+    environment:
+      POSTGRES_USER: store_prototype_user
+      POSTGRES_PASSWORD: store_secure_password_2026
+      POSTGRES_DB: ecom_store_template
+    ports:
+      - "5433:5432"
+    volumes:
+      - store_postgres_data:/var/lib/postgresql/data
+    networks:
+      - ecom_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U store_prototype_user -d ecom_store_template"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Centralized In-Memory Cache and Asynchronous Queue Broker
+  redis:
+    image: redis:7-alpine
+    container_name: ecom_redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "redis_secure_password_2026"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ecom_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_secure_password_2026", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Local SMTP Mail Testing Server
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ecom_mailhog
+    restart: always
+    ports:
+      - "1025:1025" # SMTP Port
+      - "8025:8025" # Web Dashboard
+    networks:
+      - ecom_network

@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-size: 14.5px; /* Professional SaaS standard typography scale */
+  }
+  body {
+    @apply text-slate-900 antialiased font-sans min-h-screen leading-normal;
+    background-color: #EAEEF2;
+  }
+}
+

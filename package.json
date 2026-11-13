@@ -1,0 +1,20 @@
+{
+  "name": "ecom-ventures-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Centralized multi-brand e-commerce monorepo",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:all": "concurrently \"npm run dev --workspace=apps/master-admin\" \"npm run dev --workspace=apps/store-admin\" \"npm run dev --workspace=apps/storefront\"",
+    "build:all": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "check:all": "bash .agent/checks.sh",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
