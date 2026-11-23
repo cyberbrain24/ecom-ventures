@@ -6,14 +6,25 @@ import { StorefrontConfigResponse } from '../types/storefront';
  * shipping a bundle that calls the shopper's own localhost. The localhost value
  * is a development-only default.
  */
-// Base API URL with sensible default for local and production builds
-const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+// Base API URL with dynamic resolution supporting server-side container-to-host networking
+function resolveApiBaseUrl(): string {
+  if (typeof window === 'undefined') {
+    const internal = process.env.INTERNAL_API_URL;
+    if (internal) {
+      const clean = internal.replace(/\/+$/, '');
+      return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
+    }
+    return 'http://host.docker.internal:5000/api/v1';
+  }
+  const configured = process.env.NEXT_PUBLIC_API_URL || '';
+  if (configured) {
+    const clean = configured.replace(/\/+$/, '');
+    return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
+  }
+  return 'https://api.dropiobd.com/api/v1';
+}
 
-// Normalize API_BASE_URL to ensure it always ends with /api/v1 regardless of whether
-// NEXT_PUBLIC_API_URL was passed as http://localhost:8080 or http://localhost:8080/api/v1
-const rawApiUrl = configuredApiUrl || 'http://localhost:8080';
-const cleanApiUrl = rawApiUrl.replace(/\/+$/, '');
-const API_BASE_URL = cleanApiUrl.endsWith('/api/v1') ? cleanApiUrl : `${cleanApiUrl}/api/v1`;
+const API_BASE_URL = resolveApiBaseUrl();
 
 type StorefrontRequestInit = RequestInit & {
   next?: {
@@ -48,7 +59,7 @@ export async function fetchStorefrontData<T>(
     headers.set('X-Forwarded-Host', host);
     headers.set('X-Original-Host', host);
     headers.set('Accept', 'application/json');
-    response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+    response = await fetch(`${resolveApiBaseUrl()}${path}`, { ...init, headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new StorefrontApiError(`Could not reach the store API: ${message}`, 0);
