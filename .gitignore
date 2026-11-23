@@ -1,17 +1,26 @@
 # Operating System
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Node.js & Dependencies
 node_modules/
 vendor/
 
-# Go Binaries & Tests
+# Go Binaries, Scratch & Tests
 backend/bin/
 backend/tmp/
 *.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 *.test
 *.out
+test_hash.go
+test_*.go
+backend/test_*.go
+scratch/
 
 # Next.js Build Output
 .next/
@@ -21,27 +30,45 @@ out/
 dist/
 dist-ssr/
 
-# Environment Configurations
+# Environment Configurations & Secrets
 .env
 .env.local
 .env.*.local
 .env.production
 *.pem
 *.key
+*.crt
+*.cert
+*.pfx
+*.p12
 
-# Docker State
+# Database Dumps, Backups & State
+*.sql.bak
+*.bak
+*.tmp
+*.dump
+*.rdb
+dump.rdb
 platform_postgres_data/
 store_postgres_data/
 redis_data/
 
-# Local runtime state (Redis snapshot, uploaded media, editor backups, TS cache)
-dump.rdb
+# Local Runtime Uploads & Caches
 backend/uploads/
-*.exe~
 *.tsbuildinfo
+.turbo/
+.cache/
+
+# IDE, Editor & OS Backups
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 *.log
