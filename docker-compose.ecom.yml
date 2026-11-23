@@ -35,3 +35,17 @@ services:
       resources:
         limits:
           memory: 1200M # Next.js constrained to 1.2GB max
+
+  # 3. Store & Master Admin SPAs (:5200)
+  ecom_admin_server:
+    build:
+      context: .
+      dockerfile: Dockerfile.admin
+    container_name: ecom_admin_server
+    restart: always
+    ports:
+      - "127.0.0.1:5200:80"
+    deploy:
+      resources:
+        limits:
+          memory: 250M # Lightweight Alpine Nginx SPA runner
