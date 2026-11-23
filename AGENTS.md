@@ -23,17 +23,18 @@ d:/Ecom Ventures/
 │   ├── internal/
 │   │   ├── config/        # Environment and typed configuration
 │   │   ├── middleware/    # Auth, Tenant resolver, CORS, Rate-limiting, Recovery
-│   │   ├── platform/      # Central platform services (stores, domains, themes, auth)
-│   │   ├── store/         # Store services (catalog, inventory, orders, customers, promos)
+│   │   ├── platform/      # Central platform services (stores, domains, themes, auth, storage_mgmt)
+│   │   ├── store/         # Store services (catalog, inventory, orders, customers, promos, music)
 │   │   ├── storefront/    # Public storefront customer endpoints
 │   │   └── worker/        # Redis Streams consumers and cron scheduler
 │   └── pkg/               # Reusable packages (crypto, hasher, jwt, response, storage)
 ├── infra/
 │   ├── migrations/
-│   │   ├── platform/      # Central Platform DB SQL DDL
+│   │   ├── platform/      # Central Platform DB SQL DDL (000001 - 000005)
 │   │   └── store/         # Dedicated Tenant Store DB SQL DDL
-│   └── nginx/             # Local and production Nginx routing configs
-├── .env.example           # Canonical environment configuration template
+│   └── nginx/             # Local and production Nginx routing configs (ecom_ventures.conf)
+├── .env.example           # Canonical local development environment template
+├── .env.production.example# Canonical production VPS environment template
 ├── .gitignore             # Strict ignore list for secrets, binaries, and build artifacts
 ├── docker-compose.ecom.yml# Production coexistence Docker Compose config
 ├── Dockerfile.api         # Root Dockerfile for Go API Monolith
@@ -44,9 +45,49 @@ d:/Ecom Ventures/
 
 ---
 
-## 2. Port Allocation: Local Development vs. Production VPS
+## 2. Server Connection & Production VPS Deployment Scope
 
-### A. Local Development Environment (Windows Host):
+### A. Production VPS Access Profile:
+| Parameter | Value | Operational Details |
+| :--- | :--- | :--- |
+| **Host IP** | **`185.227.134.236`** | Dedicated production VPS IPv4 |
+| **SSH Port** | **`22`** | Standard SSH port |
+| **SSH User** | **`ecom`** | Dedicated unprivileged platform deployer user |
+| **SSH Password** | `EcomVenturesPass2026!` | SSH authentication credential |
+| **Project Working Directory** | **`/home/ecom/ecom_ventures`** | Isolated Ecom Ventures root (Never touch `/root/poshplex_store`) |
+| **Git Remote Origin** | `https://github.com/cyberbrain24/ecom-ventures.git` | Canonical code origin |
+
+### B. Production Database Access (PostgreSQL 16 on `127.0.0.1:5432`):
+- **Host:** `127.0.0.1`
+- **Port:** `5432`
+- **User:** `ecom_user`
+- **Password:** `Strong_Ecom_Pass_2026`
+- **Platform Main DB:** `ecom_platform_main`
+- **Store Template DB:** `ecom_store_template`
+- **Tenant DBs:** `store_<slug>_<id>` (provisioned dynamically)
+- **Forbidden DB:** `poshplex` (**STRICTLY FORBIDDEN: DO NOT ALTER OR DROP**)
+
+### C. Production Redis Cache (Redis 7 on `127.0.0.1:6379`):
+- **Host:** `127.0.0.1`
+- **Port:** `6379`
+- **Assigned DB:** **`0`** (Active staff JWT sessions, token revocation, IP rate-limiting, idempotency locks)
+- **Reserved DB:** **`1`** (**STRICTLY RESERVED FOR POSHPLEX** — Django cache & Celery worker broker)
+
+### D. Production Port Allocation (Zero Conflict with Poshplex):
+| Port / Address | Subsystem / Stack | Container Name / Service | Operational Status |
+| :--- | :--- | :--- | :--- |
+| **`127.0.0.1:5000`** | **Ecom Ventures Go API Kernel** (chi/v5) | `ecom_api` | **ASSIGNED (200 OK)** |
+| **`127.0.0.1:5100`** | **Ecom Ventures Next.js 14 Storefront** (SSR) | `ecom_storefront` | **ASSIGNED (200 OK)** |
+| **`127.0.0.1:5200`** | **Ecom Ventures React 18 Admin SPAs** | `ecom_admin_server` / Nginx static | **ASSIGNED (200 OK)** |
+| `127.0.0.1:8000` | Poshplex Core Backend (Django Gunicorn) | `poshplex_backend` | **STRICTLY FORBIDDEN (Poshplex Core)** |
+| `127.0.0.1:3000` | Poshplex Storefront (Next.js) | `poshplex_store` | **STRICTLY FORBIDDEN (Poshplex Store)** |
+| `127.0.0.1:3001` | Poshplex Admin (Refine SPA) | `poshplex_admin` | **STRICTLY FORBIDDEN (Poshplex Admin)** |
+| `127.0.0.1:8080` | Poshplex Static/Media Router (Docker Nginx)| `poshplex_nginx` | **STRICTLY FORBIDDEN (Poshplex Media)** |
+
+---
+
+## 3. Local Development Port Mapping (Windows Host)
+
 When running locally for feature development, use these standard ports:
 | Service | Port | Technology / Command | Access URL / Notes |
 | :--- | :--- | :--- | :--- |
@@ -57,24 +98,9 @@ When running locally for feature development, use these standard ports:
 | **PostgreSQL** | **`5432`** | PostgreSQL 15/16 engine | `localhost:5432` |
 | **Redis Cache** | **`6379`** | Redis 7 (`requirepass redis_secure_password_2026`) | `localhost:6379` |
 
-### B. Production VPS Coexistence Matrix (Shared 12GB VPS with Poshplex):
-The production Linux VPS runs an active live platform, **Poshplex** (`poshplexbd.com`). Ecom Ventures coexists using dedicated ports and shared database/cache engines:
-
-| Port / Address | Subsystem / Stack | Container Name / Service | Operational Status |
-| :--- | :--- | :--- | :--- |
-| **`127.0.0.1:5000`** | **Ecom Ventures Go API Kernel** (chi/v5) | `ecom_api` | **ASSIGNED (200 OK)** |
-| **`127.0.0.1:5100`** | **Ecom Ventures Next.js 14 Storefront** (SSR) | `ecom_storefront` | **ASSIGNED (200 OK)** |
-| **`127.0.0.1:5200`** | **Ecom Ventures React 18 Admin SPAs** | `ecom_admin_server` / Nginx static | **ASSIGNED (200 OK)** |
-| **`127.0.0.1:5432`** | **PostgreSQL 16 Engine** (Shared RDBMS) | `poshplex_postgres` | **SHARED DB ENGINE** (`ecom_platform_main`, `ecom_store_template`) |
-| **`127.0.0.1:6379`** | **Redis 7 Stack Engine** (Shared Cache) | `poshplex_redis` | **SHARED CACHE** (DB 0: Ecom, DB 1: Poshplex) |
-| `127.0.0.1:8000` | Poshplex Core Backend (Django Gunicorn) | `poshplex_backend` | **STRICTLY FORBIDDEN (Poshplex Core)** |
-| `127.0.0.1:3000` | Poshplex Storefront (Next.js) | `poshplex_store` | **STRICTLY FORBIDDEN (Poshplex Store)** |
-| `127.0.0.1:3001` | Poshplex Admin (Refine SPA) | `poshplex_admin` | **STRICTLY FORBIDDEN (Poshplex Admin)** |
-| `127.0.0.1:8080` | Poshplex Static/Media Router (Docker Nginx)| `poshplex_nginx` | **STRICTLY FORBIDDEN (Poshplex Media)** |
-
 ---
 
-## 3. Platform Authentication & Seed Credentials
+## 4. Platform Authentication & Seed Credentials
 
 ### Master Admin Login:
 - **URL:** `http://localhost:5000` (Local) / `https://master.ecomventures.com` (VPS)
@@ -89,7 +115,7 @@ The production Linux VPS runs an active live platform, **Poshplex** (`poshplexbd
 
 ---
 
-## 4. Multi-Tenant Architecture & Database Isolation Rules
+## 5. Multi-Tenant Architecture & Database Isolation Rules
 
 Ecom Ventures enforces a strict **Database-Per-Tenant** operational model:
 
@@ -115,7 +141,7 @@ Ecom Ventures enforces a strict **Database-Per-Tenant** operational model:
 
 ---
 
-## 5. Universal UI Governance Mandates (NON-NEGOTIABLE)
+## 6. Universal UI Governance Mandates (NON-NEGOTIABLE)
 
 1. **Universal CRUD & Delete Approval Confirmation:**
    - Every entity, resource, or module added to either the **Master Admin** or **Store Admin** must provide both an **Edit** modal/system and a **Delete** modal/system.
@@ -132,7 +158,7 @@ Ecom Ventures enforces a strict **Database-Per-Tenant** operational model:
 
 ---
 
-## 6. Shared VPS Coexistence Directives (Poshplex & Ecom on 12GB RAM VPS)
+## 7. Shared VPS Coexistence Directives (Poshplex & Ecom on 12GB RAM VPS)
 
 Consult the canonical guide [VPS_DEPLOYMENT.md](file:///d:/Ecom%20Ventures/VPS_DEPLOYMENT.md) for full deployment instructions.
 
@@ -140,30 +166,31 @@ Consult the canonical guide [VPS_DEPLOYMENT.md](file:///d:/Ecom%20Ventures/VPS_D
    - The compiled Go API kernel is exceptionally lightweight (~30MB to 50MB RAM at idle, ~100MB under load).
    - In `docker-compose.ecom.yml`, `ecom_api` is memory-capped at `350M`, and `ecom_storefront` at `1200M`.
 2. **Shared Database & Cache Engines:**
-   - Do **NOT** run second containers for Postgres or Redis. Connect directly to `poshplex_postgres` (`127.0.0.1:5432`) and `poshplex_redis` (`127.0.0.1:6379`, DB `0`).
+   - Do **NOT** run second containers for Postgres or Redis. Connect directly to `poshplex_postgres` (`127.0.0.1:5432`, user: `ecom_user`, db: `ecom_platform_main`) and `poshplex_redis` (`127.0.0.1:6379`, DB `0`).
 3. **Strict Container & Safety Mandates:**
    - **NEVER** run `docker system prune -a --volumes` (will erase live Poshplex data).
    - **NEVER** kill, stop, or alter containers starting with `poshplex_`.
    - Always verify Nginx configuration with `nginx -t` before issuing `systemctl reload nginx`.
-   - Ecom code must reside exclusively in `/root/ecom_ventures/`. Never touch `/root/poshplex_store/`.
+   - Ecom code must reside exclusively in `/home/ecom/ecom_ventures/`. Never touch `/root/poshplex_store/`.
 4. **Object Storage via Cloudflare R2:**
-   - Configure the backend storage driver (`pkg/storage`) to Cloudflare R2 (S3-compatible API).
+   - Configure the backend storage driver (`pkg/storage`) to Cloudflare R2 (S3-compatible API) via Master Admin Settings.
    - Never store product media on the VPS local filesystem in production.
 
 ---
 
-## 7. Autonomous VPS Upgrade & Version Tracking Protocol
+## 8. Autonomous VPS Upgrade & Version Tracking Protocol
 
 > **CRITICAL DIRECTIVE FOR ALL AGENTS ON VPS TASKS:**
 > Whenever you receive a prompt regarding VPS deployment, upgrading features, running migrations, or modifying configurations:
 > 1. Always inspect [VPS_DEPLOYMENT.md](file:///d:/Ecom%20Ventures/VPS_DEPLOYMENT.md) before executing commands.
-> 2. Follow Semantic Versioning (`vMAJOR.MINOR.PATCH`).
-> 3. Increment the active version tag in [VPS_DEPLOYMENT.md](file:///d:/Ecom%20Ventures/VPS_DEPLOYMENT.md).
-> 4. Record the date, author/agent name, list of changes, and coexistence verification in **Section 8: Version Tracking & Upgrade Ledger** of [VPS_DEPLOYMENT.md](file:///d:/Ecom%20Ventures/VPS_DEPLOYMENT.md).
+> 2. Use user `ecom`, directory `/home/ecom/ecom_ventures`, host `185.227.134.236`, DB `ecom_user`/`Strong_Ecom_Pass_2026`, and assigned ports `5000, 5100, 5200`.
+> 3. Follow Semantic Versioning (`vMAJOR.MINOR.PATCH`).
+> 4. Increment the active version tag in [VPS_DEPLOYMENT.md](file:///d:/Ecom%20Ventures/VPS_DEPLOYMENT.md).
+> 5. Record the date, author/agent name, list of changes, and coexistence verification in **Section 9: Version Tracking & Upgrade Ledger** of [VPS_DEPLOYMENT.md](file:///d:/Ecom%20Ventures/VPS_DEPLOYMENT.md).
 
 ---
 
-## 8. Git Safety & Repository Hygiene Rules
+## 9. Git Safety & Repository Hygiene Rules
 
 **For all AI Agents and Developers:**
 
