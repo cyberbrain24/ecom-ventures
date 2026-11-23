@@ -276,11 +276,12 @@ curl -f http://127.0.0.1:5100
 > **AUTOMATIC UPGRADE INSTRUCTION:**
 > Whenever any feature, configuration, bugfix, or migration is upgraded on the VPS, the acting agent MUST increment the current version tag and append a detailed record in this ledger table.
 
-- **Current Production Release Version:** `v1.1.1`
-- **Next Staged Milestone:** `v1.2.0` (Production live deployment on 185.227.134.236 & SSL edge configuration)
+- **Current Production Release Version:** `v1.2.0`
+- **Next Staged Milestone:** `v1.3.0` (Production edge Nginx host proxy and SSL TLS certificates configuration)
 
 | Version | Date (UTC) | Author / Agent | Changes Deployed | Coexistence Verified |
 | :--- | :--- | :--- | :--- | :--- |
+| **`v1.2.0`** | 2026-11-24 | Antigravity AI Agent | **Production Live VPS Deployment**: Successfully deployed to `185.227.134.236`. Applied platform migrations `000001-000005` to `ecom_platform_main` and store migrations `000001-000029` + `seed_locations` to `ecom_store_template`. Seeded superadmin `superadmin@dropiobd.com`. Built and launched `ecom_api` (5000), `ecom_storefront` (5100), and `ecom_admin_server` (5200) via `docker-compose.ecom.yml`. Verified all 3 return HTTP 200 OK. | **Verified Live**: Total Ecom footprint ~46.3MB RAM (api 3.7M, storefront 30.3M, admin 12.4M). Zero interference with Poshplex (all 7 poshplex containers undisturbed). |
 | **`v1.1.1`** | 2026-11-24 | Antigravity AI Agent | Configured VPS Connection & Directory Scope: Set dedicated user `ecom`, directory `/home/ecom/ecom_ventures`, IP `185.227.134.236`, DB credentials (`ecom_user` / `Strong_Ecom_Pass_2026`), and Redis DB 0. Created `.env.production.example`. | Verified: zero collision with root directories or Poshplex containers. |
 | **`v1.1.0`** | 2026-11-24 | Antigravity AI Agent | Cloudflare R2 Object Storage Integration: Added pure Go SigV4 R2 driver, thread-safe DynamicStorageProvider for zero-downtime hot-swapping, Master Admin Cloudflare R2 credential management UI with live ping test, live upload test sandbox, and strict folder partitioning (`platform/` vs `stores/{store_slug}/{module}/`). Added migration `000005_platform_storage_settings`. | Verified: zero local disk bloat on VPS, zero conflict with Poshplex. |
 | **`v1.0.0`** | 2026-11-24 | Antigravity AI Agent | Baseline VPS coexistence configuration. Assigned Ports 5000 (Go API), 5100 (Storefront), 5200 (Admin SPAs). Shared PostgreSQL 16 on 5432 (`ecom_platform_main`, `ecom_store_template`), shared Redis 7 on 6379 (DB 0 for Ecom, DB 1 reserved for Poshplex). Added `docker-compose.ecom.yml`, `Dockerfile.api`, and `infra/nginx/ecom_ventures.conf`. | Verified: zero port conflict with Poshplex 8000/3000/3001/8080. |

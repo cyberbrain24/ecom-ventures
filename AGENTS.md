@@ -61,7 +61,7 @@ d:/Ecom Ventures/
 - **Host:** `127.0.0.1`
 - **Port:** `5432`
 - **User:** `ecom_user`
-- **Password:** `Strong_Ecom_Pass_2026`
+- **Password:** `EcomVenturesPass2026!` / `Strong_Ecom_Pass_2026`
 - **Platform Main DB:** `ecom_platform_main`
 - **Store Template DB:** `ecom_store_template`
 - **Tenant DBs:** `store_<slug>_<id>` (provisioned dynamically)
