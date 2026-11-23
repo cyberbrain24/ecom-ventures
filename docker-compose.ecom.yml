@@ -26,11 +26,13 @@ services:
     container_name: ecom_storefront
     restart: always
     ports:
-      - "127.0.0.1:5100:3000"
+      - "5100:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - INTERNAL_API_URL=http://127.0.0.1:5000/api/v1
+      - INTERNAL_API_URL=http://host.docker.internal:5000/api/v1
     deploy:
       resources:
         limits:
@@ -44,7 +46,9 @@ services:
     container_name: ecom_admin_server
     restart: always
     ports:
-      - "127.0.0.1:5200:80"
+      - "5200:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     deploy:
       resources:
         limits:
