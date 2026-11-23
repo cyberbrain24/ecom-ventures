@@ -114,3 +114,84 @@ func TestLocalStorageSizeLimits(t *testing.T) {
 		t.Errorf("expected ErrFileTooLarge, got %v", err)
 	}
 }
+
+func TestStorageResolverPaths(t *testing.T) {
+	// Test tenant store paths
+	p1 := BuildStorePath("PoshPlex BD", ModuleProducts, "prod_abc123")
+	if p1 != "stores/poshplex-bd/products/prod_abc123" {
+		t.Errorf("unexpected store path: %s", p1)
+	}
+
+	p2 := BuildStorePath("urban-movement", ModuleReviews)
+	if p2 != "stores/urban-movement/reviews" {
+		t.Errorf("unexpected reviews path: %s", p2)
+	}
+
+	p3 := BuildStorePath("mior", ModuleBrand)
+	if p3 != "stores/mior/brand" {
+		t.Errorf("unexpected brand path: %s", p3)
+	}
+
+	// Test platform paths
+	pl1 := BuildPlatformPath(ModulePlatformBranding)
+	if pl1 != "platform/branding" {
+		t.Errorf("unexpected platform branding path: %s", pl1)
+	}
+
+	pl2 := BuildPlatformPath(ModulePlatformAvatars, "superadmin")
+	if pl2 != "platform/admin-avatars/superadmin" {
+		t.Errorf("unexpected platform avatar path: %s", pl2)
+	}
+}
+
+func TestDynamicStorageProvider(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "ecom_dynamic_storage_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	local, err := NewLocalStorage(tempDir, "http://localhost:8080/uploads")
+	if err != nil {
+		t.Fatalf("failed to init local storage: %v", err)
+	}
+
+	dyn := NewDynamicStorageProvider(local, "local")
+	if dyn.GetProviderName() != "local" {
+		t.Errorf("expected provider local, got %s", dyn.GetProviderName())
+	}
+
+	data := []byte("dynamic-test-payload")
+	res, err := dyn.Save(context.Background(), "test/folder", "dynamic.png", "image/png", bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("dyn save failed: %v", err)
+	}
+
+	if !strings.HasPrefix(res.URL, "http://localhost:8080/uploads/") {
+		t.Errorf("unexpected dynamic URL: %s", res.URL)
+	}
+}
+
+func TestR2StorageConfigValidation(t *testing.T) {
+	_, err := NewR2Storage(R2Config{})
+	if err == nil {
+		t.Errorf("expected error for empty R2Config")
+	}
+
+	r2, err := NewR2Storage(R2Config{
+		AccountID:       "test-account-id",
+		BucketName:      "test-bucket",
+		AccessKeyID:     "test-key-id",
+		SecretAccessKey: "test-secret-key",
+		PublicURL:       "https://media.dropiobd.com",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error initializing R2: %v", err)
+	}
+
+	url := r2.GetURL("stores/poshplex/products/item.jpg")
+	if url != "https://media.dropiobd.com/stores/poshplex/products/item.jpg" {
+		t.Errorf("unexpected R2 public URL: %s", url)
+	}
+}
+

@@ -59,9 +59,17 @@ type ObjectStorage interface {
 }
 
 // ValidateMime ensures uploaded files conform to accepted media types.
-func ValidateMime(contentType string) (string, error) {
+// If the content type is empty or generic octet-stream, it safely derives the extension from the filename.
+func ValidateMime(contentType string, filename ...string) (string, error) {
 	cleanType := strings.ToLower(strings.TrimSpace(contentType))
-	// Allow audio or image MIME
+	if (cleanType == "application/octet-stream" || cleanType == "") && len(filename) > 0 {
+		fileExt := strings.ToLower(filepath.Ext(filename[0]))
+		for _, ext := range AllowedMediaMimes {
+			if ext == fileExt {
+				return ext, nil
+			}
+		}
+	}
 	ext, ok := AllowedMediaMimes[cleanType]
 	if !ok {
 		return "", fmt.Errorf("%w: received %s", ErrInvalidMimeType, cleanType)

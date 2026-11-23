@@ -22,6 +22,7 @@ import (
 	"ecom-ventures/backend/internal/platform/domains"
 	"ecom-ventures/backend/internal/platform/models"
 	"ecom-ventures/backend/internal/platform/provisioner"
+	platformStorage "ecom-ventures/backend/internal/platform/storage_mgmt"
 	"ecom-ventures/backend/internal/platform/store_mgmt"
 	platformSystem "ecom-ventures/backend/internal/platform/system"
 	"ecom-ventures/backend/internal/platform/themes"
@@ -90,10 +91,28 @@ func buildRouter(
 	reviewsHandler *reviews.Handler,
 	blogHandler *blog.Handler,
 	shippingHandler *shipping.Handler,
-	musicHandler *music.Handler,
-	tasksHandler *tasks.Handler,
-	platformSessions middleware.PlatformSessionChecker,
+	extraHandlers ...interface{},
 ) http.Handler {
+	var musicHandler *music.Handler
+	var tasksHandler *tasks.Handler
+	var platformSessions middleware.PlatformSessionChecker
+	var storageHandler *platformStorage.Handler
+
+	for _, h := range extraHandlers {
+		if h == nil {
+			continue
+		}
+		switch v := h.(type) {
+		case *music.Handler:
+			musicHandler = v
+		case *tasks.Handler:
+			tasksHandler = v
+		case middleware.PlatformSessionChecker:
+			platformSessions = v
+		case *platformStorage.Handler:
+			storageHandler = v
+		}
+	}
 	r := chi.NewRouter()
 
 	// Global Core Middleware Chain
@@ -230,6 +249,18 @@ func buildRouter(
 						accR.Patch("/billing/{id}/status", pAccountsHandler.UpdateBillingStatus)
 						accR.Get("/gateways", pAccountsHandler.GetGateways)
 					})
+				}
+
+				// Platform Cloudflare R2 & Object Storage Subsystem
+				if storageHandler != nil {
+					r.Route("/storage", func(stR chi.Router) {
+						stR.Get("/settings", storageHandler.GetSettings)
+						stR.Put("/settings", storageHandler.UpdateSettings)
+						stR.Post("/test", storageHandler.TestConnection)
+						stR.Post("/reset", storageHandler.ResetToLocal)
+						stR.Post("/upload-test", storageHandler.UploadTestAsset)
+					})
+					r.Post("/media/upload", storageHandler.UploadPlatformMedia)
 				}
 			})
 		})
@@ -873,6 +904,11 @@ func buildRouter(
 						bAdminR.Delete("/categories/{id}", blogHandler.DeleteCategory)
 					})
 				}
+
+				// Tenant Media Upload Endpoint (Partitioned into stores/{store_slug}/{module})
+				if storageHandler != nil {
+					r.Post("/media/upload", storageHandler.UploadStoreMedia)
+				}
 			})
 		})
 
@@ -1301,6 +1337,11 @@ Sitemap: %s/sitemap.xml
 					bPubR.Get("/sitemap", blogHandler.StorefrontSitemapFeed)
 				})
 			}
+
+			// Public Storefront Media Upload (e.g. customer review photos)
+			if storageHandler != nil {
+				r.Post("/media/upload", storageHandler.UploadStoreMedia)
+			}
 		})
 	})
 
@@ -1406,15 +1447,23 @@ func main() {
 	themeService := themes.NewService(platformDB.DB, redisClient, storeResolver)
 	themeHandler := themes.NewHandler(themeService)
 
-	// Initialize Object Storage Service
+	// Initialize Object Storage Service (Dynamic Provider supporting Local Disk & Cloudflare R2)
 	localStorageProvider, err := storage.NewLocalStorage("./uploads", "http://localhost:8080/uploads")
 	if err != nil {
 		logger.Error("FATAL: Failed to initialize local object storage", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+	dynamicStorageProvider := storage.NewDynamicStorageProvider(localStorageProvider, "local")
+
+	storageRepo := platformStorage.NewRepository(platformDB.DB)
+	storageService := platformStorage.NewService(storageRepo, dynamicStorageProvider, []byte(cfg.DatabaseEncryptionKey), "./uploads", "http://localhost:8080/uploads")
+	if err := storageService.InitializeFromDB(context.Background()); err != nil {
+		logger.Warn("Notice: Platform storage settings initialization", slog.String("info", err.Error()))
+	}
+	storageHandler := platformStorage.NewHandler(storageService)
 
 	catalogRepo := catalog.NewRepository()
-	catalogService := catalog.NewService(catalogRepo, localStorageProvider)
+	catalogService := catalog.NewService(catalogRepo, dynamicStorageProvider)
 	catalogHandler := catalog.NewHandler(catalogService)
 
 	// Phase 15: Variants & Matrix Subsystem
@@ -1512,7 +1561,7 @@ func main() {
 
 	// Ambient Music System Subsystem
 	musicRepo := music.NewRepository()
-	musicService := music.NewService(musicRepo, localStorageProvider)
+	musicService := music.NewService(musicRepo, dynamicStorageProvider)
 	musicHandler := music.NewHandler(musicService)
 
 	// Task Management Workstation Subsystem
@@ -1541,6 +1590,7 @@ func main() {
 		musicHandler,
 		tasksHandler,
 		sessionManager,
+		storageHandler,
 	)
 
 	server := &http.Server{

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"ecom-ventures/backend/pkg/storage"
+	storeCtx "ecom-ventures/backend/internal/store/context"
 )
 
 type Service struct {
@@ -109,5 +110,10 @@ func (s *Service) UploadAudioFile(ctx context.Context, filename string, contentT
 		return nil, fmt.Errorf("invalid audio format: only MP3 and OGG audio files are supported (received %s)", cleanType)
 	}
 
-	return s.storage.Save(ctx, "music/tracks", filename, cleanType, reader, size)
+	folder := "music/tracks"
+	if sc, err := storeCtx.GetStoreContext(ctx); err == nil && sc != nil && sc.Store != nil {
+		folder = storage.BuildStorePath(sc.Store.Slug, storage.ModuleMusic, "tracks")
+	}
+
+	return s.storage.Save(ctx, folder, filename, cleanType, reader, size)
 }

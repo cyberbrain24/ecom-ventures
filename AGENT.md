@@ -174,6 +174,7 @@ The AI agent must uphold these non-negotiable architectural mandates:
 | `MOD-137` | CI/CD Deployment Pipeline | `/.github/workflows/ci-cd.yml` | Automated checks, unit tests, type analysis, and image builds | Yes (Validates multi-tenant boundaries) |
 | `MOD-138` | Pilot Brand Seeder | `/backend/cmd/seed/main.go` | Provisions Mior, Artisan, and Urban Movement pilot brands | Yes (Uses 10-step transactional provisioner) |
 | `MOD-139` | Platform Go-Live Engine | `/GOLIVE.md` | Pre-flight infrastructure validation runbook and smoke tests | Yes (Exhaustive production readiness) |
+| `MOD-140` | Cloudflare R2 Engine | `/backend/pkg/storage/r2.go`, `/apps/master-admin/src/components/storage/` | S3 SigV4 client, thread-safe dynamic storage provider, Master Admin R2 credentials manager, live ping & upload sandbox, folder partitioning | Yes (Partitioned: platform/ vs stores/{slug}/{module}) |
 
 ## 5. AUTOMATED VERIFICATION LEDGER (FINAL)
 | Date / Check Run | Target Subsystem | Command Executed | Result | Remarks |

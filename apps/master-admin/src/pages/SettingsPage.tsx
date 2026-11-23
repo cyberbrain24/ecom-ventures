@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Activity, AlertCircle, Database, RefreshCw, Settings, Server } from 'lucide-react';
+import { Activity, AlertCircle, Database, RefreshCw, Settings, Server, Cloud } from 'lucide-react';
 import { ClusterOverviewResponse } from '../types/system';
 import { api, apiErrorMessage } from '../lib/api';
+import { CloudflareR2Settings } from '../components/storage/CloudflareR2Settings';
 
-type SettingsTab = 'platform' | 'cluster' | 'workers';
+type SettingsTab = 'storage' | 'cluster' | 'platform' | 'workers';
 
 export const SettingsPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('cluster');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('storage');
   const [clusterData, setClusterData] = useState<ClusterOverviewResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,8 +35,9 @@ export const SettingsPage: React.FC = () => {
   }, [fetchClusterOverview]);
 
   const tabs: Array<{ id: SettingsTab; label: string; icon: typeof Settings }> = [
-    { id: 'platform', label: 'Platform Policies', icon: Settings },
+    { id: 'storage', label: 'Cloudflare R2 Storage', icon: Cloud },
     { id: 'cluster', label: 'Database & Cache', icon: Database },
+    { id: 'platform', label: 'Platform Policies', icon: Settings },
     { id: 'workers', label: 'Workers', icon: Activity },
   ];
 
@@ -69,6 +71,12 @@ export const SettingsPage: React.FC = () => {
           <AlertCircle className="h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
+      )}
+
+      {activeTab === 'storage' && (
+        <section>
+          <CloudflareR2Settings />
+        </section>
       )}
 
       {activeTab === 'platform' && (

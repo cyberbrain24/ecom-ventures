@@ -257,9 +257,10 @@ curl -f http://127.0.0.1:5100
 > **AUTOMATIC UPGRADE INSTRUCTION:**
 > Whenever any feature, configuration, bugfix, or migration is upgraded on the VPS, the acting agent MUST increment the current version tag and append a detailed record in this ledger table.
 
-- **Current Production Release Version:** `v1.0.0`
-- **Next Staged Milestone:** `v1.1.0` (Multi-tenant pilot brand seeding & Cloudflare R2 CDN rollout)
+- **Current Production Release Version:** `v1.1.0`
+- **Next Staged Milestone:** `v1.2.0` (Multi-tenant pilot brand seeding & production rollout)
 
 | Version | Date (UTC) | Author / Agent | Changes Deployed | Coexistence Verified |
 | :--- | :--- | :--- | :--- | :--- |
+| **`v1.1.0`** | 2026-11-24 | Antigravity AI Agent | Cloudflare R2 Object Storage Integration: Added pure Go SigV4 R2 driver, thread-safe DynamicStorageProvider for zero-downtime hot-swapping, Master Admin Cloudflare R2 credential management UI with live ping test, live upload test sandbox, and strict folder partitioning (`platform/` vs `stores/{store_slug}/{module}/`). Added migration `000005_platform_storage_settings`. | Verified: zero local disk bloat on VPS, zero conflict with Poshplex. |
 | **`v1.0.0`** | 2026-11-24 | Antigravity AI Agent | Baseline VPS coexistence configuration. Assigned Ports 5000 (Go API), 5100 (Storefront), 5200 (Admin SPAs). Shared PostgreSQL 16 on 5432 (`ecom_platform_main`, `ecom_store_template`), shared Redis 7 on 6379 (DB 0 for Ecom, DB 1 reserved for Poshplex). Added `docker-compose.ecom.yml`, `Dockerfile.api`, and `infra/nginx/ecom_ventures.conf`. | Verified: zero port conflict with Poshplex 8000/3000/3001/8080. |

@@ -40,7 +40,7 @@ func (s *LocalStorage) Save(ctx context.Context, folder string, filename string,
 		return nil, ErrEmptyFilePayload
 	}
 
-	ext, err := ValidateMime(contentType)
+	ext, err := ValidateMime(contentType, filename)
 	if err != nil {
 		return nil, err
 	}
