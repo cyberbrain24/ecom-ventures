@@ -112,33 +112,28 @@ func Load() (*Config, error) {
 		LogLevel:              p.getEnv("LOG_LEVEL", "debug"),
 		DatabaseEncryptionKey: p.getEnv("DATABASE_ENCRYPTION_KEY", devDefaultEncryptionKey),
 		PlatformDB: DatabaseConfig{
-			Host:            p.getEnv("PLATFORM_DB_HOST", "localhost"),
-			Port:            p.getEnvAsInt("PLATFORM_DB_PORT", 5432),
-			User:            p.getEnv("PLATFORM_DB_USER", "platform_user"),
-			Password:        p.getEnv("PLATFORM_DB_PASSWORD", devDefaultPlatformDBPass),
-			DBName:          p.getEnv("PLATFORM_DB_NAME", "ecom_platform_main"),
-			SSLMode:         p.getEnv("PLATFORM_DB_SSLMODE", "disable"),
+			Host:            p.getFirstEnv([]string{"PLATFORM_DB_HOST", "DB_HOST"}, "localhost"),
+			Port:            p.getFirstEnvAsInt([]string{"PLATFORM_DB_PORT", "DB_PORT"}, 5432),
+			User:            p.getFirstEnv([]string{"PLATFORM_DB_USER", "DB_USER"}, "platform_user"),
+			Password:        p.getFirstEnv([]string{"PLATFORM_DB_PASSWORD", "DB_PASSWORD"}, devDefaultPlatformDBPass),
+			DBName:          p.getFirstEnv([]string{"PLATFORM_DB_NAME", "DB_MAIN_NAME"}, "ecom_platform_main"),
+			SSLMode:         p.getFirstEnv([]string{"PLATFORM_DB_SSLMODE", "DB_SSLMODE"}, "disable"),
 			MaxOpenConns:    p.getEnvAsInt("PLATFORM_DB_MAX_OPEN_CONNS", 25),
 			MaxIdleConns:    p.getEnvAsInt("PLATFORM_DB_MAX_IDLE_CONNS", 10),
 			ConnMaxLifetime: p.getEnvAsDuration("PLATFORM_DB_CONN_MAX_LIFETIME", 5*time.Minute),
 		},
 		StoreDBTemplate: DatabaseConfig{
-			Host:            p.getEnv("STORE_DB_TEMPLATE_HOST", "localhost"),
-			Port:            p.getEnvAsInt("STORE_DB_TEMPLATE_PORT", 5433),
-			User:            p.getEnv("STORE_DB_TEMPLATE_USER", "store_prototype_user"),
-			Password:        p.getEnv("STORE_DB_TEMPLATE_PASSWORD", devDefaultStoreTemplatePass),
-			DBName:          p.getEnv("STORE_DB_TEMPLATE_NAME", "ecom_store_template"),
-			SSLMode:         p.getEnv("STORE_DB_TEMPLATE_SSLMODE", "disable"),
+			Host:            p.getFirstEnv([]string{"STORE_DB_TEMPLATE_HOST", "DB_HOST"}, "localhost"),
+			Port:            p.getFirstEnvAsInt([]string{"STORE_DB_TEMPLATE_PORT", "DB_PORT"}, 5433),
+			User:            p.getFirstEnv([]string{"STORE_DB_TEMPLATE_USER", "DB_USER"}, "store_prototype_user"),
+			Password:        p.getFirstEnv([]string{"STORE_DB_TEMPLATE_PASSWORD", "DB_PASSWORD"}, devDefaultStoreTemplatePass),
+			DBName:          p.getFirstEnv([]string{"STORE_DB_TEMPLATE_NAME", "DB_TEMPLATE_NAME"}, "ecom_store_template"),
+			SSLMode:         p.getFirstEnv([]string{"STORE_DB_TEMPLATE_SSLMODE", "DB_SSLMODE"}, "disable"),
 			MaxOpenConns:    p.getEnvAsInt("STORE_DB_TEMPLATE_MAX_OPEN_CONNS", 25),
 			MaxIdleConns:    p.getEnvAsInt("STORE_DB_TEMPLATE_MAX_IDLE_CONNS", 10),
 			ConnMaxLifetime: p.getEnvAsDuration("STORE_DB_TEMPLATE_CONN_MAX_LIFETIME", 5*time.Minute),
 		},
-		Redis: RedisConfig{
-			Host:     p.getEnv("REDIS_HOST", "localhost"),
-			Port:     p.getEnvAsInt("REDIS_PORT", 6379),
-			Password: p.getEnv("REDIS_PASSWORD", devDefaultRedisPass),
-			DB:       p.getEnvAsInt("REDIS_DB", 0),
-		},
+		Redis: p.parseRedisConfig(),
 		Security: SecurityConfig{
 			JWTSecret:                  p.getEnv("JWT_SECRET", devDefaultJWTSecret),
 			JWTExpirationHours:         p.getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
@@ -199,7 +194,7 @@ func (c *Config) validateProduction() error {
 	}{
 		{"JWT_SECRET", c.Security.JWTSecret, devDefaultJWTSecret},
 		{"PLATFORM_DB_PASSWORD", c.PlatformDB.Password, devDefaultPlatformDBPass},
-		{"REDIS_PASSWORD", c.Redis.Password, devDefaultRedisPass},
+		{"REDIS_PASSWORD", os.Getenv("REDIS_PASSWORD"), devDefaultRedisPass},
 		{"DATABASE_ENCRYPTION_KEY", c.DatabaseEncryptionKey, devDefaultEncryptionKey},
 		{"STORE_DB_TEMPLATE_PASSWORD", c.StoreDBTemplate.Password, devDefaultStoreTemplatePass},
 	}
@@ -210,6 +205,12 @@ func (c *Config) validateProduction() error {
 		if r.value == r.dev {
 			return fmt.Errorf("%s must not use the development default when APP_ENV=production", r.name)
 		}
+	}
+	if c.PlatformDB.Password == "" || c.PlatformDB.Password == devDefaultPlatformDBPass {
+		return fmt.Errorf("PLATFORM_DB_PASSWORD/DB_PASSWORD must not use the development default when APP_ENV=production")
+	}
+	if c.StoreDBTemplate.Password == "" || c.StoreDBTemplate.Password == devDefaultStoreTemplatePass {
+		return fmt.Errorf("STORE_DB_TEMPLATE_PASSWORD/DB_PASSWORD must not use the development default when APP_ENV=production")
 	}
 	if c.DatabaseEncryptionKey == c.Security.JWTSecret {
 		return errors.New("DATABASE_ENCRYPTION_KEY must not equal JWT_SECRET when APP_ENV=production")
@@ -229,6 +230,66 @@ func envIsSet(key string) bool {
 // envParser collects the first parse error so Load can report malformed values by name.
 type envParser struct {
 	err error
+}
+
+// parseRedisConfig parses redis connection parameters from REDIS_HOST/PORT or REDIS_ADDR.
+func (p *envParser) parseRedisConfig() RedisConfig {
+	host := p.getFirstEnv([]string{"REDIS_HOST"}, "")
+	port := p.getFirstEnvAsInt([]string{"REDIS_PORT"}, 0)
+
+	if addr := os.Getenv("REDIS_ADDR"); addr != "" && host == "" {
+		parts := strings.Split(addr, ":")
+		host = parts[0]
+		if len(parts) > 1 {
+			if portNum, err := strconv.Atoi(parts[1]); err == nil {
+				port = portNum
+			}
+		}
+	}
+
+	if host == "" {
+		host = "localhost"
+	}
+	if port == 0 {
+		port = 6379
+	}
+
+	redisPass := p.getEnv("REDIS_PASSWORD", "")
+	if strings.EqualFold(redisPass, "none") || strings.EqualFold(redisPass, "disabled") {
+		redisPass = ""
+	}
+
+	return RedisConfig{
+		Host:     host,
+		Port:     port,
+		Password: redisPass,
+		DB:       p.getFirstEnvAsInt([]string{"REDIS_DB"}, 0),
+	}
+}
+
+// getFirstEnv returns the first set environment variable among keys, or defaultVal.
+func (p *envParser) getFirstEnv(keys []string, defaultVal string) string {
+	for _, key := range keys {
+		if val, exists := os.LookupEnv(key); exists && val != "" {
+			return val
+		}
+	}
+	return defaultVal
+}
+
+// getFirstEnvAsInt parses an integer from the first set environment variable among keys.
+func (p *envParser) getFirstEnvAsInt(keys []string, defaultVal int) int {
+	for _, key := range keys {
+		if raw, exists := os.LookupEnv(key); exists && raw != "" {
+			val, err := strconv.Atoi(raw)
+			if err != nil {
+				p.setErr(fmt.Errorf("%s must be an integer, got %q: %w", key, raw, err))
+				return defaultVal
+			}
+			return val
+		}
+	}
+	return defaultVal
 }
 
 // getEnv returns the environment value for key, or defaultVal when unset or empty.
@@ -274,9 +335,9 @@ func (p *envParser) setErr(err error) {
 	}
 }
 
-// loadDotEnv loads environment variables from .env or ../.env if they are not already set in the environment.
+// loadDotEnv loads environment variables from .env.production, .env, or ../.env if they are not already set in the environment.
 func loadDotEnv() {
-	paths := []string{".env", "../.env"}
+	paths := []string{".env.production", "../.env.production", ".env", "../.env"}
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
