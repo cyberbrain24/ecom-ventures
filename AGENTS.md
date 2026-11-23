@@ -35,16 +35,19 @@ d:/Ecom Ventures/
 │   └── nginx/             # Local and production Nginx routing configs
 ├── .env.example           # Canonical environment configuration template
 ├── .gitignore             # Strict ignore list for secrets, binaries, and build artifacts
+├── docker-compose.ecom.yml# Production coexistence Docker Compose config
+├── Dockerfile.api         # Root Dockerfile for Go API Monolith
 ├── AGENT.md               # Historical 30-phase architectural ledger and feature registry
-└── AGENTS.md              # Active operational guide for AI agents and human developers
+├── AGENTS.md              # Active operational guide for AI agents and human developers
+└── VPS_DEPLOYMENT.md      # Canonical VPS Architecture, Coexistence & Upgrade Ledger
 ```
 
 ---
 
-## 2. Standard Service Port Allocation & Running Daemons
+## 2. Port Allocation: Local Development vs. Production VPS
 
-When running the platform locally or in development, strictly observe these allocated ports:
-
+### A. Local Development Environment (Windows Host):
+When running locally for feature development, use these standard ports:
 | Service | Port | Technology / Command | Access URL / Notes |
 | :--- | :--- | :--- | :--- |
 | **Master Admin** | **`5000`** | `vite --port 5000 --host` | `http://localhost:5000` |
@@ -54,21 +57,35 @@ When running the platform locally or in development, strictly observe these allo
 | **PostgreSQL** | **`5432`** | PostgreSQL 15/16 engine | `localhost:5432` |
 | **Redis Cache** | **`6379`** | Redis 7 (`requirepass redis_secure_password_2026`) | `localhost:6379` |
 
+### B. Production VPS Coexistence Matrix (Shared 12GB VPS with Poshplex):
+The production Linux VPS runs an active live platform, **Poshplex** (`poshplexbd.com`). Ecom Ventures coexists using dedicated ports and shared database/cache engines:
+
+| Port / Address | Subsystem / Stack | Container Name / Service | Operational Status |
+| :--- | :--- | :--- | :--- |
+| **`127.0.0.1:5000`** | **Ecom Ventures Go API Kernel** (chi/v5) | `ecom_api` | **ASSIGNED (200 OK)** |
+| **`127.0.0.1:5100`** | **Ecom Ventures Next.js 14 Storefront** (SSR) | `ecom_storefront` | **ASSIGNED (200 OK)** |
+| **`127.0.0.1:5200`** | **Ecom Ventures React 18 Admin SPAs** | `ecom_admin_server` / Nginx static | **ASSIGNED (200 OK)** |
+| **`127.0.0.1:5432`** | **PostgreSQL 16 Engine** (Shared RDBMS) | `poshplex_postgres` | **SHARED DB ENGINE** (`ecom_platform_main`, `ecom_store_template`) |
+| **`127.0.0.1:6379`** | **Redis 7 Stack Engine** (Shared Cache) | `poshplex_redis` | **SHARED CACHE** (DB 0: Ecom, DB 1: Poshplex) |
+| `127.0.0.1:8000` | Poshplex Core Backend (Django Gunicorn) | `poshplex_backend` | **STRICTLY FORBIDDEN (Poshplex Core)** |
+| `127.0.0.1:3000` | Poshplex Storefront (Next.js) | `poshplex_store` | **STRICTLY FORBIDDEN (Poshplex Store)** |
+| `127.0.0.1:3001` | Poshplex Admin (Refine SPA) | `poshplex_admin` | **STRICTLY FORBIDDEN (Poshplex Admin)** |
+| `127.0.0.1:8080` | Poshplex Static/Media Router (Docker Nginx)| `poshplex_nginx` | **STRICTLY FORBIDDEN (Poshplex Media)** |
+
 ---
 
 ## 3. Platform Authentication & Seed Credentials
 
 ### Master Admin Login:
-- **URL:** `http://localhost:5000`
+- **URL:** `http://localhost:5000` (Local) / `https://master.ecomventures.com` (VPS)
 - **Email:** `superadmin@dropiobd.com`
 - **Password:** `admin123`
 - **Role:** `SUPER_ADMIN`
 - **Endpoint:** `POST /api/v1/platform/auth/login`
 
 ### Redis Configuration:
-- **Port:** `6379`
-- **Password:** `redis_secure_password_2026`
-- **Connection DSN:** `redis://:redis_secure_password_2026@localhost:6379/0`
+- **Local Dev Port:** `6379` (Password: `redis_secure_password_2026`, DSN: `redis://:redis_secure_password_2026@localhost:6379/0`)
+- **VPS Port:** `127.0.0.1:6379` (DB: `0` assigned to Ecom; DB: `1` reserved for Poshplex)
 
 ---
 
@@ -76,7 +93,7 @@ When running the platform locally or in development, strictly observe these allo
 
 Ecom Ventures enforces a strict **Database-Per-Tenant** operational model:
 
-1. **Central Platform DB (`platform_db`):**
+1. **Central Platform DB (`platform_db` local / `ecom_platform_main` VPS):**
    - Stores tenant registry (`stores`), custom domain bindings (`domains`), global themes (`themes`), and platform administrators (`platform_users`).
    - **Rule:** Contains ZERO tenant operational data (no products, orders, or customers).
 
@@ -115,46 +132,49 @@ Ecom Ventures enforces a strict **Database-Per-Tenant** operational model:
 
 ---
 
-## 6. Shared VPS Deployment & Coexistence with Other Stacks (e.g., Django)
+## 6. Shared VPS Coexistence Directives (Poshplex & Ecom on 12GB RAM VPS)
 
-When deploying Ecom Ventures alongside another web application (such as a Django e-commerce stack) on a shared VPS (e.g. 6 vCPU, 12 GB RAM):
+Consult the canonical guide [VPS_DEPLOYMENT.md](file:///d:/Ecom%20Ventures/VPS_DEPLOYMENT.md) for full deployment instructions.
 
 1. **Go Monolith Footprint:**
    - The compiled Go API kernel is exceptionally lightweight (~30MB to 50MB RAM at idle, ~100MB under load).
-   - It will coexist effortlessly with Django (Gunicorn/Uvicorn), PostgreSQL, and Redis on a 12GB RAM VPS.
-
-2. **Object Storage via Cloudflare R2:**
-   - **Storage Engine:** Do not store uploaded product media on the VPS local filesystem in production.
+   - In `docker-compose.ecom.yml`, `ecom_api` is memory-capped at `350M`, and `ecom_storefront` at `1200M`.
+2. **Shared Database & Cache Engines:**
+   - Do **NOT** run second containers for Postgres or Redis. Connect directly to `poshplex_postgres` (`127.0.0.1:5432`) and `poshplex_redis` (`127.0.0.1:6379`, DB `0`).
+3. **Strict Container & Safety Mandates:**
+   - **NEVER** run `docker system prune -a --volumes` (will erase live Poshplex data).
+   - **NEVER** kill, stop, or alter containers starting with `poshplex_`.
+   - Always verify Nginx configuration with `nginx -t` before issuing `systemctl reload nginx`.
+   - Ecom code must reside exclusively in `/root/ecom_ventures/`. Never touch `/root/poshplex_store/`.
+4. **Object Storage via Cloudflare R2:**
    - Configure the backend storage driver (`pkg/storage`) to Cloudflare R2 (S3-compatible API).
-   - **Advantages:** Zero egress fees, high availability, and zero disk bloat on the VPS.
-
-3. **Cloudflare CDN & Edge Proxy:**
-   - Use Cloudflare CDN in front of both the Next.js storefront and Vite admin assets.
-   - Cache static bundles (`_next/static`, `/assets/`, images) at edge data centers.
-
-4. **Nginx Reverse Proxy:**
-   - Nginx handles incoming port 80/443 traffic and routes by domain name:
-     - `ecom.yourdomain.com` -> Proxy to `localhost:8080` (Go Backend)
-     - `admin.yourdomain.com` -> Proxy to `localhost:5000` (Master Admin)
-     - `*.storefront.com` -> Proxy to `localhost:5200` (Storefront)
-     - `django.yourdomain.com` -> Proxy to `localhost:8000` (Django Gunicorn)
+   - Never store product media on the VPS local filesystem in production.
 
 ---
 
-## 7. Git Safety & Repository Hygiene Rules
+## 7. Autonomous VPS Upgrade & Version Tracking Protocol
+
+> **CRITICAL DIRECTIVE FOR ALL AGENTS ON VPS TASKS:**
+> Whenever you receive a prompt regarding VPS deployment, upgrading features, running migrations, or modifying configurations:
+> 1. Always inspect [VPS_DEPLOYMENT.md](file:///d:/Ecom%20Ventures/VPS_DEPLOYMENT.md) before executing commands.
+> 2. Follow Semantic Versioning (`vMAJOR.MINOR.PATCH`).
+> 3. Increment the active version tag in [VPS_DEPLOYMENT.md](file:///d:/Ecom%20Ventures/VPS_DEPLOYMENT.md).
+> 4. Record the date, author/agent name, list of changes, and coexistence verification in **Section 8: Version Tracking & Upgrade Ledger** of [VPS_DEPLOYMENT.md](file:///d:/Ecom%20Ventures/VPS_DEPLOYMENT.md).
+
+---
+
+## 8. Git Safety & Repository Hygiene Rules
 
 **For all AI Agents and Developers:**
 
 1. **NEVER Push Without Explicit Confirmation:**
    - Only configure remotes, stage files, and commit locally. Do NOT run `git push origin <branch>` unless the user explicitly commands it.
-
 2. **Strictly Forbidden from Git Tracking:**
    - `.env`, `.env.local`, `.env.production`, or any file containing plaintext credentials.
    - Go binaries (`*.exe`, `api.exe`, `migrate.exe`, `seed.exe`, `worker.exe`).
    - Redis snapshots (`dump.rdb`).
    - Scratch test scripts containing hardcoded passwords (e.g., `test_hash.go`).
    - Dependencies (`node_modules/`, `vendor/`) and build outputs (`dist/`, `.next/`, `out/`).
-
 3. **Pre-Commit Verification Routine:**
    Before running `git commit`, always run:
    ```powershell
