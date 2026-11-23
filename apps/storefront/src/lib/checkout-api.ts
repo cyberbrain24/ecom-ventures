@@ -1,47 +1,53 @@
-import { CheckoutPayload, OrderReceipt } from '../types/checkout';
+import { CheckoutPayload, OrderReceipt, StorePaymentGateway } from '../types/checkout';
+import { fetchStorefrontData, StorefrontApiError } from './api';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+export async function getStorefrontPaymentGateways(host?: string): Promise<StorePaymentGateway[]> {
+  const currentHost = host || (typeof window !== 'undefined' ? window.location.host : '');
+  if (!currentHost) return [];
+  try {
+    const list = await fetchStorefrontData<StorePaymentGateway[]>(currentHost, '/storefront/payments/methods', {
+      cache: 'no-store',
+    });
+    return Array.isArray(list) ? list : [];
+  } catch (error) {
+    console.warn('Failed to fetch payment methods from API, falling back to default', error);
+    return [
+      {
+        id: 'COD',
+        name: 'Cash on Delivery (COD)',
+        description: 'Pay cash when the parcel is delivered to you.',
+        is_default: true,
+        is_active: true,
+      },
+    ];
+  }
+}
 
 export async function submitCheckout(payload: CheckoutPayload, host?: string): Promise<OrderReceipt> {
   const currentHost = host || (typeof window !== 'undefined' ? window.location.host : '');
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'X-Cart-Session': payload.session_id,
-  };
-  if (currentHost) {
-    headers['Host'] = currentHost;
-    headers['X-Forwarded-Host'] = currentHost;
+  if (!currentHost) {
+    throw new Error('A store host is required to place an order.');
   }
 
-  const res = await fetch(`${API_BASE_URL}/storefront/checkout`, {
+  return fetchStorefrontData<OrderReceipt>(currentHost, '/storefront/checkout', {
     method: 'POST',
-    headers,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Cart-Session': payload.session_id,
+    },
     body: JSON.stringify(payload),
   });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to place order. Please check item availability.');
-  }
-
-  const data = await res.json();
-  return (data?.data !== undefined ? data.data : data) as OrderReceipt;
 }
 
 export async function fetchOrderReceipt(host: string, orderNumber: string, verify: string): Promise<OrderReceipt | null> {
   try {
-    const res = await fetch(`${API_BASE_URL}/storefront/orders/${orderNumber}?verify=${encodeURIComponent(verify)}`, {
-      headers: {
-        'Host': host,
-        'X-Forwarded-Host': host,
-      },
-      next: { revalidate: 0 },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return (data?.data !== undefined ? data.data : data) as OrderReceipt;
-  } catch (err) {
-    console.error('Failed to lookup order receipt', err);
-    return null;
+    return await fetchStorefrontData<OrderReceipt>(
+      host,
+      `/storefront/orders/${encodeURIComponent(orderNumber)}?verify=${encodeURIComponent(verify)}`,
+      { cache: 'no-store' }
+    );
+  } catch (error) {
+    if (error instanceof StorefrontApiError && error.status === 404) return null;
+    throw error;
   }
 }

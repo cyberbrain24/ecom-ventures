@@ -82,16 +82,17 @@ type Store struct {
 
 // Domain tracks apex brand domains and platform subdomains mapped to a store.
 type Domain struct {
-	ID                string          `json:"id"`
-	StoreID           string          `json:"store_id"`
-	Domain            string          `json:"domain"`
-	IsPrimary         bool            `json:"is_primary"`
-	IsCustom          bool            `json:"is_custom"`
-	SSLStatus         DomainSSLStatus `json:"ssl_status"`
-	VerificationToken string          `json:"verification_token,omitempty"`
-	VerifiedAt        *time.Time      `json:"verified_at,omitempty"`
-	CreatedAt         time.Time       `json:"created_at"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	ID                 string          `json:"id"`
+	StoreID            string          `json:"store_id"`
+	Domain             string          `json:"domain"`
+	IsPrimary          bool            `json:"is_primary"`
+	IsCustom           bool            `json:"is_custom"`
+	SSLStatus          DomainSSLStatus `json:"ssl_status"`
+	VerificationToken  string          `json:"verification_token,omitempty"`
+	ProviderHostnameID string          `json:"-"`
+	VerifiedAt         *time.Time      `json:"verified_at,omitempty"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
 // Theme defines reusable layout blueprints registered in the Master Admin.

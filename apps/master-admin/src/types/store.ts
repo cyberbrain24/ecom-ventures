@@ -58,6 +58,12 @@ export interface StoreDetailResponse {
     slug: string;
     version: string;
   };
+  owner?: {
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+  };
 }
 
 export interface StoreSummary {
@@ -128,7 +134,7 @@ export interface BrandRevenueLeaderboardItem {
   netProfit: number;
   operatingMarginPct: number;
   platformFeePaid: number;
-  growthPct: number;
+  growthPct: number | null;
   status: string;
 }
 

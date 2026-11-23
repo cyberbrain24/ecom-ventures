@@ -1,57 +1,31 @@
 import React from 'react';
-import { ThemeCustomConfig } from '../../types/storefront';
+import { buildFontsUrl, buildThemeCss, ThemeConfig } from '../../lib/theme';
 
 interface ThemeInjectorProps {
-  themeConfig: ThemeCustomConfig;
+  /** Resolved, validated theme configuration for the request's store. */
+  theme: ThemeConfig;
+  /** Fields whose stored value was invalid. Each one is logged with console.error on every render. */
+  invalidFields?: readonly string[];
 }
 
 /**
- * ThemeInjector generates inline CSS custom properties based on dynamic backend theme overrides.
- * This allows all shared storefront components to immediately inherit store-specific colors,
- * border radiuses, and font families without rebuilding frontend bundles.
+ * ThemeInjector loads the theme's Google Fonts and writes the :root custom properties for colours,
+ * fonts, radius and density. Values are validated by resolveTheme before they reach this component.
+ * Invalid stored values fall back to the variant default and are reported here, and rendering continues.
+ * The variant-specific layout and decoration live in globals.css under [data-theme] selectors.
  */
-export const ThemeInjector: React.FC<ThemeInjectorProps> = ({ themeConfig }) => {
-  const cfg = themeConfig || ({} as Partial<ThemeCustomConfig>);
-  const primaryColor = cfg.primary_color || '#0f766e'; // Default Teal
-  const secondaryColor = cfg.secondary_color || '#0284c7'; // Default Sky
-  const headingFont = cfg.heading_font || 'Inter';
-  const bodyFont = cfg.body_font || 'Inter';
-
-  // Radius mappings
-  const radiusMap: Record<string, string> = {
-    none: '0px',
-    sm: '0.25rem',
-    md: '0.5rem',
-    lg: '0.75rem',
-    full: '9999px',
-  };
-  const borderRadius = radiusMap[cfg.border_radius || 'md'] || '0.5rem';
-
-  const cssVariables = `
-    :root {
-      --brand-primary: ${primaryColor};
-      --brand-secondary: ${secondaryColor};
-      --brand-font-heading: "${headingFont}", sans-serif;
-      --brand-font-body: "${bodyFont}", sans-serif;
-      --brand-radius: ${borderRadius};
-    }
-  `;
-
+export const ThemeInjector: React.FC<ThemeInjectorProps> = ({ theme, invalidFields = [] }) => {
+  for (const field of invalidFields) {
+    console.error(
+      `[storefront theme] Invalid theme value for "${field}". The variant default is used instead.`,
+    );
+  }
   return (
     <>
-      {/* Dynamic Google Fonts Link */}
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      <link
-        href={`https://fonts.googleapis.com/css2?family=${encodeURIComponent(
-          headingFont
-        )}:wght@400;600;700;800&family=${encodeURIComponent(
-          bodyFont
-        )}:wght@300;400;500;600;700&display=swap`}
-        rel="stylesheet"
-      />
-      {/* Root Theme Style Variables */}
-      <style dangerouslySetInnerHTML={{ __html: cssVariables }} />
+      <link href={buildFontsUrl(theme.fonts)} rel="stylesheet" />
+      <style dangerouslySetInnerHTML={{ __html: buildThemeCss(theme) }} />
     </>
   );
 };

@@ -82,6 +82,11 @@ func (h *Handler) Assign(w http.ResponseWriter, r *http.Request) {
 			response.NotFound(w, r, "The requested theme does not exist.")
 			return
 		}
+		if errors.Is(err, ErrThemeInactive) {
+			response.Problem(w, r, http.StatusUnprocessableEntity, "THEME_INACTIVE", "Unprocessable Entity",
+				"This theme is deactivated. Reactivate it before assigning it to a store.")
+			return
+		}
 		response.BadRequest(w, r, err.Error())
 		return
 	}

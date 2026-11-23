@@ -29,18 +29,24 @@ func (h *Handler) ListCustomers(w http.ResponseWriter, r *http.Request) {
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit < 1 || limit > 100 {
-		limit = 20
+		limit = 50
 	}
 
 	filter := &CustomerFilterParams{
-		Search: r.URL.Query().Get("search"),
-		Page:   page,
-		Limit:  limit,
+		Search:         r.URL.Query().Get("search"),
+		MembershipTier: r.URL.Query().Get("membership_tier"),
+		Page:           page,
+		Limit:          limit,
 	}
 
 	if activeStr := r.URL.Query().Get("is_active"); activeStr != "" {
 		b := activeStr == "true"
 		filter.IsActive = &b
+	}
+
+	if blacklistedStr := r.URL.Query().Get("is_blacklisted"); blacklistedStr != "" {
+		b := blacklistedStr == "true"
+		filter.IsBlacklisted = &b
 	}
 
 	res, err := h.service.ListCustomers(r.Context(), filter)
@@ -60,10 +66,10 @@ func (h *Handler) CreateCustomer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Email == "" || req.FirstName == "" {
+	if req.FirstName == "" || (req.Email == "" && (req.Phone == nil || *req.Phone == "")) {
 		response.WriteValidationError(w, r, []response.InvalidParam{
-			{Name: "email", Reason: "Email is required"},
 			{Name: "first_name", Reason: "First name is required"},
+			{Name: "phone", Reason: "Either phone or email must be provided"},
 		})
 		return
 	}
@@ -72,6 +78,10 @@ func (h *Handler) CreateCustomer(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, ErrEmailConflict) {
 			response.WriteConflict(w, r, "Customer email already registered in this store")
+			return
+		}
+		if errors.Is(err, ErrPhoneConflict) {
+			response.WriteConflict(w, r, "Customer phone number already registered in this store")
 			return
 		}
 		response.WriteInternalError(w, r, "Failed to create customer: "+err.Error())
@@ -106,17 +116,84 @@ func (h *Handler) UpdateCustomer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	detail, err := h.service.UpdateCustomer(r.Context(), customerID, &req)
+	customer, err := h.service.UpdateCustomer(r.Context(), customerID, &req)
 	if err != nil {
 		if errors.Is(err, ErrCustomerNotFound) {
 			response.WriteNotFound(w, r, "Customer not found")
+			return
+		}
+		if errors.Is(err, ErrPhoneConflict) {
+			response.WriteConflict(w, r, "Phone number is already associated with another customer")
 			return
 		}
 		response.WriteInternalError(w, r, "Failed to update customer: "+err.Error())
 		return
 	}
 
-	response.WriteJSON(w, http.StatusOK, detail)
+	response.WriteJSON(w, http.StatusOK, customer)
+}
+
+// UpdateCRMProfile handles PATCH /api/v1/store/{store_slug}/customers/{customer_id}/crm
+func (h *Handler) UpdateCRMProfile(w http.ResponseWriter, r *http.Request) {
+	customerID := chi.URLParam(r, "customer_id")
+	var req UpdateCRMProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.WriteBadRequest(w, r, "Invalid request payload: "+err.Error())
+		return
+	}
+
+	customer, err := h.service.UpdateCRMProfile(r.Context(), customerID, &req)
+	if err != nil {
+		if errors.Is(err, ErrCustomerNotFound) {
+			response.WriteNotFound(w, r, "Customer not found")
+			return
+		}
+		response.WriteInternalError(w, r, "Failed to update CRM profile: "+err.Error())
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, customer)
+}
+
+// ToggleBlacklist handles POST /api/v1/store/{store_slug}/customers/{customer_id}/blacklist
+func (h *Handler) ToggleBlacklist(w http.ResponseWriter, r *http.Request) {
+	customerID := chi.URLParam(r, "customer_id")
+	var req ToggleBlacklistRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.WriteBadRequest(w, r, "Invalid request payload: "+err.Error())
+		return
+	}
+
+	if err := h.service.ToggleBlacklist(r.Context(), customerID, &req); err != nil {
+		if errors.Is(err, ErrCustomerNotFound) {
+			response.WriteNotFound(w, r, "Customer not found")
+			return
+		}
+		response.WriteInternalError(w, r, "Failed to toggle blacklist status: "+err.Error())
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"success":        true,
+		"is_blacklisted": req.IsBlacklisted,
+		"reason":         req.Reason,
+	})
+}
+
+// ImpersonateCustomer handles POST /api/v1/store/{store_slug}/customers/{customer_id}/impersonate
+func (h *Handler) ImpersonateCustomer(w http.ResponseWriter, r *http.Request) {
+	customerID := chi.URLParam(r, "customer_id")
+	impersonateResp, err := h.service.ImpersonateCustomer(r.Context(), customerID)
+	if err != nil {
+		if errors.Is(err, ErrCustomerNotFound) {
+			response.WriteNotFound(w, r, "Customer not found")
+			return
+		}
+		response.WriteInternalError(w, r, "Failed to generate impersonation token: "+err.Error())
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, impersonateResp)
 }
 
 // DeleteCustomer handles DELETE /api/v1/store/{store_slug}/customers/{customer_id}
@@ -127,11 +204,19 @@ func (h *Handler) DeleteCustomer(w http.ResponseWriter, r *http.Request) {
 			response.WriteNotFound(w, r, "Customer not found")
 			return
 		}
+		if errors.Is(err, ErrCustomerHasOrders) {
+			// HTTP 422 Unprocessable Entity - guardrail blocks deletion of customer with financial records
+			response.WriteProblem(w, r, http.StatusUnprocessableEntity, "Deletion Forbidden", err.Error())
+			return
+		}
 		response.WriteInternalError(w, r, "Failed to delete customer: "+err.Error())
 		return
 	}
+
 	response.WriteNoContent(w)
 }
+
+// ---------------- Address Book Handlers ----------------
 
 // AddAddress handles POST /api/v1/store/{store_slug}/customers/{customer_id}/addresses
 func (h *Handler) AddAddress(w http.ResponseWriter, r *http.Request) {
@@ -142,9 +227,10 @@ func (h *Handler) AddAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.RecipientName == "" || req.StreetAddress == "" || req.City == "" {
+	if req.RecipientName == "" || req.Phone == "" || req.StreetAddress == "" || req.City == "" {
 		response.WriteValidationError(w, r, []response.InvalidParam{
 			{Name: "recipient_name", Reason: "Recipient name is required"},
+			{Name: "phone", Reason: "Phone is required"},
 			{Name: "street_address", Reason: "Street address is required"},
 			{Name: "city", Reason: "City is required"},
 		})
@@ -153,7 +239,7 @@ func (h *Handler) AddAddress(w http.ResponseWriter, r *http.Request) {
 
 	addr, err := h.service.AddAddress(r.Context(), customerID, &req)
 	if err != nil {
-		response.WriteInternalError(w, r, "Failed to create address: "+err.Error())
+		response.WriteInternalError(w, r, "Failed to add customer address: "+err.Error())
 		return
 	}
 
@@ -164,6 +250,7 @@ func (h *Handler) AddAddress(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateAddress(w http.ResponseWriter, r *http.Request) {
 	customerID := chi.URLParam(r, "customer_id")
 	addressID := chi.URLParam(r, "address_id")
+
 	var req AddressRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.WriteBadRequest(w, r, "Invalid request payload: "+err.Error())
@@ -194,5 +281,6 @@ func (h *Handler) DeleteAddress(w http.ResponseWriter, r *http.Request) {
 		response.WriteInternalError(w, r, "Failed to delete address: "+err.Error())
 		return
 	}
+
 	response.WriteNoContent(w)
 }

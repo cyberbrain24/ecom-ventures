@@ -15,6 +15,11 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# NEXT_PUBLIC_* values are inlined into the browser bundle at build time, so the API URL
+# must be passed as a build argument (for example: docker build --build-arg NEXT_PUBLIC_API_URL=https://api.example.com/api/v1).
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 # Compile Next.js 14 standalone bundle
 RUN npm run build
 
@@ -30,8 +35,7 @@ ENV HOSTNAME="0.0.0.0"
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Copy standalone runtime and static assets
-COPY --from=builder /app/public ./public
+# Copy standalone runtime and static assets (the app has no public/ directory)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 

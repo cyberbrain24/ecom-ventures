@@ -1,12 +1,13 @@
 /**
- * ProvisioningTracker provides a real-time visual progress monitor polling
- * store provisioning logs until completion or failure.
+ * ProvisioningTracker shows live provisioning progress by polling the store's provisioning logs.
+ * Polling stops on a terminal state (completed or failed) and when the component unmounts.
+ * Failure reasons come from the API; poll errors are shown inline with a retry action.
  */
 
-import React, { useEffect, useState, useRef } from 'react';
-import { CheckCircle2, Clock, AlertCircle, Loader2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { CheckCircle2, Clock, AlertCircle, Loader2, RotateCcw } from 'lucide-react';
 import { ProvisioningLog } from '../../types/store';
-import { api } from '../../lib/api';
+import { api, apiErrorMessage } from '../../lib/api';
 
 interface ProvisioningTrackerProps {
   storeId: string;
@@ -15,6 +16,24 @@ interface ProvisioningTrackerProps {
   onFailed: (errorMsg: string) => void;
 }
 
+/** Number of consecutive failed polls before the tracker shows an error and stops. */
+const MAX_CONSECUTIVE_POLL_ERRORS = 3;
+
+const PIPELINE_STEPS = [
+  { key: 'VALIDATE_SPECIFICATION', label: 'Validate Identity & Slug Uniqueness' },
+  { key: 'ENCRYPT_CREDENTIALS', label: 'Encrypt Database Credentials' },
+  { key: 'CREATE_PHYSICAL_DATABASE', label: 'Create Dedicated PostgreSQL Database' },
+  { key: 'APPLY_STORE_MIGRATIONS', label: 'Apply Store Schema Migrations' },
+  { key: 'SEED_STORE_SETTINGS', label: 'Seed Store Settings & Currency' },
+  { key: 'PROVISIONING_COMPLETE', label: 'Finalize Activation' },
+];
+
+/**
+ * Renders the provisioning pipeline for one store and reports completion or failure upward.
+ *
+ * @param props - Store id and slug, plus completion and failure callbacks
+ * @returns The provisioning progress panel
+ */
 export const ProvisioningTracker: React.FC<ProvisioningTrackerProps> = ({
   storeId,
   storeSlug,
@@ -22,70 +41,100 @@ export const ProvisioningTracker: React.FC<ProvisioningTrackerProps> = ({
   onFailed,
 }) => {
   const [logs, setLogs] = useState<ProvisioningLog[]>([]);
-  const [isDone, setIsDone] = useState(false);
-  const [hasFailed, setHasFailed] = useState(false);
-  const failureReportedRef = useRef(false);
+  const [terminal, setTerminal] = useState<'none' | 'completed' | 'failed'>('none');
+  const [failureReason, setFailureReason] = useState<string | null>(null);
+  const [failedStepKey, setFailedStepKey] = useState<string | null>(null);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
+
+  // Callbacks are read through refs so that a parent re-render does not restart polling.
+  const onCompleteRef = useRef(onComplete);
+  const onFailedRef = useRef(onFailed);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+    onFailedRef.current = onFailed;
+  }, [onComplete, onFailed]);
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
+    if (terminal !== 'none') return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let consecutiveErrors = 0;
 
     const pollLogs = async () => {
       try {
         const res = await api.get<{ data: ProvisioningLog[] }>(`/platform/stores/${storeId}/provisioning-logs`);
-        const fetchedLogs = Array.isArray(res.data) ? res.data : (res.data.data || []);
-        setLogs(fetchedLogs);
+        if (!Array.isArray(res.data?.data)) {
+          throw new Error('The server returned provisioning logs in an unexpected format.');
+        }
+        if (cancelled) return;
+        consecutiveErrors = 0;
+        setPollError(null);
+        const fetched = res.data.data;
+        setLogs(fetched);
 
-        const failedLog = fetchedLogs.find((l) => l.status === 'FAILED');
-        if (failedLog && !failureReportedRef.current) {
-          failureReportedRef.current = true;
-          setHasFailed(true);
-          onFailed(failedLog.error_message || 'Store provisioning failed during step: ' + failedLog.step);
+        const failedLog = fetched.find((l) => l.status === 'FAILED');
+        if (failedLog) {
+          const reason = failedLog.error_message?.trim()
+            ? failedLog.error_message
+            : `The server did not record a reason for the failed step "${failedLog.step}".`;
+          setFailedStepKey(failedLog.step);
+          setFailureReason(reason);
+          setTerminal('failed');
+          onFailedRef.current(reason);
           return;
         }
 
-        const completedFinalLog = fetchedLogs.find(
+        const completedFinalLog = fetched.find(
           (l) => l.step === 'PROVISIONING_COMPLETE' && l.status === 'COMPLETED'
         );
-
         if (completedFinalLog) {
-          setIsDone(true);
-          onComplete();
+          setTerminal('completed');
+          onCompleteRef.current();
           return;
         }
 
-        // Continue polling every 1.5 seconds if still in progress
         timer = setTimeout(pollLogs, 1500);
       } catch (err) {
-        console.error('Error fetching provisioning logs', err);
+        if (cancelled) return;
+        consecutiveErrors += 1;
+        const message = apiErrorMessage(err, 'Could not read provisioning progress.');
+        setPollError(message);
+        if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+          // Stop automatic polling; the admin can retry explicitly.
+          return;
+        }
         timer = setTimeout(pollLogs, 2500);
       }
     };
 
     pollLogs();
 
-    return () => clearTimeout(timer);
-  }, [storeId, onComplete, onFailed]);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [storeId, terminal, retryToken]);
 
-  const pipelineSteps = [
-    { key: 'VALIDATE_SPECIFICATION', label: 'Validate Identity & Slug Uniqueness' },
-    { key: 'ENCRYPT_CREDENTIALS', label: 'AES-256-GCM Credential Encryption' },
-    { key: 'CREATE_PHYSICAL_DATABASE', label: 'Instantiate Dedicated PostgreSQL Database' },
-    { key: 'APPLY_STORE_MIGRATIONS', label: 'Execute Baseline Schema Migrations' },
-    { key: 'SEED_STORE_SETTINGS', label: 'Seed Operational Settings & Currency' },
-    { key: 'PROVISIONING_COMPLETE', label: 'Finalize Activation & Prime Cache' },
-  ];
+  const handleRetry = () => {
+    setPollError(null);
+    setRetryToken((t) => t + 1);
+  };
 
   return (
     <div className="bg-slate-900 text-white rounded-2xl p-8 border border-slate-800 shadow-2xl max-w-2xl mx-auto">
       <div className="text-center mb-8">
         <h3 className="text-xl font-bold tracking-tight">Provisioning Brand: {storeSlug}</h3>
         <p className="text-sm text-slate-400 mt-1">
-          Automated multi-database setup in progress. Do not navigate away.
+          {terminal === 'none'
+            ? 'Automated multi-database setup in progress. Do not navigate away.'
+            : 'Provisioning has reached a final state.'}
         </p>
       </div>
 
       <div className="space-y-4">
-        {pipelineSteps.map((step, idx) => {
+        {PIPELINE_STEPS.map((step, idx) => {
           const logItem = logs.find((l) => l.step === step.key);
           const isCompleted = logItem?.status === 'COMPLETED';
           const isInProgress = logItem?.status === 'IN_PROGRESS';
@@ -122,19 +171,36 @@ export const ProvisioningTracker: React.FC<ProvisioningTrackerProps> = ({
         })}
       </div>
 
-      {isDone && (
-        <div className="mt-8 text-center bg-emerald-950/40 border border-emerald-500/40 p-4 rounded-xl">
+      {terminal === 'completed' && (
+        <div role="status" className="mt-8 text-center bg-emerald-950/40 border border-emerald-500/40 p-4 rounded-xl">
           <p className="text-emerald-300 font-semibold text-sm">
-            Store successfully provisioned and activated!
+            Store successfully provisioned and activated.
           </p>
         </div>
       )}
 
-      {hasFailed && (
-        <div className="mt-8 text-center bg-rose-950/50 border border-rose-500/40 p-4 rounded-xl">
+      {terminal === 'failed' && (
+        <div role="alert" className="mt-8 bg-rose-950/50 border border-rose-500/40 p-4 rounded-xl space-y-2">
           <p className="text-rose-300 font-semibold text-sm">
-            Provisioning pipeline encountered a critical error. Compensating rollback applied.
+            Provisioning failed{failedStepKey ? ` at step "${failedStepKey}"` : ''}.
           </p>
+          <p className="text-rose-200 text-xs break-words">Reason: {failureReason}</p>
+        </div>
+      )}
+
+      {pollError && terminal === 'none' && (
+        <div role="alert" className="mt-8 bg-amber-950/40 border border-amber-500/40 p-4 rounded-xl space-y-3">
+          <p className="text-amber-200 text-xs">
+            Provisioning progress could not be read: {pollError}
+          </p>
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 border border-amber-400/60 rounded-md text-xs font-semibold text-amber-100 hover:bg-amber-900/40"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            <span>Retry</span>
+          </button>
         </div>
       )}
     </div>

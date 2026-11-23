@@ -5,14 +5,17 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"ecom-ventures/backend/internal/platform/models"
 	"ecom-ventures/backend/internal/platform/provisioner"
@@ -22,39 +25,55 @@ import (
 )
 
 var (
-	ErrStoreNotFound     = errors.New("store_mgmt: store not found")
-	ErrSlugAlreadyExists = errors.New("store_mgmt: store slug already taken")
-	ErrDomainConflict    = errors.New("store_mgmt: domain already mapped to another store")
-	ErrThemeNotFound     = errors.New("store_mgmt: requested theme not registered in platform")
-	ErrInvalidStatus     = errors.New("store_mgmt: invalid store status transition")
+	ErrStoreNotFound         = errors.New("store_mgmt: store not found")
+	ErrSlugAlreadyExists     = errors.New("store_mgmt: store slug already taken")
+	ErrDomainConflict        = errors.New("store_mgmt: domain already mapped to another store")
+	ErrThemeNotFound         = errors.New("store_mgmt: requested theme not registered in platform")
+	ErrThemeRequired         = errors.New("store_mgmt: theme_slug is required")
+	ErrThemeInactive         = errors.New("store_mgmt: requested theme is deactivated and cannot be assigned")
+	ErrPrimaryDomainRequired = errors.New("store_mgmt: primary_domain is required outside development")
+	ErrInvalidStatus         = errors.New("store_mgmt: invalid store status transition")
 )
 
 var slugRegex = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+var uuidRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// localhostSuffix marks local development hostnames. It is honoured only in development mode.
+const localhostSuffix = ".localhost"
+
 // Service orchestrates the Store Creator pipeline and lifecycle management.
 type Service struct {
-	platformDB  *sql.DB
-	provisioner *provisioner.Provisioner
-	resolver    *resolver.StoreResolver
-	tenantPool  *storeDB.TenantPoolManager
+	platformDB    *sql.DB
+	provisioner   *provisioner.Provisioner
+	resolver      *resolver.StoreResolver
+	tenantPool    *storeDB.TenantPoolManager
+	isDevelopment bool
 }
 
 // NewService instantiates the Store Creator management service.
+// isDevelopment must be true only when APP_ENV is "development"; it allows the
+// .localhost primary domain default and marks that domain verified at creation.
 func NewService(
 	platformDB *sql.DB,
 	provisioner *provisioner.Provisioner,
 	resolver *resolver.StoreResolver,
 	tenantPool *storeDB.TenantPoolManager,
+	isDevelopment bool,
 ) *Service {
 	return &Service{
-		platformDB:  platformDB,
-		provisioner: provisioner,
-		resolver:    resolver,
-		tenantPool:  tenantPool,
+		platformDB:    platformDB,
+		provisioner:   provisioner,
+		resolver:      resolver,
+		tenantPool:    tenantPool,
+		isDevelopment: isDevelopment,
 	}
 }
 
-// CreateStore executes the automated 10-step store provisioning pipeline.
+// CreateStore executes the automated store provisioning pipeline.
+// The theme must be named explicitly and must be an active platform theme; an unknown
+// theme fails the request instead of being replaced. The primary domain is registered as
+// PENDING and is marked verified only in development for a .localhost host.
 func (s *Service) CreateStore(ctx context.Context, req *CreateStoreRequest, creatorUserID ...string) (*StoreDetailResponse, error) {
 	userID := "system"
 	if len(creatorUserID) > 0 && creatorUserID[0] != "" {
@@ -69,6 +88,9 @@ func (s *Service) CreateStore(ctx context.Context, req *CreateStoreRequest, crea
 	if req.Name == "" || req.ContactEmail == "" || req.InitialOwner.Email == "" || req.InitialOwner.Password == "" {
 		return nil, fmt.Errorf("name, contact_email, and initial_owner credentials are required")
 	}
+	if strings.TrimSpace(req.ThemeSlug) == "" {
+		return nil, ErrThemeRequired
+	}
 
 	if s.platformDB == nil {
 		return nil, fmt.Errorf("store_mgmt: platform database connection handle is nil")
@@ -76,41 +98,42 @@ func (s *Service) CreateStore(ctx context.Context, req *CreateStoreRequest, crea
 
 	// Verify Slug and Domain Uniqueness
 	var slugExists bool
-	_ = s.platformDB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM stores WHERE slug = $1);", req.Slug).Scan(&slugExists)
+	if err := s.platformDB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM stores WHERE slug = $1);", req.Slug).Scan(&slugExists); err != nil {
+		return nil, fmt.Errorf("checking store slug uniqueness: %w", err)
+	}
 	if slugExists {
 		return nil, ErrSlugAlreadyExists
 	}
 
 	cleanDomain := strings.ToLower(strings.TrimSpace(req.PrimaryDomain))
 	if cleanDomain == "" {
-		cleanDomain = fmt.Sprintf("%s.localhost", req.Slug)
+		if !s.isDevelopment {
+			return nil, ErrPrimaryDomainRequired
+		}
+		cleanDomain = fmt.Sprintf("%s%s", req.Slug, localhostSuffix)
 	}
 	var domainExists bool
-	_ = s.platformDB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM domains WHERE domain = $1);", cleanDomain).Scan(&domainExists)
+	if err := s.platformDB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM domains WHERE domain = $1);", cleanDomain).Scan(&domainExists); err != nil {
+		return nil, fmt.Errorf("checking primary domain uniqueness: %w", err)
+	}
 	if domainExists {
 		return nil, ErrDomainConflict
 	}
 
-	// Step 2: Theme Existence Verification
-	themeSlug := req.ThemeSlug
-	if themeSlug == "" {
-		themeSlug = "modern-minimal" // Default fallback theme
-	}
+	// Step 2: Theme Existence Verification (explicit theme only, no substitution)
+	themeSlug := strings.ToLower(strings.TrimSpace(req.ThemeSlug))
 	var theme models.Theme
 	err := s.platformDB.QueryRowContext(ctx, `
-		SELECT id, name, slug, version, is_active FROM themes WHERE slug = $1 AND is_active = TRUE;`,
+		SELECT id, name, slug, version, is_active FROM themes WHERE slug = $1;`,
 		themeSlug,
 	).Scan(&theme.ID, &theme.Name, &theme.Slug, &theme.Version, &theme.IsActive)
-	if err == sql.ErrNoRows {
-		// If requested theme not found, fetch the first active platform theme as fallback
-		err = s.platformDB.QueryRowContext(ctx, `
-			SELECT id, name, slug, version, is_active FROM themes WHERE is_active = TRUE ORDER BY created_at ASC LIMIT 1;`,
-		).Scan(&theme.ID, &theme.Name, &theme.Slug, &theme.Version, &theme.IsActive)
-		if err == sql.ErrNoRows {
-			return nil, ErrThemeNotFound
-		}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrThemeNotFound
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query theme registry: %w", err)
+	}
+	if !theme.IsActive {
+		return nil, ErrThemeInactive
 	}
 
 	// Step 3: Insert Base Store Record (Status: PROVISIONING)
@@ -123,12 +146,22 @@ func (s *Service) CreateStore(ctx context.Context, req *CreateStoreRequest, crea
 		timezone = "Asia/Dhaka"
 	}
 
-	generatedDBName := fmt.Sprintf("store_%s_%s", req.Slug, randomHex(4))
-	generatedDBUser := fmt.Sprintf("user_%s", req.Slug)
-	if len(generatedDBUser) > 30 {
-		generatedDBUser = generatedDBUser[:30]
+	dbSuffix, err := randomHex(4)
+	if err != nil {
+		return nil, fmt.Errorf("generating store database name: %w", err)
 	}
-	rawDBPassword := randomHex(16)
+	generatedDBName := fmt.Sprintf("store_%s_%s", req.Slug, dbSuffix)
+	// The password is 32 lowercase hex characters; the provisioner validates this format
+	// before inlining it into CREATE ROLE.
+	rawDBPassword, err := randomHex(16)
+	if err != nil {
+		return nil, fmt.Errorf("generating store database password: %w", err)
+	}
+	// Each store gets its own login role that owns its database.
+	dbRole, err := provisioner.NewTenantRoleName(req.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("generating store database role: %w", err)
+	}
 
 	targetDBHost := os.Getenv("PLATFORM_DB_HOST")
 	if targetDBHost == "" {
@@ -140,10 +173,6 @@ func (s *Service) CreateStore(ctx context.Context, req *CreateStoreRequest, crea
 			targetDBPort = pInt
 		}
 	}
-	targetDBUser := os.Getenv("PLATFORM_DB_USER")
-	if targetDBUser == "" {
-		targetDBUser = "platform_user"
-	}
 
 	store := &models.Store{
 		Name:         req.Name,
@@ -153,7 +182,7 @@ func (s *Service) CreateStore(ctx context.Context, req *CreateStoreRequest, crea
 		DBHost:       targetDBHost,
 		DBPort:       targetDBPort,
 		DBName:       generatedDBName,
-		DBUser:       targetDBUser,
+		DBUser:       dbRole,
 		DBSSLMode:    "disable",
 		ContactEmail: req.ContactEmail,
 		ContactPhone: req.ContactPhone,
@@ -178,13 +207,13 @@ func (s *Service) CreateStore(ctx context.Context, req *CreateStoreRequest, crea
 	// Step 4 & 5: Provision Physical PostgreSQL DB and Apply Baseline Migrations
 	// If this step fails, provisioner automatically drops the orphaned DB.
 	if s.provisioner == nil {
-		_ = s.cleanupFailedStore(ctx, store.ID, store.DBName)
+		s.cleanupFailedStoreLogged(ctx, store.ID, store.DBName, store.DBUser)
 		return nil, fmt.Errorf("store_mgmt: provisioner service is nil")
 	}
 
 	err = s.provisioner.ProvisionStoreDatabase(ctx, store, rawDBPassword)
 	if err != nil {
-		_ = s.cleanupFailedStore(ctx, store.ID, store.DBName)
+		s.cleanupFailedStoreLogged(ctx, store.ID, store.DBName, store.DBUser)
 		return nil, fmt.Errorf("database provisioning pipeline failed: %w", err)
 	}
 
@@ -193,14 +222,14 @@ func (s *Service) CreateStore(ctx context.Context, req *CreateStoreRequest, crea
 		UPDATE stores SET db_password_encrypted = $1 WHERE id = $2;`,
 		store.DBPasswordEncrypted, store.ID)
 	if err != nil {
-		_ = s.cleanupFailedStore(ctx, store.ID, store.DBName)
+		s.cleanupFailedStoreLogged(ctx, store.ID, store.DBName, store.DBUser)
 		return nil, fmt.Errorf("failed to persist encrypted database credentials: %w", err)
 	}
 
 	// Step 6: Seed Initial Store Owner into Tenant Database
 	err = s.seedInitialStoreOwner(ctx, store, rawDBPassword, &req.InitialOwner)
 	if err != nil {
-		_ = s.cleanupFailedStore(ctx, store.ID, store.DBName)
+		s.cleanupFailedStoreLogged(ctx, store.ID, store.DBName, store.DBUser)
 		return nil, fmt.Errorf("failed to seed initial store administrator: %w", err)
 	}
 
@@ -209,16 +238,25 @@ func (s *Service) CreateStore(ctx context.Context, req *CreateStoreRequest, crea
 		INSERT INTO store_themes (store_id, theme_id, custom_config, is_active)
 		VALUES ($1, $2, '{}'::jsonb, TRUE);`
 	if _, err := s.platformDB.ExecContext(ctx, assignThemeSQL, store.ID, theme.ID); err != nil {
-		_ = s.cleanupFailedStore(ctx, store.ID, store.DBName)
+		s.cleanupFailedStoreLogged(ctx, store.ID, store.DBName, store.DBUser)
 		return nil, fmt.Errorf("failed to bind store theme: %w", err)
 	}
 
-	// Step 8: Register Primary Domain in Platform DB
+	// Step 8: Register Primary Domain in Platform DB.
+	// The domain is PENDING until DNS and edge verification succeed. The development-only
+	// .localhost shortcut is the single exception and only when APP_ENV is "development".
+	primarySSL := models.SSLStatusPending
+	var primaryVerifiedAt *time.Time
+	if s.isDevelopment && strings.HasSuffix(cleanDomain, localhostSuffix) {
+		primarySSL = models.SSLStatusActive
+		now := time.Now().UTC()
+		primaryVerifiedAt = &now
+	}
 	insertDomainSQL := `
-		INSERT INTO domains (store_id, domain, is_primary, is_custom, ssl_status)
-		VALUES ($1, $2, TRUE, TRUE, 'ACTIVE');`
-	if _, err := s.platformDB.ExecContext(ctx, insertDomainSQL, store.ID, cleanDomain); err != nil {
-		_ = s.cleanupFailedStore(ctx, store.ID, store.DBName)
+		INSERT INTO domains (store_id, domain, is_primary, is_custom, ssl_status, verified_at)
+		VALUES ($1, $2, TRUE, TRUE, $3, $4);`
+	if _, err := s.platformDB.ExecContext(ctx, insertDomainSQL, store.ID, cleanDomain, primarySSL, primaryVerifiedAt); err != nil {
+		s.cleanupFailedStoreLogged(ctx, store.ID, store.DBName, store.DBUser)
 		return nil, fmt.Errorf("failed to register primary store domain: %w", err)
 	}
 
@@ -242,7 +280,7 @@ func (s *Service) CreateStore(ctx context.Context, req *CreateStoreRequest, crea
 	return &StoreDetailResponse{
 		Store: *store,
 		Domains: []models.Domain{
-			{StoreID: store.ID, Domain: cleanDomain, IsPrimary: true, IsCustom: true, SSLStatus: models.SSLStatusActive},
+			{StoreID: store.ID, Domain: cleanDomain, IsPrimary: true, IsCustom: true, SSLStatus: primarySSL},
 		},
 		ActiveTheme: &theme,
 	}, nil
@@ -294,7 +332,7 @@ func (s *Service) ListStores(ctx context.Context, params StoreFilterParams) ([]S
 	query := fmt.Sprintf(`
 		SELECT s.id, s.name, s.slug, s.status, s.contact_email, s.currency, s.created_at, s.updated_at,
 		       COALESCE(d.domain, '') as primary_domain,
-		       COALESCE(t.name, 'Default') as active_theme
+		       COALESCE(t.name, '') as active_theme
 		FROM stores s
 		LEFT JOIN domains d ON d.store_id = s.id AND d.is_primary = TRUE
 		LEFT JOIN store_themes st ON st.store_id = s.id AND st.is_active = TRUE
@@ -322,6 +360,9 @@ func (s *Service) ListStores(ctx context.Context, params StoreFilterParams) ([]S
 		}
 		results = append(results, item)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate store summary rows: %w", err)
+	}
 
 	return results, total, nil
 }
@@ -333,9 +374,9 @@ func (s *Service) GetStoreDetails(ctx context.Context, storeID string) (*StoreDe
 	}
 
 	queryStore := `
-		SELECT id, name, slug, description, logo_url, status,
+		SELECT id, name, slug, COALESCE(description, ''), COALESCE(logo_url, ''), status,
 		       db_host, db_port, db_name, db_user, db_password_encrypted, db_sslmode,
-		       contact_email, contact_phone, currency, timezone, created_at, updated_at
+		       contact_email, COALESCE(contact_phone, ''), currency, timezone, created_at, updated_at
 		FROM stores WHERE id = $1;`
 
 	var store models.Store
@@ -362,15 +403,20 @@ func (s *Service) GetStoreDetails(ctx context.Context, storeID string) (*StoreDe
 	var domains []models.Domain
 	for domainRows.Next() {
 		var d models.Domain
-		if err := domainRows.Scan(&d.ID, &d.StoreID, &d.Domain, &d.IsPrimary, &d.IsCustom, &d.SSLStatus, &d.CreatedAt, &d.UpdatedAt); err == nil {
-			domains = append(domains, d)
+		if err := domainRows.Scan(&d.ID, &d.StoreID, &d.Domain, &d.IsPrimary, &d.IsCustom, &d.SSLStatus, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan store domain row: %w", err)
 		}
+		domains = append(domains, d)
+	}
+	if err := domainRows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate store domain rows: %w", err)
 	}
 
-	// Fetch Active Theme
+	// Fetch Active Theme; a store without an active theme is a valid state.
 	var theme models.Theme
+	var activeThemePtr *models.Theme
 	err = s.platformDB.QueryRowContext(ctx, `
-		SELECT t.id, t.name, t.slug, t.description, t.version, t.preview_image_url, t.config_schema, t.is_active
+		SELECT t.id, t.name, t.slug, COALESCE(t.description, ''), t.version, COALESCE(t.preview_image_url, ''), t.config_schema, t.is_active
 		FROM themes t
 		JOIN store_themes st ON st.theme_id = t.id
 		WHERE st.store_id = $1 AND st.is_active = TRUE
@@ -378,16 +424,34 @@ func (s *Service) GetStoreDetails(ctx context.Context, storeID string) (*StoreDe
 		&theme.ID, &theme.Name, &theme.Slug, &theme.Description, &theme.Version,
 		&theme.PreviewImageURL, &theme.ConfigSchema, &theme.IsActive,
 	)
-
-	var activeThemePtr *models.Theme
 	if err == nil {
 		activeThemePtr = &theme
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("failed to query active theme for store: %w", err)
+	}
+
+	// Fetch Owner from tenant database if resolver is available
+	var ownerResp *OwnerSummaryResponse
+	if s.resolver != nil {
+		if stCtx, rErr := s.resolver.ResolveBySlug(ctx, store.Slug); rErr == nil && stCtx != nil && stCtx.TenantDB != nil {
+			var o OwnerSummaryResponse
+			oErr := stCtx.TenantDB.QueryRowContext(ctx, `
+				SELECT id, email, first_name, last_name
+				FROM store_staff
+				WHERE role = 'STORE_OWNER' AND is_active = TRUE
+				LIMIT 1;
+			`).Scan(&o.ID, &o.Email, &o.FirstName, &o.LastName)
+			if oErr == nil {
+				ownerResp = &o
+			}
+		}
 	}
 
 	return &StoreDetailResponse{
 		Store:       store,
 		Domains:     domains,
 		ActiveTheme: activeThemePtr,
+		Owner:       ownerResp,
 	}, nil
 }
 
@@ -407,8 +471,10 @@ func (s *Service) UpdateStoreStatus(ctx context.Context, storeID string, req Upd
 
 	var slug string
 	err := s.platformDB.QueryRowContext(ctx, "SELECT slug FROM stores WHERE id = $1;", storeID).Scan(&slug)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrStoreNotFound
+	} else if err != nil {
+		return fmt.Errorf("failed to read store for status update: %w", err)
 	}
 
 	_, err = s.platformDB.ExecContext(ctx, `UPDATE stores SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;`, newStatus, storeID)
@@ -418,7 +484,9 @@ func (s *Service) UpdateStoreStatus(ctx context.Context, storeID string, req Upd
 
 	// If suspended or archived, close cached connection pool immediately
 	if (newStatus == models.StoreStatusSuspended || newStatus == models.StoreStatusArchived) && s.tenantPool != nil {
-		_ = s.tenantPool.CloseTenant(storeID)
+		if closeErr := s.tenantPool.CloseTenant(storeID); closeErr != nil {
+			log.Printf("store_mgmt: warning - closing tenant pool for store %s after status change: %v", storeID, closeErr)
+		}
 	}
 
 	// Invalidate routing cache
@@ -452,9 +520,13 @@ func (s *Service) GetProvisioningLogs(ctx context.Context, storeID string) ([]mo
 	var logs []models.StoreProvisioningLog
 	for rows.Next() {
 		var l models.StoreProvisioningLog
-		if err := rows.Scan(&l.ID, &l.StoreID, &l.Step, &l.StepOrder, &l.Status, &l.Details, &l.ErrorMessage, &l.StartedAt, &l.CompletedAt); err == nil {
-			logs = append(logs, l)
+		if err := rows.Scan(&l.ID, &l.StoreID, &l.Step, &l.StepOrder, &l.Status, &l.Details, &l.ErrorMessage, &l.StartedAt, &l.CompletedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan provisioning log row: %w", err)
 		}
+		logs = append(logs, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate provisioning log rows: %w", err)
 	}
 	return logs, nil
 }
@@ -498,85 +570,178 @@ func (s *Service) DeleteStore(ctx context.Context, storeID string, actorUserID .
 	}
 
 	// 1. Fetch store metadata (name, slug, db_name)
-	var slug, dbName, storeName string
+	var slug, dbName, dbRole, storeName string
 	err := s.platformDB.QueryRowContext(ctx, `
-		SELECT name, slug, db_name FROM stores WHERE id = $1;`, storeID,
-	).Scan(&storeName, &slug, &dbName)
+		SELECT name, slug, db_name, db_user FROM stores WHERE id = $1;`, storeID,
+	).Scan(&storeName, &slug, &dbName, &dbRole)
 	if err == sql.ErrNoRows {
 		return ErrStoreNotFound
 	} else if err != nil {
 		return fmt.Errorf("failed to query store metadata for deletion: %w", err)
 	}
 
-	// 2. Fetch all domains for cache invalidation
-	domainRows, err := s.platformDB.QueryContext(ctx, `SELECT domain FROM domains WHERE store_id = $1;`, storeID)
-	var domains []string
-	if err == nil {
-		for domainRows.Next() {
-			var d string
-			if scanErr := domainRows.Scan(&d); scanErr == nil {
-				domains = append(domains, d)
-			}
-		}
-		domainRows.Close()
+	// 2. Fetch all domains so their routing cache can be purged
+	domains, err := s.listStoreDomains(ctx, storeID)
+	if err != nil {
+		return err
 	}
 
-	// 3. Invalidate Redis routing and theme cache
+	// 3. Stop routing traffic to the store before its data disappears
 	if s.resolver != nil {
-		for _, d := range domains {
-			s.resolver.InvalidateCache(ctx, d, slug)
+		if _, purgeErr := s.resolver.PurgeStoreCache(ctx, storeID, slug, domains); purgeErr != nil {
+			return fmt.Errorf("failed to purge store cache before deletion: %w", purgeErr)
 		}
-		s.resolver.InvalidateCache(ctx, "", slug)
 	}
 
 	// 4. Close and evict any active connection pool for this tenant
 	if s.tenantPool != nil {
-		_ = s.tenantPool.CloseTenant(storeID)
-	}
-
-	// 5. Drop dedicated PostgreSQL database (terminates connections + DROP DATABASE ... WITH (FORCE))
-	if s.provisioner != nil && dbName != "" {
-		if dropErr := s.provisioner.DropStoreDatabase(ctx, dbName); dropErr != nil {
-			log.Printf("store_mgmt: warning - failed to drop store database %s: %v", dbName, dropErr)
+		if closeErr := s.tenantPool.CloseTenant(storeID); closeErr != nil {
+			log.Printf("store_mgmt: warning - closing tenant pool for store %s: %v", storeID, closeErr)
 		}
 	}
 
-	// 6. Delete store record from platform database (cascades to domains, store_themes, store_provisioning_logs, etc.)
+	// 5. Drop the dedicated PostgreSQL database. This must succeed before the registry row
+	//    is removed, otherwise the database would be orphaned with nothing pointing at it.
+	//    DROP DATABASE IF EXISTS makes a repeated delete safe. The store's role is dropped
+	//    after its database, still before the registry row is removed.
+	if dbName != "" {
+		if s.provisioner == nil {
+			return fmt.Errorf("store_mgmt: cannot delete store %s: database provisioner is unavailable", slug)
+		}
+		if dropErr := s.provisioner.DropStoreDatabase(ctx, dbName, dbRole); dropErr != nil {
+			return fmt.Errorf("failed to drop store database %s (store was not deleted): %w", dbName, dropErr)
+		}
+	}
+
+	// 6. Delete the store record (cascades to domains, store_themes, store_provisioning_logs,
+	//    portfolio_financial_summaries and brand_billing_records)
 	result, err := s.platformDB.ExecContext(ctx, `DELETE FROM stores WHERE id = $1;`, storeID)
 	if err != nil {
 		return fmt.Errorf("failed to delete store from platform database: %w", err)
 	}
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to confirm store deletion: %w", err)
+	}
 	if rowsAffected == 0 {
 		return ErrStoreNotFound
 	}
 
-	// 7. Clean up disk assets (uploads, backups)
-	_ = os.RemoveAll(filepath.Join("uploads", slug))
-	_ = os.RemoveAll(filepath.Join("uploads", storeID))
-	_ = os.RemoveAll(filepath.Join("backups", slug))
+	// 7. Purge the cache again: a request that arrived during steps 3 to 6 may have re-cached the store
+	if s.resolver != nil {
+		if _, purgeErr := s.resolver.PurgeStoreCache(ctx, storeID, slug, domains); purgeErr != nil {
+			log.Printf("store_mgmt: warning - final cache purge for deleted store %s: %v", slug, purgeErr)
+		}
+	}
 
-	// 8. Audit log deletion
-	s.logPlatformAudit(ctx, userID, "STORE_DELETED", "stores", storeID, map[string]string{
-		"store_id": storeID,
-		"name":     storeName,
-		"slug":     slug,
-		"db_name":  dbName,
-		"action":   "hard_delete",
+	// 8. Remove files on disk: uploaded media and database backups
+	removedPaths := s.removeStoreFiles(slug, storeID)
+
+	// 9. Audit log deletion
+	s.logPlatformAudit(ctx, userID, "STORE_DELETED", "stores", storeID, map[string]interface{}{
+		"store_id":      storeID,
+		"name":          storeName,
+		"slug":          slug,
+		"db_name":       dbName,
+		"domains":       domains,
+		"removed_paths": removedPaths,
+		"action":        "hard_delete",
 	})
 
 	log.Printf("store_mgmt: store %s (%s, db: %s) successfully and permanently deleted", storeName, slug, dbName)
 	return nil
 }
 
-func (s *Service) cleanupFailedStore(ctx context.Context, storeID, dbName string) error {
-	log.Printf("store_mgmt: initiating rollback cleanup for failed store %s (db: %s)", storeID, dbName)
+// listStoreDomains returns every domain mapped to a store in the platform registry.
+func (s *Service) listStoreDomains(ctx context.Context, storeID string) ([]string, error) {
+	rows, err := s.platformDB.QueryContext(ctx, `SELECT domain FROM domains WHERE store_id = $1;`, storeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list store domains for deletion: %w", err)
+	}
+	defer rows.Close()
+
+	var domains []string
+	for rows.Next() {
+		var d string
+		if err := rows.Scan(&d); err != nil {
+			return nil, fmt.Errorf("failed to read store domain for deletion: %w", err)
+		}
+		domains = append(domains, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate store domains for deletion: %w", err)
+	}
+	return domains, nil
+}
+
+// storeFileRoots lists the directories, relative to the API working directory, that hold
+// one sub-directory per store. Media is written to uploads/stores/<slug>/ by the catalog
+// module and backups to backups/<slug>/ by the worker. The bare "uploads" directory is
+// deliberately not a root: a store whose slug is "stores" must never be able to remove
+// uploads/stores, which holds every store's media.
+var storeFileRoots = []string{
+	filepath.Join("uploads", "stores"),
+	"backups",
+}
+
+// removeStoreFiles deletes a store's media and backup directories from disk and returns
+// the paths that were actually removed. It refuses any name that is not a valid slug or
+// UUID so that an empty or crafted value can never remove a shared parent directory.
+func (s *Service) removeStoreFiles(slug, storeID string) []string {
+	var names []string
+	if slugRegex.MatchString(slug) {
+		names = append(names, slug)
+	}
+	if uuidRegex.MatchString(storeID) {
+		names = append(names, storeID)
+	}
+
+	removed := []string{}
+	for _, root := range storeFileRoots {
+		for _, name := range names {
+			target := filepath.Join(root, name)
+			info, err := os.Stat(target)
+			if err != nil {
+				if !os.IsNotExist(err) {
+					log.Printf("store_mgmt: warning - checking store files at %s: %v", target, err)
+				}
+				continue
+			}
+			if !info.IsDir() {
+				continue
+			}
+			if err := os.RemoveAll(target); err != nil {
+				log.Printf("store_mgmt: warning - failed to remove store files at %s: %v", target, err)
+				continue
+			}
+			removed = append(removed, filepath.ToSlash(target))
+		}
+	}
+	return removed
+}
+
+// cleanupFailedStoreLogged rolls back a partially provisioned store and logs any cleanup failure
+// so that orphaned databases are visible to operators.
+func (s *Service) cleanupFailedStoreLogged(ctx context.Context, storeID, dbName, dbRole string) {
+	if err := s.cleanupFailedStore(ctx, storeID, dbName, dbRole); err != nil {
+		log.Printf("store_mgmt: ERROR - rollback of failed store %s (db %s, role %s) did not complete: %v", storeID, dbName, dbRole, err)
+	}
+}
+
+// cleanupFailedStore drops the provisioned database and its role, then removes the registry row for a failed store.
+func (s *Service) cleanupFailedStore(ctx context.Context, storeID, dbName, dbRole string) error {
+	log.Printf("store_mgmt: initiating rollback cleanup for failed store %s (db: %s, role: %s)", storeID, dbName, dbRole)
+	// The registry row is removed only after the database and its role are gone. If the drop
+	// fails, the row stays so the orphaned database remains visible and can be retried.
 	if s.provisioner != nil {
-		_ = s.provisioner.DropStoreDatabase(ctx, dbName)
+		if err := s.provisioner.DropStoreDatabase(ctx, dbName, dbRole); err != nil {
+			return fmt.Errorf("dropping database %s (registry row kept for retry): %w", dbName, err)
+		}
 	}
 	if s.platformDB != nil {
-		_, err := s.platformDB.ExecContext(ctx, "DELETE FROM stores WHERE id = $1;", storeID)
-		return err
+		if _, err := s.platformDB.ExecContext(ctx, "DELETE FROM stores WHERE id = $1;", storeID); err != nil {
+			return fmt.Errorf("deleting store registry row %s: %w", storeID, err)
+		}
 	}
 	return nil
 }
@@ -585,14 +750,33 @@ func (s *Service) logPlatformAudit(ctx context.Context, userID, action, resource
 	if s.platformDB == nil {
 		return
 	}
+
+	// audit_logs.user_id is a UUID column; non-user actors such as "system" are stored as NULL.
+	var actor sql.NullString
+	if uuidRegex.MatchString(userID) {
+		actor = sql.NullString{String: userID, Valid: true}
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("store_mgmt: warning - encoding audit payload for %s %s: %v", action, resourceID, err)
+		body = []byte("{}")
+	}
+
 	query := `
 		INSERT INTO audit_logs (user_id, action, resource_type, resource_id, payload_after, client_ip)
-		VALUES ($1, $2, $3, $4, $5, '127.0.0.1');`
-	_, _ = s.platformDB.ExecContext(ctx, query, userID, action, resourceType, resourceID, "{}")
+		VALUES ($1, $2, $3, $4, $5::jsonb, 'internal');`
+	if _, err := s.platformDB.ExecContext(ctx, query, actor, action, resourceType, resourceID, string(body)); err != nil {
+		log.Printf("store_mgmt: warning - writing audit log %s for %s: %v", action, resourceID, err)
+	}
 }
 
-func randomHex(bytesLen int) string {
+// randomHex returns 2*bytesLen lowercase hex characters from crypto/rand.
+// It returns an error if the system random source fails; it never returns a zero-filled value.
+func randomHex(bytesLen int) (string, error) {
 	b := make([]byte, bytesLen)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		return "", fmt.Errorf("reading crypto/rand: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }

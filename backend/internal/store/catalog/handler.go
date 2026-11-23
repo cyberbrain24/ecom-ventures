@@ -248,6 +248,107 @@ func (h *Handler) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]string{"message": "Product deleted successfully."})
 }
 
+// --- ORDERING AND FEATURED HANDLERS ---
+
+// decodeReorder reads a ReorderRequest and writes the 400 response itself when the body is not valid JSON.
+func decodeReorder(w http.ResponseWriter, r *http.Request) (ReorderRequest, bool) {
+	var req ReorderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, r, "Invalid request JSON payload.")
+		return req, false
+	}
+	return req, true
+}
+
+// writeReorderError maps reorder errors to HTTP responses.
+func writeReorderError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, ErrInvalidReorder):
+		response.BadRequest(w, r, err.Error())
+	case errors.Is(err, ErrReorderUnknownID):
+		response.Problem(w, r, http.StatusConflict, "REORDER_UNKNOWN_ID", "Conflict",
+			"The list contains an item that no longer exists or is not featured. Reload the page and try again.")
+	case errors.Is(err, ErrProductNotFound):
+		response.NotFound(w, r, "Product not found.")
+	default:
+		response.InternalServerError(w, r)
+	}
+}
+
+// ReorderProducts handles PUT /api/v1/store/{store_slug}/catalog/products/reorder.
+func (h *Handler) ReorderProducts(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeReorder(w, r)
+	if !ok {
+		return
+	}
+	if err := h.service.ReorderProducts(r.Context(), req.IDs); err != nil {
+		writeReorderError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"message": "Product order saved."})
+}
+
+// ReorderFeaturedProducts handles PUT /api/v1/store/{store_slug}/catalog/products/featured/reorder.
+func (h *Handler) ReorderFeaturedProducts(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeReorder(w, r)
+	if !ok {
+		return
+	}
+	if err := h.service.ReorderFeaturedProducts(r.Context(), req.IDs); err != nil {
+		writeReorderError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"message": "Featured order saved."})
+}
+
+// SetProductLinks handles PATCH /api/v1/store/{store_slug}/catalog/products/{id}/links.
+func (h *Handler) SetProductLinks(w http.ResponseWriter, r *http.Request) {
+	var req ProductLinksRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, r, "Invalid request JSON payload.")
+		return
+	}
+	product, err := h.service.SetProductLinks(r.Context(), chi.URLParam(r, "id"), req)
+	if err != nil {
+		if errors.Is(err, ErrLinkTargetNotFound) {
+			response.Problem(w, r, http.StatusUnprocessableEntity, "LINK_TARGET_NOT_FOUND", "Unprocessable",
+				"The selected brand or care instruction no longer exists. Reload the page and try again.")
+			return
+		}
+		writeReorderError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, product)
+}
+
+// SetProductFeatured handles PATCH /api/v1/store/{store_slug}/catalog/products/{id}/featured.
+func (h *Handler) SetProductFeatured(w http.ResponseWriter, r *http.Request) {
+	var req SetFeaturedRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.BadRequest(w, r, "Invalid request JSON payload.")
+		return
+	}
+	product, err := h.service.SetProductFeatured(r.Context(), chi.URLParam(r, "id"), req.IsFeatured)
+	if err != nil {
+		writeReorderError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, product)
+}
+
+// ReorderCategories handles PUT /api/v1/store/{store_slug}/catalog/categories/reorder.
+func (h *Handler) ReorderCategories(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeReorder(w, r)
+	if !ok {
+		return
+	}
+	if err := h.service.ReorderCategories(r.Context(), req.IDs); err != nil {
+		writeReorderError(w, r, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]string{"message": "Category order saved."})
+}
+
 // --- MEDIA HANDLERS ---
 
 // UploadMedia handles POST /api/v1/store/{store_slug}/catalog/products/{id}/media (Multipart upload).

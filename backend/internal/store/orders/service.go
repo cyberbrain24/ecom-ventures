@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -93,12 +94,14 @@ func (s *Service) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*Or
 
 	orderNumber := generateOrderNumber()
 
+	isUrgent := totalAmount > 2500.0
+
 	order := &storeModels.Order{
 		OrderNumber:      orderNumber,
 		CustomerID:       req.CustomerID,
 		CustomerEmail:    strings.TrimSpace(req.CustomerEmail),
 		CustomerPhone:    strings.TrimSpace(req.CustomerPhone),
-		Status:           storeModels.OrderStatusPending,
+		Status:           storeModels.OrderStatusPlaced,
 		PaymentStatus:    storeModels.PaymentStatusPending,
 		Currency:         stCtx.Store.Currency,
 		Subtotal:         subtotal,
@@ -107,6 +110,7 @@ func (s *Service) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*Or
 		TotalAmount:      totalAmount,
 		PaidAmount:       paidAmount,
 		DueAmount:        dueAmount,
+		IsUrgent:         isUrgent,
 		ShippingAddress:  req.ShippingAddress,
 		BillingAddress:   req.BillingAddress,
 		PaymentMethod:    req.PaymentMethod,
@@ -133,9 +137,9 @@ func (s *Service) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*Or
 	history := &storeModels.OrderStatusHistory{
 		OrderID:     order.ID,
 		OldStatus:   "",
-		NewStatus:   storeModels.OrderStatusPending,
+		NewStatus:   storeModels.OrderStatusPlaced,
 		PerformedBy: performedBy,
-		Notes:       "Order created with reserved inventory",
+		Notes:       "Order created with reserved inventory (State: PLACED)",
 	}
 	if err := s.repo.RecordStatusHistoryTx(ctx, tx, history); err != nil {
 		return nil, err
@@ -269,7 +273,9 @@ func (s *Service) CreateShipment(ctx context.Context, orderID string, req *Creat
 	}
 
 	// Update order courier tracking code and consignment
-	_ = s.repo.UpdateCourierConsignment(ctx, stCtx.TenantDB, orderID, req.TrackingNumber, req.TrackingNumber)
+	if err := s.repo.UpdateCourierConsignment(ctx, stCtx.TenantDB, orderID, req.TrackingNumber, req.TrackingNumber); err != nil {
+		return nil, fmt.Errorf("failed to link tracking number to order: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit shipment: %w", err)
@@ -335,7 +341,7 @@ func (s *Service) GetOrder(ctx context.Context, orderID string) (*OrderDetailRes
 	return s.repo.GetOrderByID(ctx, stCtx.TenantDB, orderID)
 }
 
-// ListOrders returns a paginated list of filtered orders.
+// ListOrders returns a paginated list of filtered orders along with status breakdown counts.
 func (s *Service) ListOrders(ctx context.Context, filter *OrderFilterParams) (*PaginatedOrdersResponse, error) {
 	stCtx, err := storeCtx.FromContext(ctx)
 	if err != nil {
@@ -347,11 +353,14 @@ func (s *Service) ListOrders(ctx context.Context, filter *OrderFilterParams) (*P
 		return nil, err
 	}
 
+	statusCounts, _ := s.repo.GetOrderStatusCounts(ctx, stCtx.TenantDB)
+
 	return &PaginatedOrdersResponse{
-		Orders: ordersList,
-		Total:  total,
-		Page:   filter.Page,
-		Limit:  filter.Limit,
+		Orders:       ordersList,
+		StatusCounts: statusCounts,
+		Total:        total,
+		Page:         filter.Page,
+		Limit:        filter.Limit,
 	}, nil
 }
 
@@ -435,6 +444,124 @@ func (s *Service) UpdateCourierConsignment(ctx context.Context, orderID string, 
 	}
 	return s.repo.UpdateCourierConsignment(ctx, stCtx.TenantDB, orderID, consignmentID, trackingCode)
 }
+
+// UpdateFulfillmentFlags updates warehouse dispatch flags (is_ready, is_print_ready).
+func (s *Service) UpdateFulfillmentFlags(ctx context.Context, orderID string, req *UpdateFulfillmentFlagsRequest) error {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdateFulfillmentFlags(ctx, stCtx.TenantDB, orderID, req)
+}
+
+// GetFulfillmentQueue retrieves actionable dispatch queue orders with two-tier priority.
+func (s *Service) GetFulfillmentQueue(ctx context.Context, page, limit int, urgentOnly bool) (*FulfillmentQueueResponse, error) {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.GetFulfillmentQueue(ctx, stCtx.TenantDB, page, limit, urgentOnly)
+}
+
+// CaptureAbandonedCheckout handles silent background telemetry from the storefront checkout.
+// It enforces the 15-minute anti-collision check and upserts the intent record.
+func (s *Service) CaptureAbandonedCheckout(ctx context.Context, req *CaptureAbandonedCheckoutRequest) error {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if req.SessionToken == "" || req.Phone == "" {
+		return errors.New("session_token and phone are required for abandoned capture")
+	}
+
+	// 1. Anti-Collision Guard: Check if an order was placed with this phone < 15 mins ago
+	hasRecent, err := s.repo.HasRecentOrderPlaced(ctx, stCtx.TenantDB, req.Phone, 15)
+	if err != nil {
+		// Log warning and proceed with capture rather than failing customer telemetry
+	} else if hasRecent {
+		// Shopper already converted recently; skip recording to prevent duplicate contact
+		return nil
+	}
+
+	drop := &storeModels.AbandonedCheckout{
+		SessionToken:  req.SessionToken,
+		Phone:         req.Phone,
+		CustomerName:  req.CustomerName,
+		CustomerEmail: req.CustomerEmail,
+		District:      req.District,
+		Thana:         req.Thana,
+		Address:       req.Address,
+		CartTotal:     req.CartTotal,
+	}
+
+	// Convert cart items to json.RawMessage
+	itemsJSON, _ := json.Marshal(req.CartItems)
+	drop.CartItems = json.RawMessage(itemsJSON)
+
+	return s.repo.UpsertAbandonedCheckout(ctx, stCtx.TenantDB, drop)
+}
+
+// ListAbandonedCheckouts returns paginated drops with operational pipeline metrics.
+func (s *Service) ListAbandonedCheckouts(ctx context.Context, status string, page, limit int) (*PaginatedAbandonedResponse, error) {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListAbandonedCheckouts(ctx, stCtx.TenantDB, status, page, limit)
+}
+
+// UpdateAbandonedStatus records tele-sales call notes, scheduled callback timestamps, and status updates.
+func (s *Service) UpdateAbandonedStatus(ctx context.Context, dropID string, req *UpdateAbandonedStatusRequest) error {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return err
+	}
+	agentID := extractActor(ctx, "")
+	var agentPtr *string
+	if agentID != "" {
+		agentPtr = &agentID
+	}
+	return s.repo.UpdateAbandonedStatus(ctx, stCtx.TenantDB, dropID, string(req.Status), req.CallNotes, req.ScheduledCallbackAt, agentPtr)
+}
+
+// ConvertAbandonedToOrder executes 1-click tele-sales order creation with regional courier pricing.
+func (s *Service) ConvertAbandonedToOrder(ctx context.Context, dropID string, req *ConvertAbandonedToOrderRequest) (*storeModels.Order, error) {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	agentID := extractActor(ctx, "")
+	return s.repo.ConvertAbandonedToOrder(ctx, stCtx.TenantDB, dropID, req, agentID)
+}
+
+// GetOrderPulseDiagnostics aggregates Pillar 1 Hub Aging, Pillar 2 Cancellations, and Pillar 3 Catalog R&D matrix.
+func (s *Service) GetOrderPulseDiagnostics(ctx context.Context) (*OrderPulseDiagnosticsResponse, error) {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.GetOrderPulseDiagnostics(ctx, stCtx.TenantDB)
+}
+
+// UpdateOrderPulseTags saves delay blocker or cancellation root cause tags inline.
+func (s *Service) UpdateOrderPulseTags(ctx context.Context, orderID string, req *UpdateOrderPulseTagRequest) error {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.repo.UpdateOrderPulseTags(ctx, stCtx.TenantDB, orderID, req)
+}
+
+// ExecutePartialSplit segregates accepted and returned line items in an order.
+func (s *Service) ExecutePartialSplit(ctx context.Context, orderID string, req *PartialSplitRequest) error {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return err
+	}
+	performedBy := extractActor(ctx, "STORE_ADMIN")
+	return s.repo.ExecutePartialSplit(ctx, stCtx.TenantDB, orderID, req, performedBy)
+}
+
 
 func extractActor(ctx context.Context, defaultActor string) string {
 	if claims, ok := ctx.Value(middleware.AuthClaimsKey).(*pkgAuth.Claims); ok && claims != nil {

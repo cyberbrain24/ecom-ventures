@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	storeModels "ecom-ventures/backend/internal/store/models"
 )
@@ -13,6 +12,10 @@ var (
 	ErrUnsupportedCarrier = errors.New("unsupported shipping carrier")
 	ErrCarrierDisabled    = errors.New("requested shipping carrier is disabled for this store")
 	ErrConsignmentFailed  = errors.New("carrier rejected consignment booking")
+	// ErrTrackingNotImplemented is returned by drivers whose carrier tracking API is not integrated.
+	ErrTrackingNotImplemented = errors.New("tracking not implemented for this carrier")
+	// ErrCancellationNotImplemented is returned by drivers whose carrier cancellation is not integrated.
+	ErrCancellationNotImplemented = errors.New("carrier cancellation is not implemented; cancel the consignment with the carrier directly")
 )
 
 // CourierDriver specifies capabilities required for external shipping logistics networks.
@@ -70,22 +73,16 @@ func (d *ManualCourierDriver) CreateConsignment(ctx context.Context, order *stor
 	}, nil
 }
 
-// TrackConsignment returns local milestones for in-house delivery.
+// TrackConsignment is not available for in-house delivery: there is no carrier record to query,
+// and no milestone is invented.
 func (d *ManualCourierDriver) TrackConsignment(ctx context.Context, trackingNumber string, config *CourierConfig) (*TrackingTimeline, error) {
-	return &TrackingTimeline{
-		Carrier:        CarrierManual,
-		TrackingNumber: trackingNumber,
-		CurrentStatus:  "DISPATCHED",
-		Checkpoints: []TrackingCheckpoint{
-			{Status: "ASSIGNED", Description: "Assigned to internal store delivery personnel", Timestamp: time.Now()},
-		},
-		LastUpdated: time.Now(),
-	}, nil
+	return nil, fmt.Errorf("manual dispatch: %w", ErrTrackingNotImplemented)
 }
 
-// CancelConsignment cancels an in-house dispatch.
+// CancelConsignment is not available for in-house dispatch: no carrier is contacted, so the
+// cancellation must be recorded by store staff rather than reported here.
 func (d *ManualCourierDriver) CancelConsignment(ctx context.Context, trackingNumber string, config *CourierConfig) error {
-	return nil
+	return fmt.Errorf("manual dispatch: %w", ErrCancellationNotImplemented)
 }
 
 // HandleStatusWebhook returns an error as manual delivery does not receive external webhooks.

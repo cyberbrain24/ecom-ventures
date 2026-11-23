@@ -35,16 +35,11 @@ export interface ThemeTypography {
   body_font: string;
 }
 
-export interface ThemeCustomConfig {
-  primary_color: string;
-  secondary_color: string;
-  heading_font: string;
-  body_font: string;
-  border_radius?: 'none' | 'sm' | 'md' | 'lg' | 'full';
-  header_layout?: 'standard' | 'centered' | 'minimal';
-  show_announcement_bar?: boolean;
-  announcement_text?: string;
-}
+/**
+ * Raw theme config as stored by the platform. It is validated by resolveTheme in src/lib/theme.ts
+ * before any component reads it, so this type stays loose.
+ */
+export type ThemeCustomConfig = Record<string, unknown>;
 
 export interface StorefrontTheme {
   id: string;

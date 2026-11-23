@@ -9,13 +9,21 @@ import (
 type OrderStatus string
 
 const (
-	OrderStatusPending    OrderStatus = "PENDING"
-	OrderStatusConfirmed  OrderStatus = "CONFIRMED"
-	OrderStatusProcessing OrderStatus = "PROCESSING"
-	OrderStatusShipped    OrderStatus = "SHIPPED"
-	OrderStatusDelivered  OrderStatus = "DELIVERED"
-	OrderStatusCancelled  OrderStatus = "CANCELLED"
-	OrderStatusRefunded   OrderStatus = "REFUNDED"
+	OrderStatusPlaced            OrderStatus = "PLACED"
+	OrderStatusReview            OrderStatus = "REVIEW"
+	OrderStatusPending           OrderStatus = "PENDING"
+	OrderStatusDelayed           OrderStatus = "DELAYED"
+	OrderStatusHold              OrderStatus = "HOLD"
+	OrderStatusConfirmed         OrderStatus = "CONFIRMED"
+	OrderStatusProcessing        OrderStatus = "PROCESSING"
+	OrderStatusApprovalPending   OrderStatus = "APPROVAL_PENDING"
+	OrderStatusShipped           OrderStatus = "SHIPPED"
+	OrderStatusDelivered         OrderStatus = "DELIVERED"
+	OrderStatusPartiallyDelivered OrderStatus = "PARTIALLY_DELIVERED"
+	OrderStatusReturned          OrderStatus = "RETURNED"
+	OrderStatusCancelled         OrderStatus = "CANCELLED"
+	OrderStatusManuallyCancelled OrderStatus = "MANUALLY_CANCELLED"
+	OrderStatusRefunded          OrderStatus = "REFUNDED"
 )
 
 // PaymentStatus defines the transaction settlement state.
@@ -74,6 +82,11 @@ type Order struct {
 	SpecialNote          *string              `json:"special_note,omitempty"`
 	ShippingDistrict     string               `json:"shipping_district,omitempty"`
 	ShippingThana        string               `json:"shipping_thana,omitempty"`
+	IsUrgent             bool                 `json:"is_urgent"`
+	IsReady              bool                 `json:"is_ready"`
+	IsPrintReady         bool                 `json:"is_print_ready"`
+	CourierRiskLevel     string               `json:"courier_risk_level"`
+	CourierDeliveryRatio float64              `json:"courier_delivery_ratio"`
 	RiskScoreFlags       []RiskFlag           `json:"risk_score_flags"`
 	CourierConsignmentID *string              `json:"courier_consignment_id,omitempty"`
 	CourierTrackingCode  *string              `json:"courier_tracking_code,omitempty"`
@@ -83,8 +96,13 @@ type Order struct {
 	Transactions         []PaymentTransaction `json:"transactions,omitempty"`
 	StatusHistory        []OrderStatusHistory `json:"status_history,omitempty"`
 	CallNotes            []OrderCallNote      `json:"call_notes,omitempty"`
-	CreatedAt            time.Time            `json:"created_at"`
-	UpdatedAt            time.Time            `json:"updated_at"`
+	DelayBlockerReason     *string              `json:"delay_blocker_reason,omitempty"`
+	CancellationRootCause  *string              `json:"cancellation_root_cause,omitempty"`
+	ReturnRootCause        *string              `json:"return_root_cause,omitempty"`
+	IsPartialSplit         bool                 `json:"is_partial_split"`
+	ParentOrderID          *string              `json:"parent_order_id,omitempty"`
+	CreatedAt              time.Time            `json:"created_at"`
+	UpdatedAt              time.Time            `json:"updated_at"`
 }
 
 // OrderItem represents a line item within a customer order.
@@ -100,6 +118,9 @@ type OrderItem struct {
 	UnitPrice    float64   `json:"unit_price"`
 	Quantity     int       `json:"quantity"`
 	TotalPrice   float64   `json:"total_price"`
+	ImageURL     *string   `json:"image_url,omitempty"`
+	ItemStatus   string    `json:"item_status,omitempty"`
+	ReturnReason *string   `json:"return_reason,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -157,3 +178,36 @@ type OrderCallNote struct {
 	Note      string    `json:"note"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// AbandonedCheckoutStatus defines tele-sales outreach states.
+type AbandonedCheckoutStatus string
+
+const (
+	AbandonedStatusPending        AbandonedCheckoutStatus = "pending"
+	AbandonedStatusCalledBusy     AbandonedCheckoutStatus = "called_busy"
+	AbandonedStatusCalledFollowup AbandonedCheckoutStatus = "called_followup"
+	AbandonedStatusDeclined       AbandonedCheckoutStatus = "declined"
+	AbandonedStatusConverted      AbandonedCheckoutStatus = "converted"
+)
+
+// AbandonedCheckout tracks shoppers who drop off in checkout with intent captured.
+type AbandonedCheckout struct {
+	ID                  string                  `json:"id"`
+	SessionToken        string                  `json:"session_token"`
+	Phone               string                  `json:"phone"`
+	CustomerName        string                  `json:"customer_name"`
+	CustomerEmail       string                  `json:"customer_email"`
+	District            string                  `json:"district"`
+	Thana               string                  `json:"thana"`
+	Address             string                  `json:"address"`
+	CartItems           json.RawMessage         `json:"cart_items"`
+	CartTotal           float64                 `json:"cart_total"`
+	Status              AbandonedCheckoutStatus `json:"status"`
+	CallNotes           string                  `json:"call_notes"`
+	ScheduledCallbackAt *time.Time              `json:"scheduled_callback_at,omitempty"`
+	AgentID             *string                 `json:"agent_id,omitempty"`
+	ConvertedOrderID    *string                 `json:"converted_order_id,omitempty"`
+	CreatedAt           time.Time               `json:"created_at"`
+	UpdatedAt           time.Time               `json:"updated_at"`
+}
+

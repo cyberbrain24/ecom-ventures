@@ -113,6 +113,15 @@ func (r *SQLRepository) GetSettings(ctx context.Context, db *sql.DB) (*StoreSett
 		       COALESCE(pinterest_verification, ''),
 		       COALESCE(robots_txt_custom, ''),
 		       COALESCE(sitemap_enabled, true),
+		       COALESCE(logo_url, ''),
+		       COALESCE(desktop_hero_banner_url, ''),
+		       COALESCE(mobile_hero_banner_url, ''),
+		       COALESCE(site_description, ''),
+		       COALESCE(footer_content, ''),
+		       COALESCE(primary_color, '#0d9488'),
+		       COALESCE(secondary_color, '#10b981'),
+		       COALESCE(font_heading, 'Inter, sans-serif'),
+		       COALESCE(font_body, 'Inter, sans-serif'),
 		       updated_at
 		FROM store_settings
 		ORDER BY updated_at DESC
@@ -127,6 +136,9 @@ func (r *SQLRepository) GetSettings(ctx context.Context, db *sql.DB) (*StoreSett
 		&s.FaviconURL, &s.AppleTouchIconURL, &s.DefaultOGImageURL, &s.TwitterHandle,
 		&s.GoogleSiteVerification, &s.BingSiteVerification, &s.PinterestVerification,
 		&s.RobotsTxtCustom, &s.SitemapEnabled,
+		&s.LogoURL, &s.DesktopHeroBannerURL, &s.MobileHeroBannerURL,
+		&s.SiteDescription, &s.FooterContent,
+		&s.PrimaryColor, &s.SecondaryColor, &s.FontHeading, &s.FontBody,
 		&s.UpdatedAt,
 	)
 	if err != nil {
@@ -171,6 +183,15 @@ func (r *SQLRepository) UpdateSettings(ctx context.Context, db *sql.DB, s *Store
 		    pinterest_verification = $21,
 		    robots_txt_custom = $22,
 		    sitemap_enabled = $23,
+		    logo_url = $24,
+		    desktop_hero_banner_url = $25,
+		    mobile_hero_banner_url = $26,
+		    site_description = $27,
+		    footer_content = $28,
+		    primary_color = $29,
+		    secondary_color = $30,
+		    font_heading = $31,
+		    font_body = $32,
 		    updated_at = NOW()
 		WHERE id = (SELECT id FROM store_settings ORDER BY updated_at DESC LIMIT 1)
 	`
@@ -182,6 +203,9 @@ func (r *SQLRepository) UpdateSettings(ctx context.Context, db *sql.DB, s *Store
 		s.FaviconURL, s.AppleTouchIconURL, s.DefaultOGImageURL, s.TwitterHandle,
 		s.GoogleSiteVerification, s.BingSiteVerification, s.PinterestVerification,
 		s.RobotsTxtCustom, s.SitemapEnabled,
+		s.LogoURL, s.DesktopHeroBannerURL, s.MobileHeroBannerURL,
+		s.SiteDescription, s.FooterContent,
+		s.PrimaryColor, s.SecondaryColor, s.FontHeading, s.FontBody,
 	)
 	if err != nil {
 		return err
@@ -199,10 +223,15 @@ func (r *SQLRepository) UpdateSettings(ctx context.Context, db *sql.DB, s *Store
 				meta_title_template, default_meta_title, default_meta_description, default_keywords,
 				favicon_url, apple_touch_icon_url, default_og_image_url, twitter_handle,
 				google_site_verification, bing_site_verification, pinterest_verification,
-				robots_txt_custom, sitemap_enabled, updated_at
+				robots_txt_custom, sitemap_enabled,
+				logo_url, desktop_hero_banner_url, mobile_hero_banner_url,
+				site_description, footer_content,
+				primary_color, secondary_color, font_heading, font_body,
+				updated_at
 			) VALUES (
 				'My Store', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-				$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW()
+				$11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+				$24, $25, $26, $27, $28, $29, $30, $31, $32, NOW()
 			)
 		`
 		_, err = db.ExecContext(ctx, insertQuery,
@@ -213,6 +242,9 @@ func (r *SQLRepository) UpdateSettings(ctx context.Context, db *sql.DB, s *Store
 			s.FaviconURL, s.AppleTouchIconURL, s.DefaultOGImageURL, s.TwitterHandle,
 			s.GoogleSiteVerification, s.BingSiteVerification, s.PinterestVerification,
 			s.RobotsTxtCustom, s.SitemapEnabled,
+			s.LogoURL, s.DesktopHeroBannerURL, s.MobileHeroBannerURL,
+			s.SiteDescription, s.FooterContent,
+			s.PrimaryColor, s.SecondaryColor, s.FontHeading, s.FontBody,
 		)
 		return err
 	}

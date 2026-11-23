@@ -21,6 +21,11 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
+// GetService returns the underlying payments Service.
+func (h *Handler) GetService() *Service {
+	return h.service
+}
+
 // Initiate handles POST /api/v1/storefront/payments/initiate
 func (h *Handler) Initiate(w http.ResponseWriter, r *http.Request) {
 	var req InitiatePaymentRequest
@@ -136,5 +141,59 @@ func (h *Handler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "Payment gateway configuration updated successfully",
+	})
+}
+
+// ListPublicGateways handles GET /api/v1/storefront/payments/methods and /gateways
+func (h *Handler) ListPublicGateways(w http.ResponseWriter, r *http.Request) {
+	gateways, err := h.service.ListPublicGateways(r.Context())
+	if err != nil {
+		response.WriteInternalError(w, r, "Failed to list payment options: "+err.Error())
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, gateways)
+}
+
+// SetDefault handles POST /api/v1/store/{store_slug}/settings/payments/{gateway}/default
+func (h *Handler) SetDefault(w http.ResponseWriter, r *http.Request) {
+	gwStr := strings.ToUpper(chi.URLParam(r, "gateway"))
+	gateway := GatewayType(gwStr)
+
+	if err := h.service.SetDefaultGateway(r.Context(), gateway); err != nil {
+		response.WriteInternalError(w, r, "Failed to set default payment gateway: "+err.Error())
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": string(gateway) + " is now set as the default payment method",
+	})
+}
+
+// ToggleActive handles PATCH /api/v1/store/{store_slug}/settings/payments/{gateway}/toggle
+func (h *Handler) ToggleActive(w http.ResponseWriter, r *http.Request) {
+	gwStr := strings.ToUpper(chi.URLParam(r, "gateway"))
+	gateway := GatewayType(gwStr)
+
+	var req struct {
+		IsEnabled bool `json:"is_enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.WriteBadRequest(w, r, "Invalid request payload: "+err.Error())
+		return
+	}
+
+	if err := h.service.ToggleGatewayActive(r.Context(), gateway, req.IsEnabled); err != nil {
+		response.WriteInternalError(w, r, "Failed to toggle gateway status: "+err.Error())
+		return
+	}
+
+	statusText := "activated"
+	if !req.IsEnabled {
+		statusText = "deactivated"
+	}
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": string(gateway) + " gateway has been " + statusText,
 	})
 }

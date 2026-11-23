@@ -1,23 +1,28 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useCart } from '../../context/CartContext';
-import { Tag, Truck, Sparkles } from 'lucide-react';
+import { Tag } from 'lucide-react';
+import { fetchStorefrontData } from '../../lib/api';
 
 interface CheckoutSummaryProps {
   appliedCoupon: string | null;
   discountAmount: number;
-  deliveryZoneFee?: number;
+  customerPhone?: string;
+  customerEmail?: string;
+  /** Shipping fee for the selected district from the store API, or null when no fee is available. */
+  deliveryZoneFee: number | null;
   onApplyCoupon: (code: string, discount: number) => void;
   onRemoveCoupon: () => void;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
-
+/** Order summary for checkout. Shows only fees and totals supplied by the store API. */
 export const CheckoutSummary: React.FC<CheckoutSummaryProps> = ({
   appliedCoupon,
   discountAmount,
-  deliveryZoneFee = 80.0,
+  customerPhone,
+  customerEmail,
+  deliveryZoneFee,
   onApplyCoupon,
   onRemoveCoupon,
 }) => {
@@ -25,30 +30,10 @@ export const CheckoutSummary: React.FC<CheckoutSummaryProps> = ({
   const [couponInput, setCouponInput] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [isBundleFreeDelivery, setIsBundleFreeDelivery] = useState(false);
-  const [activeBundleName, setActiveBundleName] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const freeDel = localStorage.getItem('ecom_bundle_free_delivery') === 'true';
-      setIsBundleFreeDelivery(freeDel);
-      try {
-        const stored = localStorage.getItem('ecom_active_bundle');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          setActiveBundleName(parsed.tierName);
-        }
-      } catch (e) {
-        // Ignore parse error
-      }
-    }
-  }, []);
 
   if (!cart) return null;
 
-  // Waive shipping fee if bundle grants free delivery
-  const shippingFee = isBundleFreeDelivery ? 0.0 : deliveryZoneFee;
-  const total = Math.max(0, cart.subtotal + shippingFee - discountAmount);
+  const total = deliveryZoneFee === null ? null : Math.max(0, cart.subtotal + deliveryZoneFee - discountAmount);
 
   const handleValidateCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,26 +43,42 @@ export const CheckoutSummary: React.FC<CheckoutSummaryProps> = ({
     setErrorMsg(null);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/storefront/promotions/validate`, {
+      const itemsPayload = cart.items.map((it: any) => ({
+        product_id: it.product_id || '',
+        variant_id: it.variant_id || it.id || '',
+        category_id: it.category_id || '',
+        title: it.product_title || '',
+        price: it.unit_price,
+        quantity: it.quantity,
+        subtotal: it.unit_price * it.quantity,
+      }));
+
+      const payload = await fetchStorefrontData<{
+        is_valid: boolean;
+        code: string;
+        discount_amount: number;
+        message?: string;
+      }>(window.location.host, '/storefront/promotions/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code: couponInput.trim(),
           subtotal: cart.subtotal,
-          shipping_fee: shippingFee,
+          shipping_fee: deliveryZoneFee || 0,
+          customer_phone: customerPhone?.trim() || '',
+          customer_email: customerEmail?.trim() || '',
+          items: itemsPayload,
         }),
       });
 
-      const data = await res.json();
-      const payload = data?.data !== undefined ? data.data : data;
-      if (res.ok && payload.is_valid) {
+      if (payload.is_valid) {
         onApplyCoupon(payload.code, payload.discount_amount);
         setCouponInput('');
       } else {
-        setErrorMsg(payload.message || 'Invalid coupon code');
+        setErrorMsg(payload.message || 'Invalid coupon code.');
       }
     } catch (err) {
-      setErrorMsg('Could not verify coupon.');
+      setErrorMsg(err instanceof Error ? err.message : 'Could not verify coupon.');
     } finally {
       setIsVerifying(false);
     }
@@ -89,23 +90,7 @@ export const CheckoutSummary: React.FC<CheckoutSummaryProps> = ({
         <h3 className="text-base font-bold text-slate-900 font-[var(--brand-font-heading)]">
           Order Summary ({cart.item_count})
         </h3>
-        {isBundleFreeDelivery && (
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full">
-            <Truck className="h-3 w-3" />
-            FREE DELIVERY
-          </span>
-        )}
       </div>
-
-      {/* Bundle Perk Banner */}
-      {isBundleFreeDelivery && (
-        <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl flex items-center space-x-2.5 text-xs text-emerald-800">
-          <Sparkles className="h-4 w-4 text-emerald-600 shrink-0" />
-          <span>
-            <strong>{activeBundleName || 'Combo'} Perk Applied:</strong> Nationwide delivery fee waived (৳0.00).
-          </span>
-        </div>
-      )}
 
       {/* Cart Line Items */}
       <div className="space-y-3.5 max-h-72 overflow-y-auto pr-1">
@@ -174,10 +159,10 @@ export const CheckoutSummary: React.FC<CheckoutSummaryProps> = ({
         </div>
         <div className="flex justify-between text-slate-600">
           <span>Shipping Fee</span>
-          {isBundleFreeDelivery ? (
-            <span className="font-mono font-bold text-emerald-600">FREE (৳ 0.00)</span>
+          {deliveryZoneFee === null ? (
+            <span className="text-rose-600">Select a district</span>
           ) : (
-            <span className="font-mono">{cart.currency} {shippingFee.toFixed(2)}</span>
+            <span className="font-mono">{cart.currency} {deliveryZoneFee.toFixed(2)}</span>
           )}
         </div>
         {discountAmount > 0 && (
@@ -188,7 +173,7 @@ export const CheckoutSummary: React.FC<CheckoutSummaryProps> = ({
         )}
         <div className="flex justify-between text-base font-extrabold text-slate-950 pt-2 border-t border-slate-200">
           <span>Total</span>
-          <span className="font-mono">{cart.currency} {total.toFixed(2)}</span>
+          <span className="font-mono">{total === null ? 'Pending' : `${cart.currency} ${total.toFixed(2)}`}</span>
         </div>
       </div>
     </div>

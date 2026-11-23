@@ -27,7 +27,7 @@ interface BlogPageProps {
 
 export async function generateMetadata({ searchParams }: BlogPageProps): Promise<Metadata> {
   const headersList = headers();
-  const host = headersList.get('x-storefront-host') || 'localhost';
+  const host = headersList.get('x-storefront-host') || '';
   const config = await getStorefrontConfig(host);
   const brandName = config?.store.name || 'Store';
 
@@ -67,7 +67,7 @@ export async function generateMetadata({ searchParams }: BlogPageProps): Promise
 
 export default async function BlogIndexPage({ searchParams }: BlogPageProps) {
   const headersList = headers();
-  const host = headersList.get('x-storefront-host') || 'localhost';
+  const host = headersList.get('x-storefront-host') || '';
 
   const [config, categories, blogData] = await Promise.all([
     getStorefrontConfig(host),
@@ -364,41 +364,6 @@ export default async function BlogIndexPage({ searchParams }: BlogPageProps) {
           </div>
         )}
 
-        {/* Brand Newsletter Curation Callout */}
-        <div className="mt-16 sm:mt-20 p-8 sm:p-12 rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden">
-          <div className="max-w-2xl relative z-10">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--brand-primary)]">
-              Exclusive Journal Editions
-            </span>
-            <h3 className="text-2xl sm:text-3xl font-extrabold font-[var(--brand-font-heading)] mt-2">
-              Stay ahead with curated style dispatches
-            </h3>
-            <p className="mt-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
-              Receive seasonal lookbooks, fabric care guides, and exclusive limited collection releases directly
-              in your inbox once a fortnight.
-            </p>
-            <form
-              onSubmit={undefined}
-              className="mt-6 flex flex-col sm:flex-row gap-3 max-w-md"
-            >
-              <input
-                type="email"
-                placeholder="Enter your email"
-                required
-                className="px-4 py-2.5 rounded-lg text-xs sm:text-sm text-slate-900 bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] flex-1"
-              />
-              <button
-                type="button"
-                className="px-5 py-2.5 rounded-lg text-xs sm:text-sm font-bold bg-[var(--brand-primary)] text-white hover:opacity-90 transition whitespace-nowrap"
-              >
-                Subscribe
-              </button>
-            </form>
-          </div>
-          <div className="absolute right-0 bottom-0 opacity-10 pointer-events-none translate-x-12 translate-y-12">
-            <BookOpen size={300} />
-          </div>
-        </div>
       </div>
     </>
   );

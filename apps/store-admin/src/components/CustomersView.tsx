@@ -1,1031 +1,1081 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Users,
-  Search,
-  Phone,
-  Mail,
-  MapPin,
-  ShoppingBag,
-  Plus,
-  Pencil,
-  Trash2,
-  Star,
-  ShieldCheck,
-  CheckCircle2,
-  AlertCircle,
-  Archive,
-  Image as ImageIcon,
-  ArrowUpDown,
-  Filter,
-  Eye,
-  X,
-  TrendingUp,
-  Clock,
-  Sparkles,
-} from 'lucide-react';
-import {
-  StoreCustomer,
   StoreBrand,
   StoreProduct,
   StoreReview,
-  ReviewStatus,
 } from '../types/store';
-import { AddCustomerModal } from './AddCustomerModal';
-import { EditCustomerModal } from './EditCustomerModal';
-import { ConfirmDeleteModal } from './ConfirmDeleteModal';
-import { LogCustomerReviewModal } from './LogCustomerReviewModal';
-import { EditReviewModal } from './EditReviewModal';
+import {
+  CustomerDetail,
+  CustomerSummary,
+  MembershipTier,
+  fetchCustomers,
+  fetchCustomerDetail,
+  createCustomer,
+  updateCustomerCRM,
+  toggleCustomerBlacklist,
+  impersonateCustomer,
+  deleteCustomer,
+  CreateCustomerPayload,
+} from '../lib/customers-api';
+import {
+  Search,
+  UserCheck,
+  ShieldAlert,
+  Crown,
+  MapPin,
+  ExternalLink,
+  Edit3,
+  Trash2,
+  Plus,
+  X,
+  Phone,
+  Mail,
+  Calendar,
+  AlertTriangle,
+  RotateCcw,
+  ShoppingBag,
+  TrendingUp,
+  Percent,
+  CheckCircle2,
+  Clock,
+} from 'lucide-react';
 
 interface CustomersViewProps {
   currentStore: StoreBrand;
-  customers: StoreCustomer[];
+  customers: any[];
   products: StoreProduct[];
   reviews: StoreReview[];
-  onAddCustomer?: (customer: StoreCustomer) => void;
-  onUpdateCustomer?: (customer: StoreCustomer) => void;
-  onDeleteCustomer?: (customerId: string) => void;
-  onAddReview?: (review: StoreReview) => void;
-  onUpdateReview?: (review: StoreReview) => void;
-  onDeleteReview?: (reviewId: string) => void;
 }
 
-type CustomerSubTab = 'customers' | 'reviews';
+function formatMoney(amount: number, currency: string): string {
+  return `${currency} ${(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
-export const CustomersView: React.FC<CustomersViewProps> = ({
-  currentStore,
-  customers,
-  products,
-  reviews,
-  onAddCustomer,
-  onUpdateCustomer,
-  onDeleteCustomer,
-  onAddReview,
-  onUpdateReview,
-  onDeleteReview,
-}) => {
-  const [activeSubTab, setActiveSubTab] = useState<CustomerSubTab>('customers');
+export const CustomersView: React.FC<CustomersViewProps> = ({ currentStore, reviews }) => {
+  const [activeTab, setActiveTab] = useState<'customers' | 'reviews'>('customers');
+  const [customersList, setCustomersList] = useState<CustomerSummary[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Customer Directory Filters & Modals
-  const [searchCustomer, setSearchCustomer] = useState('');
-  const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
-  const [editingCustomer, setEditingCustomer] = useState<StoreCustomer | null>(null);
-  const [deletingCustomer, setDeletingCustomer] = useState<StoreCustomer | null>(null);
+  // Filter and search state
+  const [search, setSearch] = useState('');
+  const [tierFilter, setTierFilter] = useState<string>('ALL');
+  const [blacklistFilter, setBlacklistFilter] = useState<string>('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
 
-  // Reviews Engine Filters & Modals
-  const [reviewSearch, setReviewSearch] = useState('');
-  const [reviewStatusFilter, setReviewStatusFilter] = useState<'ALL' | ReviewStatus>('ALL');
-  const [reviewRatingFilter, setReviewRatingFilter] = useState<number>(0);
-  const [isLogReviewModalOpen, setIsLogReviewModalOpen] = useState(false);
-  const [editingReview, setEditingReview] = useState<StoreReview | null>(null);
-  const [deletingReview, setDeletingReview] = useState<StoreReview | null>(null);
-  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  // Selected customer for Profile Intelligence Drawer
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [customerDetail, setCustomerDetail] = useState<CustomerDetail | null>(null);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
-  // Filtered Customers
-  const filteredCustomers = customers.filter(
-    (c) =>
-      c.name.toLowerCase().includes(searchCustomer.toLowerCase()) ||
-      c.email.toLowerCase().includes(searchCustomer.toLowerCase()) ||
-      c.phone.includes(searchCustomer)
-  );
+  // Profile Drawer Form Edits
+  const [editTier, setEditTier] = useState<MembershipTier>('STANDARD');
+  const [editDob, setEditDob] = useState<string>('');
+  const [editNotes, setEditNotes] = useState<string>('');
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
-  // Filtered Reviews
-  const filteredReviews = reviews.filter((r) => {
-    if (reviewStatusFilter !== 'ALL' && r.status !== reviewStatusFilter) {
-      return false;
+  // Create Modal
+  const [isCreating, setIsCreating] = useState(false);
+  const [newFirstName, setNewFirstName] = useState('');
+  const [newLastName, setNewLastName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newTier, setNewTier] = useState<MembershipTier>('STANDARD');
+  const [newNotes, setNewNotes] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
+
+  // Blacklist confirmation
+  const [isBlacklistPromptOpen, setIsBlacklistPromptOpen] = useState(false);
+  const [blacklistReason, setBlacklistReason] = useState('');
+
+  // Impersonation state
+  const [isImpersonating, setIsImpersonating] = useState(false);
+
+  // Delete Guardrail state
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteGuardrailAlert, setDeleteGuardrailAlert] = useState<string | null>(null);
+
+  const loadCustomers = useCallback(async () => {
+    setIsLoading(true);
+    setErrorMsg(null);
+    try {
+      const filters: any = {
+        page: currentPage,
+        limit: 50,
+      };
+      if (search.trim()) filters.search = search.trim();
+      if (tierFilter !== 'ALL') filters.membership_tier = tierFilter;
+      if (blacklistFilter === 'BLACKLISTED') filters.is_blacklisted = true;
+      if (blacklistFilter === 'ACTIVE') filters.is_blacklisted = false;
+
+      const res = await fetchCustomers(filters);
+      setCustomersList(res.customers || []);
+      setTotalCount(res.total || 0);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Could not load customer directory.');
+    } finally {
+      setIsLoading(false);
     }
-    if (reviewRatingFilter > 0 && r.rating !== reviewRatingFilter) {
-      return false;
+  }, [currentPage, search, tierFilter, blacklistFilter]);
+
+  useEffect(() => {
+    loadCustomers();
+  }, [loadCustomers]);
+
+  const openCustomerDetail = async (id: string) => {
+    setSelectedCustomerId(id);
+    setIsDetailLoading(true);
+    setDetailError(null);
+    setActionNotice(null);
+    setDeleteGuardrailAlert(null);
+    try {
+      const detail = await fetchCustomerDetail(id);
+      setCustomerDetail(detail);
+      setEditTier(detail.membership_tier);
+      setEditDob(detail.date_of_birth ? detail.date_of_birth.substring(0, 10) : '');
+      setEditNotes(detail.crm_notes || '');
+    } catch (err: any) {
+      setDetailError(err.message || 'Failed to load customer profile details.');
+    } finally {
+      setIsDetailLoading(false);
     }
-    if (reviewSearch.trim()) {
-      const q = reviewSearch.toLowerCase();
-      const matchText =
-        r.customerName.toLowerCase().includes(q) ||
-        r.customerPhone.includes(q) ||
-        r.productTitle.toLowerCase().includes(q) ||
-        r.title.toLowerCase().includes(q) ||
-        r.comment.toLowerCase().includes(q);
-      if (!matchText) return false;
+  };
+
+  const handleSaveCRMProfile = async () => {
+    if (!selectedCustomerId) return;
+    setIsSavingNotes(true);
+    setActionNotice(null);
+    try {
+      const updated = await updateCustomerCRM(selectedCustomerId, {
+        membership_tier: editTier,
+        date_of_birth: editDob ? editDob : undefined,
+        crm_notes: editNotes,
+      });
+      setCustomerDetail(updated);
+      setActionNotice('CRM profile and staff notes saved successfully.');
+      loadCustomers();
+    } catch (err: any) {
+      setActionNotice(`Error: ${err.message || 'Failed to save CRM profile'}`);
+    } finally {
+      setIsSavingNotes(false);
     }
-    return true;
-  });
+  };
 
-  // Review Summary Metrics
-  const pendingReviewsCount = reviews.filter((r) => r.status === 'PENDING').length;
-  const approvedReviewsCount = reviews.filter((r) => r.status === 'APPROVED' || r.status === 'FEATURED').length;
-  const photoReviewsCount = reviews.filter((r) => r.images && r.images.length > 0).length;
+  const handleToggleBlacklist = async () => {
+    if (!customerDetail) return;
+    const targetState = !customerDetail.is_blacklisted;
+    try {
+      await toggleCustomerBlacklist(customerDetail.id, {
+        is_blacklisted: targetState,
+        reason: targetState ? blacklistReason || 'Flagged for serial RTO / doorstep cancellation' : '',
+      });
+      setIsBlacklistPromptOpen(false);
+      setBlacklistReason('');
+      setActionNotice(targetState ? 'Customer account has been soft-deactivated and blacklisted.' : 'Customer reinstated to active status.');
+      openCustomerDetail(customerDetail.id);
+      loadCustomers();
+    } catch (err: any) {
+      setActionNotice(`Error: ${err.message || 'Failed to update blacklist status'}`);
+    }
+  };
 
-  const totalRatingSum = reviews
-    .filter((r) => r.status === 'APPROVED' || r.status === 'FEATURED')
-    .reduce((acc, curr) => acc + curr.rating, 0);
+  const handleImpersonate = async (id: string) => {
+    setIsImpersonating(true);
+    setActionNotice(null);
+    try {
+      const imp = await impersonateCustomer(id);
+      setActionNotice('1-Click Storefront Impersonation token issued!');
+      const primaryDomain = currentStore.primaryDomain || `${currentStore.slug}.localhost:5200`;
+      const url = `http://${primaryDomain}?impersonate_token=${imp.customer_token}`;
+      window.open(url, '_blank');
+    } catch (err: any) {
+      setActionNotice(`Impersonation failed: ${err.message || 'Could not issue storefront token'}`);
+    } finally {
+      setIsImpersonating(false);
+    }
+  };
 
-  const averageRating = approvedReviewsCount > 0 ? (totalRatingSum / approvedReviewsCount).toFixed(1) : '0.0';
-  const fiveStarReviewsCount = reviews.filter((r) => r.rating === 5).length;
-  const verifiedReviewsCount = reviews.filter((r) => r.isVerifiedPurchase).length;
+  const handleDeleteWithGuardrail = async () => {
+    if (!customerDetail) return;
+    setIsDeleting(true);
+    setDeleteGuardrailAlert(null);
+    try {
+      await deleteCustomer(customerDetail.id);
+      setSelectedCustomerId(null);
+      setCustomerDetail(null);
+      loadCustomers();
+    } catch (err: any) {
+      setDeleteGuardrailAlert(err.message || 'Deletion failed. Customer with order history cannot be deleted.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
-  // Customer Summary Metrics
-  const totalLtv = customers.reduce((sum, c) => sum + (c.lifetimeValue || 0), 0);
-  const avgLtv = customers.length > 0 ? totalLtv / customers.length : 0;
-  const totalCustomerOrders = customers.reduce((sum, c) => sum + (c.totalOrders || 0), 0);
-  const repeatCustomerCount = customers.filter((c) => (c.totalOrders || 0) > 1).length;
-  const avgOrdersPerCustomer = customers.length > 0 ? (totalCustomerOrders / customers.length).toFixed(1) : '0.0';
+  const handleCreateCustomerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFirstName.trim() || (!newPhone.trim() && !newEmail.trim())) {
+      setCreateError('First name and either mobile phone number or email are required.');
+      return;
+    }
+    setIsSubmittingCreate(true);
+    setCreateError(null);
+    try {
+      const payload: CreateCustomerPayload = {
+        first_name: newFirstName.trim(),
+        last_name: newLastName.trim(),
+        phone: newPhone.trim() ? newPhone.trim() : undefined,
+        email: newEmail.trim() ? newEmail.trim() : undefined,
+        membership_tier: newTier,
+        crm_notes: newNotes.trim(),
+      };
+      const created = await createCustomer(payload);
+      setIsCreating(false);
+      setNewFirstName('');
+      setNewLastName('');
+      setNewPhone('');
+      setNewEmail('');
+      setNewNotes('');
+      loadCustomers();
+      openCustomerDetail(created.id);
+    } catch (err: any) {
+      setCreateError(err.message || 'Failed to register customer profile.');
+    } finally {
+      setIsSubmittingCreate(false);
+    }
+  };
 
-  // Quick Moderation Action Handlers
-  const handleQuickStatusChange = (review: StoreReview, newStatus: ReviewStatus) => {
-    if (!onUpdateReview) return;
-    const isFeat = newStatus === 'FEATURED';
-    onUpdateReview({
-      ...review,
-      status: newStatus,
-      isFeatured: isFeat,
-      updatedAt: new Date().toISOString().replace('T', ' ').substring(0, 16),
-    });
+  const renderTierBadge = (tier: MembershipTier) => {
+    switch (tier) {
+      case 'VIP_BLACK':
+        return (
+          <span className="badge" style={{ backgroundColor: '#0f172a', color: '#f59e0b', border: '1px solid #d97706', fontWeight: 700 }}>
+            ★ VIP Black
+          </span>
+        );
+      case 'GOLD':
+        return (
+          <span className="badge" style={{ backgroundColor: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d', fontWeight: 600 }}>
+            Gold Tier
+          </span>
+        );
+      case 'SILVER':
+        return (
+          <span className="badge" style={{ backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', fontWeight: 600 }}>
+            Silver Tier
+          </span>
+        );
+      case 'STANDARD':
+      default:
+        return (
+          <span className="badge" style={{ backgroundColor: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', fontWeight: 500 }}>
+            Standard
+          </span>
+        );
+    }
+  };
+
+  const renderReliabilityBadge = (score: number, total: number) => {
+    if (total === 0) {
+      return <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>No orders yet</span>;
+    }
+    if (score >= 80) {
+      return (
+        <span className="badge" style={{ backgroundColor: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }}>
+          ✓ {score.toFixed(0)}% Safe COD
+        </span>
+      );
+    }
+    if (score >= 50) {
+      return (
+        <span className="badge" style={{ backgroundColor: '#fffbeb', color: '#b45309', border: '1px solid #fde68a' }}>
+          ⚠ {score.toFixed(0)}% Medium
+        </span>
+      );
+    }
+    return (
+      <span className="badge" style={{ backgroundColor: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', fontWeight: 700 }}>
+        ✕ {score.toFixed(0)}% High RTO Risk
+      </span>
+    );
   };
 
   return (
     <div>
-      {/* Top Level Sub-Tab Navigation Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          borderBottom: '1px solid var(--border)',
-          marginBottom: '18px',
-          paddingBottom: '4px',
-          flexWrap: 'wrap',
-          gap: '12px',
-        }}
-      >
+      {/* Page Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div>
+          <h1 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
+            CRM Customer Profiles & Intelligence
+          </h1>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
+            Phone-first unified directory, dynamic LTV ledger, fraud/RTO risk scoring, and staff operational tools for <code>{currentStore.name}</code>.
+          </p>
+        </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
-            onClick={() => setActiveSubTab('customers')}
-            className="touch-btn"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '10px 16px',
-              background: 'none',
-              border: 'none',
-              borderBottom: activeSubTab === 'customers' ? '2px solid var(--primary)' : '2px solid transparent',
-              color: activeSubTab === 'customers' ? 'var(--text-main)' : 'var(--text-muted)',
-              fontWeight: activeSubTab === 'customers' ? 800 : 500,
-              fontSize: '0.88rem',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-            }}
+            onClick={() => setIsCreating(true)}
+            className="btn btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            <Users size={16} style={{ color: activeSubTab === 'customers' ? 'var(--primary)' : 'inherit' }} />
-            <span>Customer Profiles & LTV</span>
-            <span
-              style={{
-                fontSize: '0.7rem',
-                backgroundColor: 'rgba(255,255,255,0.08)',
-                padding: '2px 6px',
-                borderRadius: '10px',
-                fontWeight: 700,
-              }}
-            >
-              {customers.length}
-            </span>
+            <Plus size={16} /> Add Customer Profile
           </button>
-
-          <button
-            onClick={() => setActiveSubTab('reviews')}
-            className="touch-btn"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '10px 16px',
-              background: 'none',
-              border: 'none',
-              borderBottom: activeSubTab === 'reviews' ? '2px solid var(--primary)' : '2px solid transparent',
-              color: activeSubTab === 'reviews' ? 'var(--text-main)' : 'var(--text-muted)',
-              fontWeight: activeSubTab === 'reviews' ? 800 : 500,
-              fontSize: '0.88rem',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <Star size={16} style={{ color: activeSubTab === 'reviews' ? '#f59e0b' : 'inherit' }} />
-            <span>Product Reviews & Reputation</span>
-            {pendingReviewsCount > 0 ? (
-              <span
-                style={{
-                  fontSize: '0.7rem',
-                  backgroundColor: 'rgba(245, 158, 11, 0.2)',
-                  color: '#f59e0b',
-                  border: '1px solid rgba(245, 158, 11, 0.4)',
-                  padding: '2px 7px',
-                  borderRadius: '10px',
-                  fontWeight: 800,
-                }}
-              >
-                {pendingReviewsCount} PENDING
-              </span>
-            ) : (
-              <span
-                style={{
-                  fontSize: '0.7rem',
-                  backgroundColor: 'rgba(255,255,255,0.08)',
-                  padding: '2px 6px',
-                  borderRadius: '10px',
-                  fontWeight: 700,
-                }}
-              >
-                {reviews.length}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Primary Action Buttons */}
-        <div>
-          {activeSubTab === 'customers' && onAddCustomer && (
-            <button onClick={() => setIsAddCustomerModalOpen(true)} className="btn btn-primary btn-sm">
-              <Plus size={15} />
-              <span>Register Customer</span>
-            </button>
-          )}
-
-          {activeSubTab === 'reviews' && onAddReview && (
-            <button
-              onClick={() => setIsLogReviewModalOpen(true)}
-              className="btn btn-primary btn-sm"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Plus size={15} />
-              <span>Log Customer Review</span>
-            </button>
-          )}
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* TAB 1: CUSTOMER DIRECTORY & PROFILES                                      */}
-      {/* ========================================================================= */}
-      {activeSubTab === 'customers' && (
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-            <div>
-              <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
-                Customer Directory & Profiles
-              </h1>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
-                Customer profiles, order histories, and Customer Lifetime Value (LTV) for <strong>{currentStore.name}</strong>
-              </p>
-            </div>
-          </div>
+      {/* Main Tabs */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border)', marginBottom: '14px', paddingBottom: '8px' }}>
+        <button
+          onClick={() => setActiveTab('customers')}
+          className={`btn btn-sm ${activeTab === 'customers' ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          Customer Profiles ({totalCount})
+        </button>
+        <button
+          onClick={() => setActiveTab('reviews')}
+          className={`btn btn-sm ${activeTab === 'reviews' ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          Reviews ({reviews.length})
+        </button>
+      </div>
 
-          {/* Customer CRM Metrics - 7 Column Box Card Design */}
-          <div className="stats-grid">
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Total Shoppers</div>
-                <div className="stat-val">{customers.length}</div>
-                <div className="stat-sub" style={{ color: '#059669', fontWeight: 600 }}>
-                  <Users size={11} /> CRM profiles
+      {activeTab === 'customers' && (
+        <>
+          {/* Filter & Live Search Toolbar */}
+          <div className="card" style={{ marginBottom: '16px', padding: '12px' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', gap: '8px', flex: 1, minWidth: '260px' }}>
+                <div style={{ position: 'relative', width: '100%', maxWidth: '380px' }}>
+                  <Search
+                    size={16}
+                    style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search by Mobile Phone, Name, or Email..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="input"
+                    style={{ paddingLeft: '32px', width: '100%' }}
+                  />
                 </div>
               </div>
-              <div className="stat-icon" style={{ background: '#ecfdf5', color: '#059669' }}>
-                <Users size={16} />
-              </div>
-            </div>
 
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Portfolio LTV</div>
-                <div className="stat-val">৳{Math.round(totalLtv).toLocaleString()}</div>
-                <div className="stat-sub" style={{ color: '#0284c7' }}>
-                  <TrendingUp size={11} /> Cumulative value
-                </div>
-              </div>
-              <div className="stat-icon" style={{ background: '#f0f9ff', color: '#0284c7' }}>
-                <TrendingUp size={16} />
-              </div>
-            </div>
+              {/* Tier Filter */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>Tier:</span>
+                <select
+                  value={tierFilter}
+                  onChange={(e) => setTierFilter(e.target.value)}
+                  className="input"
+                  style={{ width: '140px', padding: '6px 8px' }}
+                >
+                  <option value="ALL">All Tiers</option>
+                  <option value="VIP_BLACK">★ VIP Black</option>
+                  <option value="GOLD">Gold</option>
+                  <option value="SILVER">Silver</option>
+                  <option value="STANDARD">Standard</option>
+                </select>
 
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Avg Customer LTV</div>
-                <div className="stat-val">৳{Math.round(avgLtv).toLocaleString()}</div>
-                <div className="stat-sub" style={{ color: '#6366f1' }}>
-                  <ShoppingBag size={11} /> Per account
-                </div>
-              </div>
-              <div className="stat-icon" style={{ background: '#eef2ff', color: '#6366f1' }}>
-                <ShoppingBag size={16} />
-              </div>
-            </div>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, marginLeft: '8px' }}>Status:</span>
+                <select
+                  value={blacklistFilter}
+                  onChange={(e) => setBlacklistFilter(e.target.value)}
+                  className="input"
+                  style={{ width: '130px', padding: '6px 8px' }}
+                >
+                  <option value="ALL">All Accounts</option>
+                  <option value="ACTIVE">Active Only</option>
+                  <option value="BLACKLISTED">Blacklisted</option>
+                </select>
 
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Orders Placed</div>
-                <div className="stat-val">{totalCustomerOrders}</div>
-                <div className="stat-sub" style={{ color: '#059669' }}>
-                  <CheckCircle2 size={11} /> Historical sales
-                </div>
-              </div>
-              <div className="stat-icon" style={{ background: '#ecfdf5', color: '#059669' }}>
-                <CheckCircle2 size={16} />
-              </div>
-            </div>
-
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Repeat Buyers</div>
-                <div className="stat-val">{repeatCustomerCount}</div>
-                <div className="stat-sub" style={{ color: '#f59e0b', fontWeight: 600 }}>
-                  <Sparkles size={11} /> Multi-order
-                </div>
-              </div>
-              <div className="stat-icon" style={{ background: '#fef3c7', color: '#d97706' }}>
-                <Sparkles size={16} />
-              </div>
-            </div>
-
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Top Location</div>
-                <div className="stat-val" style={{ fontSize: '1rem' }}>Dhaka Hub</div>
-                <div className="stat-sub" style={{ color: '#64748b' }}>
-                  <MapPin size={11} /> Core market
-                </div>
-              </div>
-              <div className="stat-icon" style={{ background: '#f1f5f9', color: '#64748b' }}>
-                <MapPin size={16} />
-              </div>
-            </div>
-
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Frequency</div>
-                <div className="stat-val">{avgOrdersPerCustomer}</div>
-                <div className="stat-sub" style={{ color: '#64748b' }}>
-                  <Clock size={11} /> Orders/shopper
-                </div>
-              </div>
-              <div className="stat-icon" style={{ background: '#f8fafc', color: '#475569' }}>
-                <Clock size={16} />
+                <button onClick={loadCustomers} className="btn btn-secondary btn-sm" title="Refresh List">
+                  <RotateCcw size={14} />
+                </button>
               </div>
             </div>
           </div>
 
-          <div className="card" style={{ padding: '10px 14px', marginBottom: '12px' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={15} style={{ position: 'absolute', left: '10px', top: '9px', color: 'var(--text-subtle)' }} />
-              <input
-                type="text"
-                placeholder="Search customer by name, email, or mobile..."
-                value={searchCustomer}
-                onChange={(e) => setSearchCustomer(e.target.value)}
-                className="form-input"
-                style={{ paddingLeft: '32px', width: '100%', height: '32px', fontSize: '0.82rem' }}
-              />
-            </div>
-          </div>
-
+          {/* Customer Table */}
           <div className="card" style={{ padding: 0 }}>
+            {isLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                Loading customer profiles from tenant ledger...
+              </div>
+            ) : errorMsg ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--danger)' }}>
+                <AlertTriangle size={24} style={{ margin: '0 auto 8px auto' }} />
+                <p>{errorMsg}</p>
+                <button onClick={loadCustomers} className="btn btn-sm btn-secondary" style={{ marginTop: '8px' }}>
+                  Retry
+                </button>
+              </div>
+            ) : customersList.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                No customer profiles match the current search or filters.
+              </div>
+            ) : (
+              <div className="table-container" style={{ border: 'none' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Customer Identity</th>
+                      <th>Primary Phone (Anchor)</th>
+                      <th>Membership Tier</th>
+                      <th>Location</th>
+                      <th>Total Orders</th>
+                      <th>Lifetime Spend (LTV)</th>
+                      <th>COD Delivery Reliability</th>
+                      <th>Status</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customersList.map((c) => (
+                      <tr key={c.id} style={{ opacity: c.is_blacklisted ? 0.6 : 1 }}>
+                        <td>
+                          <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>
+                            {c.first_name} {c.last_name}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            {c.email || 'No email attached'}
+                          </div>
+                        </td>
+                        <td>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--primary)' }}>
+                            {c.phone || '—'}
+                          </span>
+                        </td>
+                        <td>{renderTierBadge(c.membership_tier)}</td>
+                        <td>
+                          <div style={{ fontSize: '0.8rem' }}>
+                            {c.district || c.city || '—'}
+                          </div>
+                          {c.thana && (
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              {c.thana}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ fontWeight: 600 }}>{c.metrics.total_orders}</td>
+                        <td style={{ fontWeight: 700, color: 'var(--text-main)' }}>
+                          {formatMoney(c.metrics.lifetime_value, currentStore.currency)}
+                        </td>
+                        <td>
+                          {renderReliabilityBadge(c.metrics.reliability_score, c.metrics.total_orders)}
+                        </td>
+                        <td>
+                          {c.is_blacklisted ? (
+                            <span className="badge" style={{ backgroundColor: '#fee2e2', color: '#991b1b', fontWeight: 600 }}>
+                              Blacklisted
+                            </span>
+                          ) : (
+                            <span className="badge" style={{ backgroundColor: '#f0fdf4', color: '#166534' }}>
+                              Active
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', gap: '6px' }}>
+                            <button
+                              onClick={() => openCustomerDetail(c.id)}
+                              className="btn btn-sm btn-secondary"
+                              title="Inspect Customer CRM Profile & Intelligence"
+                            >
+                              View CRM Profile
+                            </button>
+                            <button
+                              onClick={() => handleImpersonate(c.id)}
+                              className="btn btn-sm btn-secondary"
+                              title="1-Click Impersonation: Open Storefront as this Customer"
+                            >
+                              <ExternalLink size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Reviews Tab */}
+      {activeTab === 'reviews' && (
+        <div className="card" style={{ padding: 0 }}>
+          {reviews.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              No product reviews have been loaded from the server.
+            </div>
+          ) : (
             <div className="table-container" style={{ border: 'none' }}>
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Customer Name</th>
-                    <th>Contact Info</th>
-                    <th>Location</th>
-                    <th>Total Orders</th>
-                    <th>Lifetime Spend (LTV)</th>
-                    <th>Last Order Date</th>
-                    <th>Actions</th>
+                    <th>Product</th>
+                    <th>Customer</th>
+                    <th>Rating</th>
+                    <th>Review</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCustomers.map((cust) => (
-                    <tr key={cust.id}>
-                      <td style={{ fontWeight: 700 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#e0e7ff', color: '#4338ca', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.84rem' }}>
-                            {cust.name.substring(0, 2).toUpperCase()}
-                          </div>
-                          <span>{cust.name}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <Mail size={13} style={{ color: 'var(--text-muted)' }} /> {cust.email}
-                        </div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
-                          <Phone size={13} /> {cust.phone}
-                        </div>
-                      </td>
-                      <td>
-                        <span className="badge badge-outline">
-                          <MapPin size={11} /> {cust.city}
-                        </span>
-                      </td>
-                      <td style={{ fontWeight: 600 }}>{cust.totalOrders} order{cust.totalOrders > 1 ? 's' : ''}</td>
-                      <td style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '0.98rem' }}>
-                        ৳ {cust.lifetimeValue.toLocaleString()}
-                      </td>
-                      <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{cust.lastOrderDate}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          {onUpdateCustomer && (
-                            <button
-                              onClick={() => setEditingCustomer(cust)}
-                              className="btn btn-secondary btn-sm"
-                              style={{ padding: '4px 7px' }}
-                              title="Edit Customer"
-                            >
-                              <Pencil size={13} />
-                            </button>
-                          )}
-                          {onDeleteCustomer && (
-                            <button
-                              onClick={() => setDeletingCustomer(cust)}
-                              className="btn btn-danger btn-sm"
-                              style={{ padding: '3px 6px' }}
-                              title="Delete Customer"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          )}
-                        </div>
-                      </td>
+                  {reviews.map((r) => (
+                    <tr key={r.id}>
+                      <td style={{ fontWeight: 600 }}>{r.productId}</td>
+                      <td>{r.customerName}</td>
+                      <td style={{ color: '#d97706', fontWeight: 700 }}>★ {r.rating} / 5</td>
+                      <td>{r.comment}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* TAB 2: PRODUCT REVIEWS & REPUTATION ENGINE                                */}
-      {/* ========================================================================= */}
-      {activeSubTab === 'reviews' && (
-        <div>
-          {/* Header Description */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
-                  Product Reviews & Moderation Engine
-                </h1>
-                <span
-                  style={{
-                    fontSize: '0.7rem',
-                    fontWeight: 700,
-                    color: '#10b981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                    padding: '2px 8px',
-                    borderRadius: '6px',
-                    border: '1px solid rgba(16, 185, 129, 0.25)',
-                  }}
-                >
-                  CUSTOMER REVIEWS · LIVE SYNC
-                </span>
-              </div>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
-                Screen verified social proof, moderate online customer ratings, and log offline WhatsApp/DM buyer fit photos for <code>{currentStore.name}</code>.
-              </p>
-            </div>
-          </div>
-
-          {/* KPI Metrics Summary Strip - 7 Column Box Card Design */}
-          <div className="stats-grid">
-            {/* 1. Total Reviews */}
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Total Reviews</div>
-                <div className="stat-val">{reviews.length}</div>
-                <div className="stat-sub" style={{ color: '#059669', fontWeight: 600 }}>
-                  <Star size={11} fill="#059669" /> All feedback
+      {/* Slide-Over Profile Intelligence Drawer */}
+      {selectedCustomerId && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 1000,
+            display: 'flex',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: '650px',
+              backgroundColor: 'var(--bg-main, #ffffff)',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '-8px 0 25px rgba(0,0,0,0.15)',
+              overflowY: 'auto',
+            }}
+          >
+            {/* Drawer Header */}
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid var(--border)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                backgroundColor: 'var(--bg-muted, #f8fafc)',
+                position: 'sticky',
+                top: 0,
+                zIndex: 10,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                  {customerDetail ? `${customerDetail.first_name} ${customerDetail.last_name}` : 'Customer Profile'}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  ID: {selectedCustomerId}
                 </div>
               </div>
-              <div className="stat-icon" style={{ background: '#ecfdf5', color: '#059669' }}>
-                <Star size={16} />
-              </div>
+              <button
+                onClick={() => setSelectedCustomerId(null)}
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '6px' }}
+              >
+                <X size={18} />
+              </button>
             </div>
 
-            {/* 2. Rating Average */}
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Avg Rating</div>
-                <div className="stat-val">{averageRating}</div>
-                <div className="stat-sub" style={{ color: '#f59e0b', fontWeight: 700 }}>
-                  <Star size={11} fill="#f59e0b" color="#f59e0b" /> Out of 5.0
-                </div>
+            {/* Action Notice */}
+            {actionNotice && (
+              <div
+                style={{
+                  margin: '12px 20px 0 20px',
+                  padding: '10px 14px',
+                  borderRadius: '6px',
+                  backgroundColor: actionNotice.startsWith('Error') ? '#fef2f2' : '#f0fdf4',
+                  color: actionNotice.startsWith('Error') ? '#b91c1c' : '#166534',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                }}
+              >
+                {actionNotice}
               </div>
-              <div className="stat-icon" style={{ background: '#fef3c7', color: '#d97706' }}>
-                <Star size={16} />
-              </div>
-            </div>
+            )}
 
-            {/* 3. Approved Reviews */}
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Approved Live</div>
-                <div className="stat-val" style={{ color: '#059669' }}>{approvedReviewsCount}</div>
-                <div className="stat-sub" style={{ color: '#10b981' }}>
-                  <CheckCircle2 size={11} /> Published
+            {/* Deletion Guardrail Alert Banner */}
+            {deleteGuardrailAlert && (
+              <div
+                style={{
+                  margin: '12px 20px 0 20px',
+                  padding: '12px 14px',
+                  borderRadius: '6px',
+                  backgroundColor: '#fff1f2',
+                  border: '1px solid #fecdd3',
+                  color: '#9f1239',
+                  fontSize: '0.8rem',
+                }}
+              >
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontWeight: 700, marginBottom: '4px' }}>
+                  <ShieldAlert size={16} /> Audit Protected Integrity (Pillar 5 Safeguard)
                 </div>
+                {deleteGuardrailAlert}
               </div>
-              <div className="stat-icon" style={{ background: '#dcfce7', color: '#15803d' }}>
-                <CheckCircle2 size={16} />
-              </div>
-            </div>
+            )}
 
-            {/* 4. Pending Queue */}
-            <div className="stat-card" style={{ borderLeft: pendingReviewsCount > 0 ? '3px solid #f59e0b' : undefined }}>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Pending Queue</div>
-                <div className="stat-val" style={{ color: pendingReviewsCount > 0 ? '#f59e0b' : 'var(--text-main)' }}>
-                  {pendingReviewsCount}
+            {isDetailLoading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                Aggregating real-time ledger intelligence...
+              </div>
+            ) : detailError ? (
+              <div style={{ padding: '24px', color: 'var(--danger)', textAlign: 'center' }}>
+                <p>{detailError}</p>
+                <button onClick={() => openCustomerDetail(selectedCustomerId)} className="btn btn-sm btn-secondary">
+                  Retry
+                </button>
+              </div>
+            ) : customerDetail ? (
+              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                {/* 1. Real-Time Financial Intelligence Cards */}
+                <div>
+                  <h3 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                    📊 Real-Time Financial & Logistics Intelligence (Pillar 2)
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                    <div className="card" style={{ padding: '12px', textAlign: 'center', backgroundColor: '#f8fafc' }}>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Lifetime Value (LTV)</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>
+                        {formatMoney(customerDetail.metrics.lifetime_value, currentStore.currency)}
+                      </div>
+                    </div>
+
+                    <div className="card" style={{ padding: '12px', textAlign: 'center', backgroundColor: '#f8fafc' }}>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>Average Order (AOV)</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)', marginTop: '4px' }}>
+                        {formatMoney(customerDetail.metrics.average_order_value, currentStore.currency)}
+                      </div>
+                    </div>
+
+                    <div className="card" style={{ padding: '12px', textAlign: 'center', backgroundColor: '#f8fafc' }}>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>COD Reliability Score</div>
+                      <div style={{ marginTop: '6px' }}>
+                        {renderReliabilityBadge(customerDetail.metrics.reliability_score, customerDetail.metrics.total_orders)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '12px', marginTop: '10px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    <span>Total Orders: <strong>{customerDetail.metrics.total_orders}</strong></span>
+                    <span>Delivered: <strong style={{ color: '#16a34a' }}>{customerDetail.metrics.delivered_orders}</strong></span>
+                    <span>Cancelled: <strong style={{ color: '#dc2626' }}>{customerDetail.metrics.cancelled_orders}</strong></span>
+                    <span>RTO/Refund: <strong style={{ color: '#ea580c' }}>{customerDetail.metrics.rto_orders}</strong></span>
+                  </div>
                 </div>
-                <div className="stat-sub" style={{ color: pendingReviewsCount > 0 ? '#d97706' : 'var(--text-subtle)' }}>
-                  <Clock size={11} /> Needs review
+
+                {/* 2. Contact Channels & Primary Identity */}
+                <div>
+                  <h3 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                    📱 Phone-First Unified Identity (Pillar 1)
+                  </h3>
+                  <div className="card" style={{ padding: '14px', fontSize: '0.85rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Phone size={14} /> Primary Phone Number:
+                      </span>
+                      <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>
+                        {customerDetail.phone || '—'}
+                      </strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Mail size={14} /> Email Address:
+                      </span>
+                      <span>{customerDetail.email || '—'}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Calendar size={14} /> Date of Birth:
+                      </span>
+                      <span>{customerDetail.date_of_birth ? customerDetail.date_of_birth.substring(0, 10) : 'Not specified'}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="stat-icon" style={{ background: '#fef3c7', color: '#d97706' }}>
-                <Clock size={16} />
-              </div>
-            </div>
 
-            {/* 5. Fit Photo Proofs */}
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Photo Proofs</div>
-                <div className="stat-val" style={{ color: '#0284c7' }}>{photoReviewsCount}</div>
-                <div className="stat-sub" style={{ color: '#0284c7' }}>
-                  <ImageIcon size={11} /> Visual proof
-                </div>
-              </div>
-              <div className="stat-icon" style={{ background: '#f0f9ff', color: '#0284c7' }}>
-                <ImageIcon size={16} />
-              </div>
-            </div>
+                {/* 3. CRM Behavioral Notes & Membership Tier Editor */}
+                <div>
+                  <h3 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                    👑 Membership Tier Progression & Staff Notes (Pillar 4)
+                  </h3>
+                  <div className="card" style={{ padding: '14px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                          Assigned Membership Tier:
+                        </label>
+                        <select
+                          value={editTier}
+                          onChange={(e) => setEditTier(e.target.value as MembershipTier)}
+                          className="input"
+                          style={{ width: '100%', padding: '6px 8px' }}
+                        >
+                          <option value="STANDARD">Standard Tier</option>
+                          <option value="SILVER">Silver Tier (5% Off)</option>
+                          <option value="GOLD">Gold Tier (10% Off + Free Delivery)</option>
+                          <option value="VIP_BLACK">★ VIP Black (Exclusive VIP Club)</option>
+                        </select>
+                      </div>
 
-            {/* 6. 5-Star Praise */}
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">5-Star Reviews</div>
-                <div className="stat-val">{fiveStarReviewsCount}</div>
-                <div className="stat-sub" style={{ color: '#10b981', fontWeight: 600 }}>
-                  <Sparkles size={11} /> Top ratings
-                </div>
-              </div>
-              <div className="stat-icon" style={{ background: '#ecfdf5', color: '#059669' }}>
-                <Sparkles size={16} />
-              </div>
-            </div>
+                      <div>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                          Date of Birth:
+                        </label>
+                        <input
+                          type="date"
+                          value={editDob}
+                          onChange={(e) => setEditDob(e.target.value)}
+                          className="input"
+                          style={{ width: '100%', padding: '5px 8px' }}
+                        />
+                      </div>
+                    </div>
 
-            {/* 7. Verified Buyers */}
-            <div className="stat-card">
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div className="stat-label">Verified Buyers</div>
-                <div className="stat-val">{verifiedReviewsCount}</div>
-                <div className="stat-sub" style={{ color: '#6366f1' }}>
-                  <ShieldCheck size={11} /> Verified orders
-                </div>
-              </div>
-              <div className="stat-icon" style={{ background: '#eef2ff', color: '#6366f1' }}>
-                <ShieldCheck size={16} />
-              </div>
-            </div>
-          </div>
+                    <div style={{ marginBottom: '12px' }}>
+                      <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                        Staff CRM Behavioral Remarks & Customer Preferences:
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={editNotes}
+                        onChange={(e) => setEditNotes(e.target.value)}
+                        placeholder="e.g. Regular tele-sales customer; calls before delivery; prefers red packaging..."
+                        className="input"
+                        style={{ width: '100%', resize: 'vertical' }}
+                      />
+                    </div>
 
-          {/* Filter Bar: Status & Star Ratings */}
-          <div className="card" style={{ padding: '12px 16px', marginBottom: '14px' }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', justifyContent: 'space-between' }}>
-              {/* Status Chips */}
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {(['ALL', 'PENDING', 'APPROVED', 'FEATURED', 'ARCHIVED'] as const).map((st) => {
-                  const isActive = reviewStatusFilter === st;
-                  const count =
-                    st === 'ALL'
-                      ? reviews.length
-                      : reviews.filter((r) => r.status === st).length;
-
-                  return (
                     <button
-                      key={st}
-                      type="button"
-                      onClick={() => setReviewStatusFilter(st)}
-                      className="touch-btn"
-                      style={{
-                        padding: '5px 12px',
-                        borderRadius: '20px',
-                        border: isActive ? '1px solid var(--primary)' : '1px solid var(--border)',
-                        backgroundColor: isActive ? 'rgba(20, 184, 166, 0.15)' : 'transparent',
-                        color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                        fontSize: '0.75rem',
-                        fontWeight: isActive ? 700 : 500,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                      }}
+                      onClick={handleSaveCRMProfile}
+                      disabled={isSavingNotes}
+                      className="btn btn-primary btn-sm"
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
-                      <span>{st}</span>
-                      <span style={{ fontSize: '0.68rem', opacity: 0.8 }}>({count})</span>
+                      <Edit3 size={14} /> {isSavingNotes ? 'Saving Notes...' : 'Save CRM Changes'}
                     </button>
-                  );
-                })}
-              </div>
-
-              {/* Star Rating Dropdown & Search */}
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <select
-                  value={reviewRatingFilter}
-                  onChange={(e) => setReviewRatingFilter(parseInt(e.target.value) || 0)}
-                  className="form-input"
-                  style={{ height: '32px', fontSize: '0.78rem', paddingRight: '24px' }}
-                >
-                  <option value={0}>All Star Ratings</option>
-                  <option value={5}>5 Stars ★★★★★</option>
-                  <option value={4}>4 Stars ★★★★☆</option>
-                  <option value={3}>3 Stars ★★★☆☆</option>
-                  <option value={2}>2 Stars ★★☆☆☆</option>
-                  <option value={1}>1 Star ★☆☆☆☆</option>
-                </select>
-
-                <div style={{ position: 'relative', width: '220px' }}>
-                  <Search size={14} style={{ position: 'absolute', left: '9px', top: '9px', color: 'var(--text-subtle)' }} />
-                  <input
-                    type="text"
-                    placeholder="Search review, customer, phone..."
-                    value={reviewSearch}
-                    onChange={(e) => setReviewSearch(e.target.value)}
-                    className="form-input"
-                    style={{ paddingLeft: '28px', width: '100%', height: '32px', fontSize: '0.78rem' }}
-                  />
+                  </div>
                 </div>
-              </div>
-            </div>
-          </div>
 
-          {/* Moderation Reviews Table */}
-          <div className="card" style={{ padding: 0 }}>
-            <div className="table-container" style={{ border: 'none' }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Customer (Verified CRM)</th>
-                    <th>Target Product</th>
-                    <th>Rating & Feedback</th>
-                    <th>Photo Proof</th>
-                    <th>Rank</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredReviews.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
-                        No product reviews found matching the current filter.
-                      </td>
-                    </tr>
+                {/* 4. Hierarchical Geographic Address Architecture */}
+                <div>
+                  <h3 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                    📍 Geographic Address Book (Pillar 3)
+                  </h3>
+                  {customerDetail.addresses.length === 0 ? (
+                    <div className="card" style={{ padding: '14px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      No saved addresses found. Addresses will be captured on checkout or tele-sales dispatch.
+                    </div>
                   ) : (
-                    filteredReviews.map((rev) => (
-                      <tr key={rev.id}>
-                        {/* Customer Column */}
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                            <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: '#e0e7ff', color: '#4338ca', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.75rem', flexShrink: 0 }}>
-                              {rev.customerName.substring(0, 2).toUpperCase()}
-                            </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {customerDetail.addresses.map((addr) => (
+                        <div key={addr.id} className="card" style={{ padding: '12px', fontSize: '0.82rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <strong>{addr.label || 'Delivery Address'} ({addr.recipient_name})</strong>
                             <div>
-                              <div style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <span>{rev.customerName}</span>
-                                {rev.isVerifiedPurchase && (
-                                  <span title="Verified Buyer (Confirmed Order)">
-                                    <ShieldCheck size={13} style={{ color: '#10b981' }} />
-                                  </span>
-                                )}
-                              </div>
-                              <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '1px' }}>
-                                <Phone size={11} />
-                                <span>{rev.customerPhone}</span>
-                              </div>
-                              <div style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>
-                                {rev.createdAt}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Product Column */}
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', maxWidth: '180px' }}>
-                            {rev.productImage && (
-                              <img
-                                src={rev.productImage}
-                                alt=""
-                                style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover' }}
-                              />
-                            )}
-                            <div style={{ overflow: 'hidden' }}>
-                              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', display: 'block', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                                {rev.productTitle}
-                              </span>
-                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                {rev.productSlug}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Rating & Feedback */}
-                        <td>
-                          <div style={{ maxWidth: '280px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginBottom: '2px' }}>
-                              {[1, 2, 3, 4, 5].map((s) => (
-                                <Star
-                                  key={s}
-                                  size={13}
-                                  fill={rev.rating >= s ? '#f59e0b' : 'none'}
-                                  color={rev.rating >= s ? '#f59e0b' : '#64748b'}
-                                />
-                              ))}
-                              <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#f59e0b', marginLeft: '4px' }}>
-                                {rev.rating}.0
-                              </span>
-                            </div>
-                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '2px' }}>
-                              {rev.title}
-                            </div>
-                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.3', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                              {rev.comment}
-                            </div>
-                            {rev.staffNotes && (
-                              <div style={{ fontSize: '0.7rem', color: '#38bdf8', marginTop: '3px', fontStyle: 'italic' }}>
-                                Staff: {rev.staffNotes}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Photo Proof Gallery */}
-                        <td>
-                          {rev.images && rev.images.length > 0 ? (
-                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                              {rev.images.slice(0, 2).map((img, idx) => (
-                                <button
-                                  key={idx}
-                                  type="button"
-                                  onClick={() => setPreviewImageUrl(img)}
-                                  style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}
-                                  title="Click to inspect photo proof"
-                                >
-                                  <img
-                                    src={img}
-                                    alt=""
-                                    style={{ width: '36px', height: '36px', borderRadius: '4px', objectFit: 'cover', border: '1px solid var(--border)' }}
-                                  />
-                                </button>
-                              ))}
-                              {rev.images.length > 2 && (
-                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>
-                                  +{rev.images.length - 2}
+                              {addr.is_default_shipping && (
+                                <span className="badge" style={{ backgroundColor: '#ecfdf5', color: '#047857', marginRight: '4px' }}>
+                                  Default Shipping
+                                </span>
+                              )}
+                              {addr.is_default_billing && (
+                                <span className="badge" style={{ backgroundColor: '#eff6ff', color: '#1d4ed8' }}>
+                                  Default Billing
                                 </span>
                               )}
                             </div>
-                          ) : (
-                            <span style={{ fontSize: '0.74rem', color: 'var(--text-subtle)' }}>No Photos</span>
-                          )}
-                        </td>
-
-                        {/* Storefront Display Rank */}
-                        <td>
-                          <span className="badge badge-outline" style={{ fontSize: '0.72rem', fontWeight: 700 }}>
-                            #{rev.displayOrder}
-                          </span>
-                        </td>
-
-                        {/* Status Badge */}
-                        <td>
-                          {rev.status === 'FEATURED' && (
-                            <span className="badge" style={{ backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.3)', fontSize: '0.72rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                              <Star size={11} fill="#c084fc" /> FEATURED
-                            </span>
-                          )}
-                          {rev.status === 'APPROVED' && (
-                            <span className="badge badge-success" style={{ fontSize: '0.72rem', fontWeight: 700 }}>
-                              APPROVED
-                            </span>
-                          )}
-                          {rev.status === 'PENDING' && (
-                            <span className="badge badge-warning" style={{ fontSize: '0.72rem', fontWeight: 700 }}>
-                              PENDING
-                            </span>
-                          )}
-                          {rev.status === 'ARCHIVED' && (
-                            <span className="badge" style={{ backgroundColor: 'rgba(100, 116, 139, 0.15)', color: '#94a3b8', border: '1px solid rgba(100, 116, 139, 0.3)', fontSize: '0.72rem' }}>
-                              ARCHIVED
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Moderation Actions */}
-                        <td>
-                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                            {/* One-click Approve */}
-                            {rev.status !== 'APPROVED' && (
-                              <button
-                                type="button"
-                                onClick={() => handleQuickStatusChange(rev, 'APPROVED')}
-                                className="btn btn-secondary btn-sm"
-                                style={{ padding: '3px 6px', color: '#10b981' }}
-                                title="Approve Review (Publish to Storefront)"
-                              >
-                                <CheckCircle2 size={13} />
-                              </button>
-                            )}
-
-                            {/* One-click Feature / Pin */}
-                            {rev.status !== 'FEATURED' && (
-                              <button
-                                type="button"
-                                onClick={() => handleQuickStatusChange(rev, 'FEATURED')}
-                                className="btn btn-secondary btn-sm"
-                                style={{ padding: '3px 6px', color: '#c084fc' }}
-                                title="Pin as Featured Testimonial at Top of PDP"
-                              >
-                                <Star size={13} />
-                              </button>
-                            )}
-
-                            {/* Edit Modal Button */}
-                            {onUpdateReview && (
-                              <button
-                                type="button"
-                                onClick={() => setEditingReview(rev)}
-                                className="btn btn-secondary btn-sm"
-                                style={{ padding: '4px 7px' }}
-                                title="Edit Review Content & Priority"
-                              >
-                                <Pencil size={13} />
-                              </button>
-                            )}
-
-                            {/* One-click Archive */}
-                            {rev.status !== 'ARCHIVED' && (
-                              <button
-                                type="button"
-                                onClick={() => handleQuickStatusChange(rev, 'ARCHIVED')}
-                                className="btn btn-secondary btn-sm"
-                                style={{ padding: '3px 6px', color: '#94a3b8' }}
-                                title="Archive from Public Storefront"
-                              >
-                                <Archive size={13} />
-                              </button>
-                            )}
-
-                            {/* Delete Approval Confirmation Modal */}
-                            {onDeleteReview && (
-                              <button
-                                type="button"
-                                onClick={() => setDeletingReview(rev)}
-                                className="btn btn-danger btn-sm"
-                                style={{ padding: '3px 6px' }}
-                                title="Delete Review"
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            )}
                           </div>
-                        </td>
-                      </tr>
-                    ))
+                          <div style={{ color: 'var(--text-muted)' }}>
+                            {addr.street_address}
+                            {addr.apartment_suite && `, ${addr.apartment_suite}`}
+                          </div>
+                          <div style={{ marginTop: '4px', fontWeight: 600 }}>
+                            {addr.thana && `${addr.thana}, `}{addr.district || addr.city}, {addr.country}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            Phone: {addr.phone}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
-                </tbody>
-              </table>
+                </div>
+
+                {/* 5. Recent Orders Ledger */}
+                <div>
+                  <h3 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '10px' }}>
+                    🛒 Recent Order Activity
+                  </h3>
+                  {customerDetail.recent_orders.length === 0 ? (
+                    <div className="card" style={{ padding: '14px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      No order history recorded for this customer.
+                    </div>
+                  ) : (
+                    <div className="card" style={{ padding: 0 }}>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Order #</th>
+                            <th>Status</th>
+                            <th>Payment</th>
+                            <th>Amount</th>
+                            <th>Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {customerDetail.recent_orders.map((o) => (
+                            <tr key={o.id}>
+                              <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{o.order_number}</td>
+                              <td><span className="badge">{o.status}</span></td>
+                              <td>{o.payment_status}</td>
+                              <td style={{ fontWeight: 700 }}>{formatMoney(o.total_amount, currentStore.currency)}</td>
+                              <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                {new Date(o.created_at).toLocaleDateString()}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* 6. Operational Guardrails & Staff Tools */}
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <h3 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                    ⚙️ Staff Tools & Guardrails (Pillar 5)
+                  </h3>
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {/* Impersonation Button */}
+                    <button
+                      onClick={() => handleImpersonate(customerDetail.id)}
+                      disabled={isImpersonating}
+                      className="btn btn-secondary btn-sm"
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <ExternalLink size={14} />
+                      {isImpersonating ? 'Issuing Token...' : '1-Click Customer Impersonation'}
+                    </button>
+
+                    {/* Blacklist / Soft-Deactivate Button */}
+                    <button
+                      onClick={() => setIsBlacklistPromptOpen(true)}
+                      className={`btn btn-sm ${customerDetail.is_blacklisted ? 'btn-secondary' : 'btn-danger'}`}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <ShieldAlert size={14} />
+                      {customerDetail.is_blacklisted ? 'Reinstate Active Status' : 'Blacklist / Soft-Deactivate'}
+                    </button>
+
+                    {/* Safe Delete Guardrail Button */}
+                    <button
+                      onClick={handleDeleteWithGuardrail}
+                      disabled={isDeleting}
+                      className="btn btn-sm btn-secondary"
+                      style={{ color: '#b91c1c', display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}
+                      title="Deletes profile if no orders exist. Blocks hard delete if financial ledger records exist."
+                    >
+                      <Trash2 size={14} />
+                      {isDeleting ? 'Checking Ledger...' : 'Delete Profile'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* Blacklist Prompt Modal */}
+      {isBlacklistPromptOpen && customerDetail && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.7)',
+            zIndex: 1100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+          }}
+        >
+          <div className="card" style={{ maxWidth: '450px', width: '100%', padding: '20px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 8px 0', color: customerDetail.is_blacklisted ? 'var(--text-main)' : 'var(--danger)' }}>
+              {customerDetail.is_blacklisted ? 'Reinstate Customer Profile' : 'Blacklist Customer Account'}
+            </h3>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
+              {customerDetail.is_blacklisted
+                ? 'Are you sure you want to restore this customer account to active status?'
+                : 'Blacklisting will soft-deactivate this customer, flag high RTO risk on incoming orders, and prevent promotional redemption.'}
+            </p>
+
+            {!customerDetail.is_blacklisted && (
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                  Reason for Blacklisting:
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Serial fake orders, refused 3 COD deliveries at doorstep"
+                  value={blacklistReason}
+                  onChange={(e) => setBlacklistReason(e.target.value)}
+                  className="input"
+                  style={{ width: '100%' }}
+                />
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setIsBlacklistPromptOpen(false)} className="btn btn-secondary btn-sm">
+                Cancel
+              </button>
+              <button
+                onClick={handleToggleBlacklist}
+                className={`btn btn-sm ${customerDetail.is_blacklisted ? 'btn-primary' : 'btn-danger'}`}
+              >
+                {customerDetail.is_blacklisted ? 'Confirm Reinstate' : 'Confirm Blacklist'}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* MODALS & CONFIRMATIONS                                                    */}
-      {/* ========================================================================= */}
-
-      {/* Add Customer Modal */}
-      {isAddCustomerModalOpen && onAddCustomer && (
-        <AddCustomerModal
-          onClose={() => setIsAddCustomerModalOpen(false)}
-          onAdd={(newCust) => {
-            onAddCustomer(newCust);
-            setIsAddCustomerModalOpen(false);
-          }}
-        />
-      )}
-
-      {/* Edit Customer Modal */}
-      {editingCustomer && onUpdateCustomer && (
-        <EditCustomerModal
-          customer={editingCustomer}
-          onClose={() => setEditingCustomer(null)}
-          onSave={(updated) => {
-            onUpdateCustomer(updated);
-            setEditingCustomer(null);
-          }}
-        />
-      )}
-
-      {/* Delete Customer Confirmation Modal */}
-      {deletingCustomer && onDeleteCustomer && (
-        <ConfirmDeleteModal
-          isOpen={!!deletingCustomer}
-          title="Delete Customer Account"
-          itemName={`${deletingCustomer.name} (${deletingCustomer.email})`}
-          itemType="Customer Profile"
-          warningMessage={`Are you sure you want to permanently delete customer profile for "${deletingCustomer.name}"? Historical CRM spend data will be detached.`}
-          onConfirm={() => {
-            onDeleteCustomer(deletingCustomer.id);
-            setDeletingCustomer(null);
-          }}
-          onClose={() => setDeletingCustomer(null)}
-        />
-      )}
-
-      {/* Log Customer Review Modal (Channel B) */}
-      {isLogReviewModalOpen && onAddReview && (
-        <LogCustomerReviewModal
-          currentStore={currentStore}
-          customers={customers}
-          products={products}
-          onClose={() => setIsLogReviewModalOpen(false)}
-          onAdd={(newRev) => {
-            onAddReview(newRev);
-            setIsLogReviewModalOpen(false);
-          }}
-        />
-      )}
-
-      {/* Edit Review Modal */}
-      {editingReview && onUpdateReview && (
-        <EditReviewModal
-          review={editingReview}
-          onClose={() => setEditingReview(null)}
-          onSave={(updated) => {
-            onUpdateReview(updated);
-            setEditingReview(null);
-          }}
-        />
-      )}
-
-      {/* Delete Review Approval Modal (AGENT.md Universal CRUD Requirement) */}
-      {deletingReview && onDeleteReview && (
-        <ConfirmDeleteModal
-          isOpen={!!deletingReview}
-          title="Delete Customer Review"
-          itemName={`${deletingReview.rating}★ Review by ${deletingReview.customerName}`}
-          itemType="Product Review & Social Proof"
-          warningMessage={`Are you sure you want to permanently delete review "${deletingReview.title}" for product "${deletingReview.productTitle}"? This will permanently remove its rating from the storefront math and purge all ${deletingReview.images?.length || 0} attached fit photos from storage.`}
-          onConfirm={() => {
-            onDeleteReview(deletingReview.id);
-            setDeletingReview(null);
-          }}
-          onClose={() => setDeletingReview(null)}
-        />
-      )}
-
-      {/* Photo Proof Lightbox Modal */}
-      {previewImageUrl && (
+      {/* Create Customer Modal */}
+      {isCreating && (
         <div
-          className="modal-backdrop"
-          style={{ zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => setPreviewImageUrl(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.7)',
+            zIndex: 1100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+          }}
         >
-          <div
-            style={{ position: 'relative', maxWidth: '85vw', maxHeight: '85vh', borderRadius: '10px', overflow: 'hidden', backgroundColor: '#000' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setPreviewImageUrl(null)}
-              style={{
-                position: 'absolute',
-                top: '10px',
-                right: '10px',
-                background: 'rgba(0,0,0,0.6)',
-                border: 'none',
-                color: '#fff',
-                borderRadius: '50%',
-                padding: '6px',
-                cursor: 'pointer',
-              }}
-            >
-              <X size={20} />
-            </button>
-            <img
-              src={previewImageUrl}
-              alt="Customer Fit Photo Proof"
-              style={{ maxWidth: '100%', maxHeight: '85vh', objectFit: 'contain', display: 'block' }}
-            />
+          <div className="card" style={{ maxWidth: '500px', width: '100%', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>Register New Customer Profile</h3>
+              <button onClick={() => setIsCreating(false)} className="btn btn-secondary btn-sm" style={{ padding: '4px' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            {createError && (
+              <div style={{ padding: '8px 12px', backgroundColor: '#fef2f2', color: '#b91c1c', borderRadius: '6px', fontSize: '0.8rem', marginBottom: '12px' }}>
+                {createError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateCustomerSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>First Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newFirstName}
+                    onChange={(e) => setNewFirstName(e.target.value)}
+                    className="input"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Last Name</label>
+                  <input
+                    type="text"
+                    value={newLastName}
+                    onChange={(e) => setNewLastName(e.target.value)}
+                    className="input"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                  Mobile Phone (Primary Anchor Key) *
+                </label>
+                <input
+                  type="text"
+                  placeholder="+8801XXXXXXXXX"
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  className="input"
+                  style={{ width: '100%', fontFamily: 'var(--font-mono)' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Email Address</label>
+                <input
+                  type="email"
+                  placeholder="customer@domain.com"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  className="input"
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Initial Membership Tier</label>
+                <select
+                  value={newTier}
+                  onChange={(e) => setNewTier(e.target.value as MembershipTier)}
+                  className="input"
+                  style={{ width: '100%' }}
+                >
+                  <option value="STANDARD">Standard Tier</option>
+                  <option value="SILVER">Silver Tier</option>
+                  <option value="GOLD">Gold Tier</option>
+                  <option value="VIP_BLACK">★ VIP Black</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Staff CRM Remarks</label>
+                <textarea
+                  rows={2}
+                  value={newNotes}
+                  onChange={(e) => setNewNotes(e.target.value)}
+                  placeholder="Initial notes on acquisition or customer preferences..."
+                  className="input"
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
+                <button type="button" onClick={() => setIsCreating(false)} className="btn btn-secondary btn-sm">
+                  Cancel
+                </button>
+                <button type="submit" disabled={isSubmittingCreate} className="btn btn-primary btn-sm">
+                  {isSubmittingCreate ? 'Creating...' : 'Create Customer Profile'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

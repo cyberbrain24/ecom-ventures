@@ -8,16 +8,33 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
 var (
 	// ErrBundleTierNotFound indicates the requested bundle tier does not exist.
 	ErrBundleTierNotFound = errors.New("bundle tier not found")
+
+	bundleSchemaMu    sync.Mutex
+	bundleSchemaReady sync.Map // *sql.DB -> struct{}
 )
 
 // EnsureBundleSchema idempotently creates the bundle_tiers table and default seeds if missing.
 func (r *SQLRepository) EnsureBundleSchema(ctx context.Context, db *sql.DB) error {
+	if db == nil {
+		return errors.New("nil database handle")
+	}
+	if _, ok := bundleSchemaReady.Load(db); ok {
+		return nil
+	}
+
+	bundleSchemaMu.Lock()
+	defer bundleSchemaMu.Unlock()
+	if _, ok := bundleSchemaReady.Load(db); ok {
+		return nil
+	}
+
 	query := `
 		CREATE TABLE IF NOT EXISTS bundle_tiers (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -36,8 +53,17 @@ func (r *SQLRepository) EnsureBundleSchema(ctx context.Context, db *sql.DB) erro
 
 		CREATE INDEX IF NOT EXISTS idx_bundle_tiers_active_order ON bundle_tiers (is_active, display_order ASC);
 	`
-	_, err := db.ExecContext(ctx, query)
-	return err
+	if _, err := db.ExecContext(ctx, query); err != nil {
+		var exists bool
+		_ = db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'bundle_tiers')").Scan(&exists)
+		if exists {
+			bundleSchemaReady.Store(db, struct{}{})
+			return nil
+		}
+		return err
+	}
+	bundleSchemaReady.Store(db, struct{}{})
+	return nil
 }
 
 // ListBundleTiers returns all bundle tiers ordered by display_order ASC, created_at ASC.

@@ -4,13 +4,9 @@ package middleware
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 
-	"ecom-ventures/backend/internal/platform"
-	"ecom-ventures/backend/internal/store"
 	storeCtx "ecom-ventures/backend/internal/store/context"
 	"ecom-ventures/backend/internal/store/resolver"
 	"ecom-ventures/backend/pkg/response"
@@ -80,51 +76,6 @@ func RequireTenantContext(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// TenantResolver provides legacy in-memory registry resolution for platform integration tests.
-func TenantResolver(reg platform.Registry) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			slug := r.Header.Get("X-Store-Slug")
-			host := r.Host
-			if colonIdx := strings.Index(host, ":"); colonIdx != -1 {
-				host = host[:colonIdx]
-			}
-
-			var matchedStore *platform.Store
-			var err error
-
-			if slug != "" {
-				matchedStore, err = reg.GetBySlug(r.Context(), slug)
-			} else {
-				matchedStore, err = reg.GetByDomain(r.Context(), host)
-			}
-
-			if err != nil {
-				response.WriteProblem(w, r, http.StatusNotFound, "Tenant Not Found",
-					fmt.Sprintf("Unable to resolve tenant for host %q or slug %q: %v", host, slug, err))
-				return
-			}
-
-			if matchedStore.Status != "active" {
-				response.WriteProblem(w, r, http.StatusForbidden, "Tenant Inactive",
-					fmt.Sprintf("Store %q is currently %s", matchedStore.Slug, matchedStore.Status))
-				return
-			}
-
-			tCtx := store.TenantContext{
-				StoreID:   matchedStore.ID,
-				StoreSlug: matchedStore.Slug,
-				DBName:    matchedStore.DBName,
-				DBHost:    matchedStore.DBHost,
-				DBPort:    matchedStore.DBPort,
-			}
-
-			ctx := store.WithTenantContext(r.Context(), tCtx)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
 }
 
 func handleResolverError(w http.ResponseWriter, r *http.Request, err error, identifier string) {

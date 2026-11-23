@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Globe } from 'lucide-react';
 import { StoreSummary } from '../../types/store';
-import { api } from '../../lib/api';
+import { api, apiErrorMessage } from '../../lib/api';
 
 interface AddDomainModalProps {
   stores: StoreSummary[];
@@ -30,12 +30,8 @@ export const AddDomainModal: React.FC<AddDomainModalProps> = ({ stores, onClose,
       });
       onAdded();
       onClose();
-    } catch (err: any) {
-      if (err.response?.data?.detail) {
-        setErrorMsg(err.response.data.detail);
-      } else {
-        setErrorMsg('Failed to bind domain. Please check format.');
-      }
+    } catch (err) {
+      setErrorMsg(apiErrorMessage(err, 'Failed to bind domain. Please check format.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -87,7 +83,7 @@ export const AddDomainModal: React.FC<AddDomainModalProps> = ({ stores, onClose,
               onChange={(e) => setDomain(e.target.value)}
               className="mt-1 w-full px-3 py-2 border rounded-lg text-sm font-mono outline-none focus:ring-2 focus:ring-teal-500"
             />
-            <span className="text-[11px] text-slate-400 mt-1 block">Format: mior.com or shop.branda.com</span>
+            <span className="text-[11px] text-slate-400 mt-1 block">Format: yourbrand.com or shop.yourbrand.com</span>
           </div>
 
           <div className="flex items-center space-x-2 pt-2">

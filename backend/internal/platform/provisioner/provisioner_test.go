@@ -40,7 +40,7 @@ func TestProvisionerDropInvalidDatabaseName(t *testing.T) {
 		t.Fatalf("unexpected provisioner initialization error: %v", err)
 	}
 
-	err = p.DropStoreDatabase(context.Background(), "invalid-db-name;DROP--")
+	err = p.DropStoreDatabase(context.Background(), "invalid-db-name;DROP--", "user_testshop_0a1b2c3d")
 	if err == nil {
 		t.Fatalf("expected error on invalid db name in DropStoreDatabase, got nil")
 	}

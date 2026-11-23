@@ -84,3 +84,66 @@ type CAPIEvent struct {
 	UserData       CAPIUserData    `json:"user_data"`
 	CustomData     *CAPICustomData `json:"custom_data,omitempty"`
 }
+
+// MetaAttributionScorecard represents the 3-Way Reconciliation Scorecard.
+type MetaAttributionScorecard struct {
+	Status              string  `json:"status"` // HEALTHY, WARNING, CRITICAL
+	DiscrepancyRate     float64 `json:"discrepancy_rate"`
+	StorefrontOrders    int     `json:"storefront_orders"`
+	TrackedTouchpoints  int     `json:"tracked_touchpoints"`
+	MetaCAPIReceived    int     `json:"meta_capi_received"`
+	IntakeEvents        int     `json:"intake_events"`
+	QuarantinedEvents   int     `json:"quarantined_events"`
+}
+
+// ExecutiveFinancialMetrics tiles.
+type ExecutiveFinancialMetrics struct {
+	DeliveredROAS      float64 `json:"delivered_roas"`
+	NetContributionBDT float64 `json:"net_contribution_bdt"`
+	DeliveredRevenue   float64 `json:"delivered_revenue_bdt"`
+	DeliveredOrders    int     `json:"delivered_orders_count"`
+	AdSpendBDT         float64 `json:"ad_spend_bdt"`
+	AdSpendUSD         float64 `json:"ad_spend_usd"`
+}
+
+// CampaignAttributionRow represents a single campaign row in the Attribution Matrix.
+type CampaignAttributionRow struct {
+	CampaignID       string  `json:"campaign_id"`
+	CampaignName     string  `json:"campaign_name"`
+	AdSpendBDT       float64 `json:"ad_spend_bdt"`
+	AdSpendUSD       float64 `json:"ad_spend_usd"`
+	AttributedPlaced int     `json:"attributed_placed_orders"`
+	PlacedRevenueBDT float64 `json:"placed_revenue_bdt"`
+	DeliveredOrders  int     `json:"delivered_orders"`
+	DeliveredRevenue float64 `json:"delivered_revenue_bdt"`
+	DeliveryRate     float64 `json:"delivery_rate"`
+	COGS             float64 `json:"cogs_bdt"`
+	CourierCost      float64 `json:"courier_cost_bdt"`
+	ReturnPenalty    float64 `json:"return_penalty_bdt"`
+	NetAdProfit      float64 `json:"net_ad_profit_bdt"`
+	RealROAS         float64 `json:"real_roas"`
+	IsUnprofitable   bool    `json:"is_unprofitable"`
+}
+
+// MetaCAPIAuditLogRow represents an audit entry for server-side CAPI dispatch.
+type MetaCAPIAuditLogRow struct {
+	ID                string    `json:"id"`
+	OrderID           *string   `json:"order_id,omitempty"`
+	EventName         string    `json:"event_name"`
+	EventID           string    `json:"event_id"`
+	Status            string    `json:"status"` // SUCCESS, SKIPPED, FAILED, QUARANTINED
+	HTTPCode          int       `json:"http_code"`
+	AgeHours          float64   `json:"age_hours"`
+	IsAgeQuarantined  bool      `json:"is_age_quarantined"`
+	DispatchedAt      time.Time `json:"dispatched_at"`
+}
+
+// MetaAttributionDashboardResponse aggregates all components of the Attribution Platform.
+type MetaAttributionDashboardResponse struct {
+	Scorecard   MetaAttributionScorecard   `json:"scorecard"`
+	Financials  ExecutiveFinancialMetrics  `json:"financials"`
+	Campaigns   []CampaignAttributionRow   `json:"campaigns"`
+	AuditLogs   []MetaCAPIAuditLogRow      `json:"audit_logs"`
+	ActiveModel string                     `json:"active_model"` // last_paid_ad, first_touch, linear, position_based
+}
+

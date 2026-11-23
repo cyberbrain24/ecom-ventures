@@ -31,35 +31,3 @@ ALTER TABLE categories ADD COLUMN IF NOT EXISTS meta_description TEXT NOT NULL D
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS focus_keyword VARCHAR(150) NOT NULL DEFAULT '';
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS canonical_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS meta_robots VARCHAR(50) NOT NULL DEFAULT 'index, follow';
-
--- 4. Initial SEO Defaults & Seeding for Existing Store Records
-UPDATE store_settings
-SET
-    meta_title_template = COALESCE(NULLIF(meta_title_template, ''), '%s | ' || store_name),
-    default_meta_title = COALESCE(NULLIF(default_meta_title, ''), store_name || ' | Official Online Store & Catalog'),
-    default_meta_description = COALESCE(NULLIF(default_meta_description, ''), 'Shop authentic, premium merchandise with doorstep delivery and verified quality at ' || store_name || '.'),
-    default_keywords = COALESCE(NULLIF(default_keywords, ''), 'ecommerce, online store, fashion, shopping, ' || lower(store_name)),
-    favicon_url = COALESCE(NULLIF(favicon_url, ''), 'https://images.unsplash.com/photo-1544441893-675973e31985?w=64&auto=format&fit=crop&q=80'),
-    apple_touch_icon_url = COALESCE(NULLIF(apple_touch_icon_url, ''), 'https://images.unsplash.com/photo-1544441893-675973e31985?w=180&auto=format&fit=crop&q=80'),
-    default_og_image_url = COALESCE(NULLIF(default_og_image_url, ''), 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=1200&auto=format&fit=crop&q=80'),
-    twitter_handle = COALESCE(NULLIF(twitter_handle, ''), '@' || lower(replace(store_name, ' ', '')))
-WHERE id = (SELECT id FROM store_settings LIMIT 1);
-
--- Seed sensible product SEO defaults where blank
-UPDATE products
-SET
-    meta_title = COALESCE(NULLIF(meta_title, ''), title || ' | Buy Online'),
-    meta_description = COALESCE(NULLIF(meta_description, ''), COALESCE(NULLIF(summary, ''), 'Buy ' || title || ' with verified quality guarantee and fast doorstep delivery.')),
-    focus_keyword = COALESCE(NULLIF(focus_keyword, ''), lower(title)),
-    meta_robots = 'index, follow'
-WHERE meta_title = '' OR meta_description = '';
-
--- Seed sensible category SEO defaults where blank
-UPDATE categories
-SET
-    meta_title = COALESCE(NULLIF(meta_title, ''), name || ' Collection | Authentic Range'),
-    meta_description = COALESCE(NULLIF(meta_description, ''), COALESCE(NULLIF(description, ''), 'Explore our curated ' || name || ' collection crafted with uncompromising quality.')),
-    focus_keyword = COALESCE(NULLIF(focus_keyword, ''), lower(name)),
-    meta_robots = 'index, follow'
-WHERE meta_title = '' OR meta_description = '';
-

@@ -1,15 +1,31 @@
-export type StoreTab = 
+export interface StoreStaff {
+  id: string;
+  name: string;
+  firstName?: string;
+  lastName?: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  createdAt?: string;
+}
+
+export type StoreTab =
   | 'dashboard'
   | 'catalog'
   | 'inventory'
   | 'orders'
+  | 'tasks'
+  | 'analytics'
+  | 'meta-ads'
   | 'customers'
   | 'promotions'
   | 'blog'
   | 'logistics'
+  | 'shipping'
   | 'payments'
   | 'accounts'
   | 'marketing'
+  | 'music'
   | 'theme'
   | 'settings';
 
@@ -60,7 +76,7 @@ export interface StoreBlogPost {
   viewCount: number;
   tags: string[];
 
-  // 100% SEO Focused Fields
+  // SEO fields
   metaTitle: string;
   metaDescription: string;
   focusKeyword: string;
@@ -126,8 +142,28 @@ export interface ShipmentRecord {
   estimatedDelivery: string;
 }
 
+export interface ThemePaletteColors {
+  primary: string;
+  secondary: string;
+  accent: string;
+  background: string;
+  surface: string;
+  text: string;
+  muted: string;
+}
+
+export interface ThemeTypographyConfig {
+  heading: string;
+  body: string;
+  headingWeight: '400' | '500' | '600' | '700' | '800' | '900';
+  letterSpacing: 'tight' | 'normal' | 'wide' | 'expanded';
+  textTransform: 'none' | 'uppercase' | 'capitalize';
+  fontSizeScale: 'compact' | 'standard' | 'airy';
+}
+
 export interface ThemeCustomizerConfig {
   themeName: string;
+  themeSlug?: string;
   primaryColor: string;
   secondaryColor: string;
   headingFont: string;
@@ -136,17 +172,20 @@ export interface ThemeCustomizerConfig {
   headerLayout: 'standard' | 'centered' | 'minimal';
   showAnnouncement: boolean;
   announcementText: string;
+  colors: ThemePaletteColors;
+  typography: ThemeTypographyConfig;
 }
 
 export interface StoreBrand {
   id: string;
   name: string;
   slug: string;
+  status?: string;
   currency: string;
   timezone: string;
-  dbName: string;
+  dbName?: string;
   primaryDomain: string;
-  themeSlug: string;
+  themeSlug?: string;
 }
 
 export interface ProductBrand {
@@ -227,13 +266,21 @@ export interface InventoryMovement {
   timestamp: string;
 }
 
-export type OrderStatus = 
-  | 'PENDING' 
-  | 'CONFIRMED' 
-  | 'PROCESSING' 
-  | 'SHIPPED' 
-  | 'DELIVERED' 
-  | 'CANCELLED';
+export type OrderStatus =
+  | 'PLACED'
+  | 'REVIEW'
+  | 'PENDING'
+  | 'DELAYED'
+  | 'HOLD'
+  | 'CONFIRMED'
+  | 'PROCESSING'
+  | 'APPROVAL_PENDING'
+  | 'SHIPPED'
+  | 'DELIVERED'
+  | 'PARTIALLY_DELIVERED'
+  | 'RETURNED'
+  | 'CANCELLED'
+  | 'MANUALLY_CANCELLED';
 
 export interface OrderItem {
   id: string;
@@ -286,7 +333,254 @@ export interface StoreOrder {
   specialNote?: string;
   riskFlags?: OrderRiskFlag[];
   callNotes?: OrderCallNote[];
+  is_urgent?: boolean;
+  is_ready?: boolean;
+  is_print_ready?: boolean;
+  courier_risk_level?: string;
+  courier_delivery_ratio?: number;
+  delay_blocker_reason?: string;
+  cancellation_root_cause?: string;
+  return_root_cause?: string;
+  is_partial_split?: boolean;
+  parent_order_id?: string;
   createdAt: string;
+}
+
+export interface FulfillmentQueueItem {
+  order: StoreOrder;
+  aging_hours: number;
+  aging_tier: 'NORMAL' | 'WARNING' | 'HIGH_DELAY' | 'CRITICAL';
+  is_delayed_hub_alert: boolean;
+}
+
+export interface FulfillmentQueueSummary {
+  total_queue_count: number;
+  urgent_count: number;
+  ready_to_ship_count: number;
+  print_pending_count: number;
+  delayed_alert_count: number;
+}
+
+export interface FulfillmentQueueResponse {
+  items: FulfillmentQueueItem[];
+  summary: FulfillmentQueueSummary;
+  total: number;
+  page: number;
+  limit: number;
+}
+
+// OrderPulse Diagnostic Types
+export interface OrderPulseAgingSummary {
+  total_delayed_count: number;
+  aging_24_to_48h_count: number;
+  aging_48_to_72h_count: number;
+  critical_over_72h_count: number;
+  blocker_counts: Record<string, number>;
+}
+
+export interface OrderPulseCancellationSummary {
+  pre_dispatch_count: number;
+  post_dispatch_count: number;
+  pre_dispatch_causes: Record<string, number>;
+  post_dispatch_causes: Record<string, number>;
+  top_pre_reason: string;
+  friction_rate: number;
+}
+
+export interface CatalogRDMatrixItem {
+  variant_id: string;
+  sku: string;
+  product_title: string;
+  variant_title: string;
+  image_url?: string;
+  returned_quantity: number;
+  primary_root_cause: string;
+  reason_breakdown: Record<string, number>;
+}
+
+export interface OrderPulseDiagnosticsResponse {
+  aging_summary: OrderPulseAgingSummary;
+  cancellation_summary: OrderPulseCancellationSummary;
+  partial_recovered_bdt: number;
+  partial_count: number;
+  top_partial_reason: string;
+  catalog_rd_matrix: CatalogRDMatrixItem[];
+}
+
+export interface PartialSplitItem {
+  item_id: string;
+  action: 'ACCEPT' | 'RETURN';
+  return_reason?: string;
+}
+
+export interface PartialSplitRequest {
+  items: PartialSplitItem[];
+  notes?: string;
+}
+
+// Meta Ads & Attribution Platform Types
+export interface MetaAttributionScorecard {
+  status: 'HEALTHY' | 'WARNING' | 'CRITICAL';
+  discrepancy_rate: number;
+  storefront_orders: number;
+  tracked_touchpoints: number;
+  meta_capi_received: number;
+  intake_events: number;
+  quarantined_events: number;
+}
+
+export interface ExecutiveFinancialMetrics {
+  delivered_roas: number;
+  net_contribution_bdt: number;
+  delivered_revenue_bdt: number;
+  delivered_orders_count: number;
+  ad_spend_bdt: number;
+  ad_spend_usd: number;
+}
+
+export interface CampaignAttributionRow {
+  campaign_id: string;
+  campaign_name: string;
+  ad_spend_bdt: number;
+  ad_spend_usd: number;
+  attributed_placed_orders: number;
+  placed_revenue_bdt: number;
+  delivered_orders: number;
+  delivered_revenue_bdt: number;
+  delivery_rate: number;
+  cogs_bdt: number;
+  courier_cost_bdt: number;
+  return_penalty_bdt: number;
+  net_ad_profit_bdt: number;
+  real_roas: number;
+  is_unprofitable: boolean;
+}
+
+export interface MetaCAPIAuditLogRow {
+  id: string;
+  order_id?: string;
+  event_name: string;
+  event_id: string;
+  status: 'SUCCESS' | 'SKIPPED' | 'FAILED' | 'QUARANTINED';
+  http_code: number;
+  age_hours: number;
+  is_age_quarantined: boolean;
+  dispatched_at: string;
+}
+
+export interface MetaAttributionDashboardResponse {
+  scorecard: MetaAttributionScorecard;
+  financials: ExecutiveFinancialMetrics;
+  campaigns: CampaignAttributionRow[];
+  audit_logs: MetaCAPIAuditLogRow[];
+  active_model: 'last_paid_ad' | 'first_touch' | 'linear' | 'position_based';
+}
+
+// OrderPulse Diagnostic Types
+export interface OrderPulseAgingSummary {
+  total_delayed_count: number;
+  aging_24_to_48h_count: number;
+  aging_48_to_72h_count: number;
+  critical_over_72h_count: number;
+  blocker_counts: Record<string, number>;
+}
+
+export interface OrderPulseCancellationSummary {
+  pre_dispatch_count: number;
+  post_dispatch_count: number;
+  pre_dispatch_causes: Record<string, number>;
+  post_dispatch_causes: Record<string, number>;
+  top_pre_reason: string;
+  friction_rate: number;
+}
+
+export interface CatalogRDMatrixItem {
+  variant_id: string;
+  sku: string;
+  product_title: string;
+  variant_title: string;
+  image_url?: string;
+  returned_quantity: number;
+  primary_root_cause: string;
+  reason_breakdown: Record<string, number>;
+}
+
+export interface OrderPulseDiagnosticsResponse {
+  aging_summary: OrderPulseAgingSummary;
+  cancellation_summary: OrderPulseCancellationSummary;
+  partial_recovered_bdt: number;
+  partial_count: number;
+  top_partial_reason: string;
+  catalog_rd_matrix: CatalogRDMatrixItem[];
+}
+
+export interface PartialSplitItem {
+  item_id: string;
+  action: 'ACCEPT' | 'RETURN';
+  return_reason?: string;
+}
+
+export interface PartialSplitRequest {
+  items: PartialSplitItem[];
+  notes?: string;
+}
+
+// Meta Ads & Attribution Platform Types
+export interface MetaAttributionScorecard {
+  status: 'HEALTHY' | 'WARNING' | 'CRITICAL';
+  discrepancy_rate: number;
+  storefront_orders: number;
+  tracked_touchpoints: number;
+  meta_capi_received: number;
+  intake_events: number;
+  quarantined_events: number;
+}
+
+export interface ExecutiveFinancialMetrics {
+  delivered_roas: number;
+  net_contribution_bdt: number;
+  delivered_revenue_bdt: number;
+  delivered_orders_count: number;
+  ad_spend_bdt: number;
+  ad_spend_usd: number;
+}
+
+export interface CampaignAttributionRow {
+  campaign_id: string;
+  campaign_name: string;
+  ad_spend_bdt: number;
+  ad_spend_usd: number;
+  attributed_placed_orders: number;
+  placed_revenue_bdt: number;
+  delivered_orders: number;
+  delivered_revenue_bdt: number;
+  delivery_rate: number;
+  cogs_bdt: number;
+  courier_cost_bdt: number;
+  return_penalty_bdt: number;
+  net_ad_profit_bdt: number;
+  real_roas: number;
+  is_unprofitable: boolean;
+}
+
+export interface MetaCAPIAuditLogRow {
+  id: string;
+  order_id?: string;
+  event_name: string;
+  event_id: string;
+  status: 'SUCCESS' | 'SKIPPED' | 'FAILED' | 'QUARANTINED';
+  http_code: number;
+  age_hours: number;
+  is_age_quarantined: boolean;
+  dispatched_at: string;
+}
+
+export interface MetaAttributionDashboardResponse {
+  scorecard: MetaAttributionScorecard;
+  financials: ExecutiveFinancialMetrics;
+  campaigns: CampaignAttributionRow[];
+  audit_logs: MetaCAPIAuditLogRow[];
+  active_model: 'last_paid_ad' | 'first_touch' | 'linear' | 'position_based';
 }
 
 export interface StoreCustomer {
@@ -340,6 +634,7 @@ export interface PaymentGatewayConfig {
   id: 'bkash' | 'nagad' | 'sslcommerz' | 'stripe' | 'cod';
   name: string;
   isEnabled: boolean;
+  isDefault: boolean;
   isSandbox: boolean;
   merchantId: string;
   supportedCurrencies: string[];
@@ -357,6 +652,7 @@ export interface MarketingConfig {
 
 export interface StoreSettings {
   brandName: string;
+  legalBusinessName?: string;
   contactEmail: string;
   contactPhone: string;
   currency: string;
@@ -365,6 +661,22 @@ export interface StoreSettings {
   shippingOutsideDhaka: number;
   orderPrefix: string;
   returnPolicyDays: number;
+  taxRatePercent?: number;
+  pricesIncludeTax?: boolean;
+  // Visual Branding & Media
+  logoUrl?: string;
+  desktopHeroBannerUrl?: string;
+  mobileHeroBannerUrl?: string;
+  siteDescription?: string;
+  footerContent?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  fontHeading?: string;
+  fontBody?: string;
+  // Social Channels
+  whatsappPhone?: string;
+  facebookUrl?: string;
+  instagramUrl?: string;
   // Comprehensive SEO, Favicon & Webmaster Settings
   metaTitleTemplate?: string;
   defaultMetaTitle?: string;
@@ -441,38 +753,6 @@ export interface PaymentReconciliationItem {
   timestamp: string;
 }
 
-export interface ProfitLossStatement {
-  period: string; // e.g. "November 2026"
-  grossSales: number;
-  discountsAndReturns: number;
-  gatewayFees: number;
-  shippingCosts: number;
-  netRevenue: number;
-  cogs: number;
-  grossProfit: number;
-  grossMarginPct: number;
-  expensesByCategory: Record<string, number>;
-  totalExpenses: number;
-  netProfit: number;
-  netMarginPct: number;
-  currency: string;
-}
-
-export interface AccountsOverviewMetrics {
-  grossRevenue: number;
-  totalGatewayFees: number;
-  totalShippingDeducted: number;
-  netRevenue: number;
-  totalExpenses: number;
-  totalPayoutsReceived: number;
-  estimatedCOGS: number;
-  netProfit: number;
-  operatingMarginPct: number;
-  currency: string;
-  pendingSettlements: number;
-  discrepanciesCount: number;
-}
-
 // =================== PRODUCT REVIEWS & REPUTATION ENGINE TYPES ===================
 
 export type ReviewStatus = 'PENDING' | 'APPROVED' | 'FEATURED' | 'ARCHIVED';
@@ -518,5 +798,154 @@ export interface ReviewStats {
   photoReviewsCount: number;
   ratingBreakdown: Record<number, number>;
 }
+
+// =================== ABANDONED CHECKOUT RECOVERY TYPES ===================
+
+export type AbandonedCheckoutStatus =
+  | 'pending'
+  | 'called_busy'
+  | 'called_followup'
+  | 'declined'
+  | 'converted';
+
+export interface AbandonedCartItem {
+  variant_id: string;
+  product_title?: string;
+  variant_title?: string;
+  sku?: string;
+  unit_price: number;
+  quantity: number;
+}
+
+export interface AbandonedCheckoutRecord {
+  id: string;
+  session_token: string;
+  phone: string;
+  customer_name: string;
+  customer_email: string;
+  district: string;
+  thana: string;
+  address: string;
+  cart_items: AbandonedCartItem[];
+  cart_total: number;
+  status: AbandonedCheckoutStatus;
+  call_notes: string;
+  scheduled_callback_at?: string;
+  agent_id?: string;
+  converted_order_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AbandonedSummary {
+  total_count: number;
+  pending_count: number;
+  called_busy_count: number;
+  called_followup_count: number;
+  declined_count: number;
+  converted_count: number;
+}
+
+export interface PaginatedAbandonedResponse {
+  items: AbandonedCheckoutRecord[];
+  summary: AbandonedSummary;
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface MusicConfig {
+  id: number;
+  is_active: boolean;
+  updated_at: string;
+}
+
+export interface MusicTrack {
+  id: string;
+  title: string;
+  audio_file?: string | null;
+  audio_url?: string | null;
+  served_audio_url?: string | null;
+  is_active: boolean;
+  sort_order: number;
+  duration_seconds?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMusicTrackRequest {
+  title: string;
+  audio_file?: string | null;
+  audio_url?: string | null;
+  is_active?: boolean;
+  sort_order?: number;
+  duration_seconds?: number | null;
+}
+
+export interface UpdateMusicTrackRequest {
+  title?: string;
+  audio_file?: string | null;
+  audio_url?: string | null;
+  is_active?: boolean;
+  sort_order?: number;
+  duration_seconds?: number | null;
+}
+
+export interface TaskCategory {
+  id: string;
+  name: string;
+  color: string;
+  task_count: number;
+  created_at: string;
+}
+
+export interface StaffSummary {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+}
+
+export interface StoreTask {
+  id: string;
+  title: string;
+  description?: string | null;
+  category_id?: string | null;
+  category?: TaskCategory | null;
+  assignee_id: string;
+  assignee: StaffSummary;
+  created_by_id?: string | null;
+  created_by?: StaffSummary | null;
+  status: 'pending' | 'completed';
+  completion_comment?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+  updated_at: string;
+}
+
+export interface CreateTaskRequest {
+  title: string;
+  description?: string;
+  category_id?: string;
+  assignee_id: string;
+}
+
+export interface UpdateTaskRequest {
+  title?: string;
+  description?: string;
+  category_id?: string;
+  assignee_id?: string;
+}
+
+export interface CompleteTaskRequest {
+  completion_comment: string;
+}
+
+export interface CreateCategoryRequest {
+  name: string;
+  color: string;
+}
+
 
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Palette } from 'lucide-react';
-import { api } from '../../lib/api';
+import { api, apiErrorMessage } from '../../lib/api';
 
 interface RegisterThemeModalProps {
   onClose: () => void;
@@ -12,6 +12,7 @@ export const RegisterThemeModal: React.FC<RegisterThemeModalProps> = ({ onClose,
   const [slug, setSlug] = useState('');
   const [description, setDescription] = useState('');
   const [version, setVersion] = useState('1.0.0');
+  const [previewImageUrl, setPreviewImageUrl] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -26,6 +27,7 @@ export const RegisterThemeModal: React.FC<RegisterThemeModalProps> = ({ onClose,
         slug: slug.toLowerCase().trim(),
         description,
         version,
+        preview_image_url: previewImageUrl.trim() || undefined,
         config_schema: {
           supported_layouts: ['grid', 'list', 'carousel'],
           allow_custom_fonts: true,
@@ -33,8 +35,8 @@ export const RegisterThemeModal: React.FC<RegisterThemeModalProps> = ({ onClose,
       });
       onRegistered();
       onClose();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.detail || 'Failed to register theme blueprint.');
+    } catch (err) {
+      setErrorMsg(apiErrorMessage(err, 'Failed to register theme blueprint.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -73,7 +75,7 @@ export const RegisterThemeModal: React.FC<RegisterThemeModalProps> = ({ onClose,
               }}
               className="mt-1 w-full px-3 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500"
             />
-            <span className="text-[11px] text-slate-400 mt-1 block">Example: Nordic Elegance</span>
+            <span className="text-[11px] text-slate-400 mt-1 block">Display name shown in the theme registry</span>
           </div>
 
           <div>
@@ -86,7 +88,7 @@ export const RegisterThemeModal: React.FC<RegisterThemeModalProps> = ({ onClose,
               onChange={(e) => setSlug(e.target.value.toLowerCase())}
               className="mt-1 w-full px-3 py-2 border rounded-lg text-sm font-mono outline-none focus:ring-2 focus:ring-teal-500"
             />
-            <span className="text-[11px] text-slate-400 mt-1 block">Format: nordic-elegance</span>
+            <span className="text-[11px] text-slate-400 mt-1 block">Lowercase letters, digits and hyphens</span>
           </div>
 
           <div>
@@ -98,6 +100,17 @@ export const RegisterThemeModal: React.FC<RegisterThemeModalProps> = ({ onClose,
               value={version}
               onChange={(e) => setVersion(e.target.value)}
               className="mt-1 w-full px-3 py-2 border rounded-lg text-sm font-mono outline-none focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 uppercase">Preview Image URL (Optional)</label>
+            <input
+              type="url"
+              value={previewImageUrl}
+              onChange={(e) => setPreviewImageUrl(e.target.value)}
+              className="mt-1 w-full px-3 py-2 border rounded-lg text-sm font-mono outline-none focus:ring-2 focus:ring-teal-500"
+              placeholder="https://images.unsplash.com/..."
             />
           </div>
 

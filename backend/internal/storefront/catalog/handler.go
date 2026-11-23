@@ -59,6 +59,10 @@ func (h *Handler) SearchProducts(w http.ResponseWriter, r *http.Request) {
 		filter.InStockOnly = true
 	}
 
+	if r.URL.Query().Get("featured") == "true" {
+		filter.FeaturedOnly = true
+	}
+
 	res, err := h.service.SearchProducts(r.Context(), filter)
 	if err != nil {
 		response.WriteInternalError(w, r, "Failed to query catalog: "+err.Error())

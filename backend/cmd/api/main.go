@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -35,12 +36,15 @@ import (
 	"ecom-ventures/backend/internal/store/inventory"
 	"ecom-ventures/backend/internal/store/logistics"
 	"ecom-ventures/backend/internal/store/marketing"
+	"ecom-ventures/backend/internal/store/music"
 	"ecom-ventures/backend/internal/store/orders"
 	"ecom-ventures/backend/internal/store/payments"
 	"ecom-ventures/backend/internal/store/promotions"
 	"ecom-ventures/backend/internal/store/resolver"
 	"ecom-ventures/backend/internal/store/reviews"
 	"ecom-ventures/backend/internal/store/settings"
+	"ecom-ventures/backend/internal/store/shipping"
+	"ecom-ventures/backend/internal/store/tasks"
 	storefrontCart "ecom-ventures/backend/internal/storefront/cart"
 	storefrontCatalog "ecom-ventures/backend/internal/storefront/catalog"
 	storefrontCheckout "ecom-ventures/backend/internal/storefront/checkout"
@@ -85,6 +89,10 @@ func buildRouter(
 	rateLimiter *middleware.RateLimiter,
 	reviewsHandler *reviews.Handler,
 	blogHandler *blog.Handler,
+	shippingHandler *shipping.Handler,
+	musicHandler *music.Handler,
+	tasksHandler *tasks.Handler,
+	platformSessions middleware.PlatformSessionChecker,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -94,7 +102,7 @@ func buildRouter(
 	r.Use(middleware.StructuredLogger(logger))
 	r.Use(chiMiddleware.Compress(5))
 	r.Use(middleware.Recoverer(logger))
-	r.Use(middleware.CORSConfig(cfg.Routing.MasterAdminDomain, cfg.Routing.StoreAdminDomain))
+	r.Use(middleware.CORSConfig(cfg.Routing.MasterAdminDomain, cfg.Routing.StoreAdminDomain, cfg.IsDevelopment()))
 	r.Use(chiMiddleware.Timeout(60 * time.Second))
 
 	// Static file serving for local asset storage uploads
@@ -139,6 +147,9 @@ func buildRouter(
 			r.Group(func(r chi.Router) {
 				if tm != nil {
 					r.Use(middleware.Authenticate(tm))
+					if platformSessions != nil {
+						r.Use(middleware.RequireActivePlatformSession(platformSessions))
+					}
 				}
 				r.Use(middleware.RequirePlatformRole(models.RoleSuperAdmin, models.RolePlatformStaff))
 
@@ -158,6 +169,7 @@ func buildRouter(
 							r.Get("/", storeMgmtHandler.List)
 							r.Post("/", storeMgmtHandler.Create)
 							r.Get("/{id}", storeMgmtHandler.GetByID)
+							r.Patch("/{id}", storeMgmtHandler.Update)
 							r.Patch("/{id}/status", storeMgmtHandler.UpdateStatus)
 							r.Delete("/{id}", storeMgmtHandler.Delete)
 							r.Get("/{id}/provisioning-logs", storeMgmtHandler.GetLogs)
@@ -175,6 +187,7 @@ func buildRouter(
 						r.Post("/", domainHandler.AddDomain)
 						r.Post("/{id}/verify", domainHandler.Verify)
 						r.Patch("/{id}/primary", domainHandler.SetPrimary)
+						r.Patch("/{id}", domainHandler.Update)
 						r.Delete("/{id}", domainHandler.Delete)
 					})
 				}
@@ -184,6 +197,7 @@ func buildRouter(
 					r.Route("/themes", func(r chi.Router) {
 						r.Get("/", themeHandler.List)
 						r.Post("/", themeHandler.Register)
+						r.Patch("/{id}", themeHandler.Update)
 					})
 				}
 
@@ -200,7 +214,8 @@ func buildRouter(
 					r.Route("/admins", func(adminR chi.Router) {
 						adminR.Get("/", systemHandler.ListAdmins)
 						adminR.Post("/", systemHandler.CreateAdmin)
-						adminR.Patch("/{id}/status", systemHandler.UpdateAdminStatus)
+						adminR.With(middleware.RequirePlatformRole(models.RoleSuperAdmin)).Patch("/{id}", systemHandler.UpdateAdmin)
+						adminR.With(middleware.RequirePlatformRole(models.RoleSuperAdmin)).Delete("/{id}", systemHandler.DeleteAdmin)
 					})
 					r.Get("/audit-logs", systemHandler.ListAuditLogs)
 					r.Get("/system/overview", systemHandler.GetClusterOverview)
@@ -230,6 +245,12 @@ func buildRouter(
 			r.Route("/auth", func(r chi.Router) {
 				if sAuthHandler != nil {
 					r.Post("/login", sAuthHandler.Login)
+					if tm != nil {
+						r.With(
+							middleware.Authenticate(tm),
+							middleware.RequireStoreRole("STORE_OWNER", "STORE_ADMIN", "STORE_STAFF"),
+						).Get("/me", sAuthHandler.Me)
+					}
 				}
 			})
 
@@ -261,14 +282,45 @@ func buildRouter(
 						if catalogHandler != nil {
 							// Categories
 							r.Route("/categories", func(r chi.Router) {
+								r.Put("/reorder", catalogHandler.ReorderCategories)
 								r.Get("/", catalogHandler.ListCategories)
 								r.Post("/", catalogHandler.CreateCategory)
 								r.Put("/{id}", catalogHandler.UpdateCategory)
 								r.Delete("/{id}", catalogHandler.DeleteCategory)
 							})
 
+							// Brands
+							r.Route("/brands", func(r chi.Router) {
+								r.Put("/reorder", catalogHandler.ReorderBrands)
+								r.Get("/", catalogHandler.ListBrands)
+								r.Post("/", catalogHandler.CreateBrand)
+								r.Put("/{id}", catalogHandler.UpdateBrand)
+								r.Delete("/{id}", catalogHandler.DeleteBrand)
+							})
+
+							// Care instructions
+							r.Route("/care-instructions", func(r chi.Router) {
+								r.Put("/reorder", catalogHandler.ReorderCareInstructions)
+								r.Get("/", catalogHandler.ListCareInstructions)
+								r.Post("/", catalogHandler.CreateCareInstruction)
+								r.Put("/{id}", catalogHandler.UpdateCareInstruction)
+								r.Delete("/{id}", catalogHandler.DeleteCareInstruction)
+							})
+
+							// Size guide templates
+							r.Route("/size-guides", func(r chi.Router) {
+								r.Get("/", catalogHandler.ListSizeGuideTemplates)
+								r.Post("/", catalogHandler.CreateSizeGuideTemplate)
+								r.Put("/{id}", catalogHandler.UpdateSizeGuideTemplate)
+								r.Delete("/{id}", catalogHandler.DeleteSizeGuideTemplate)
+							})
+
 							// Products
 							r.Route("/products", func(r chi.Router) {
+								r.Put("/reorder", catalogHandler.ReorderProducts)
+								r.Put("/featured/reorder", catalogHandler.ReorderFeaturedProducts)
+								r.Patch("/{id}/featured", catalogHandler.SetProductFeatured)
+								r.Patch("/{id}/links", catalogHandler.SetProductLinks)
 								r.Get("/", catalogHandler.ListProducts)
 								r.Post("/", catalogHandler.CreateProduct)
 								r.Get("/{id}", catalogHandler.GetProduct)
@@ -285,8 +337,12 @@ func buildRouter(
 						if variantsHandler != nil {
 							// Attributes & Values
 							r.Get("/attributes", variantsHandler.ListAttributes)
+							r.Put("/attributes/reorder", variantsHandler.ReorderAttributes)
 							r.Post("/attributes", variantsHandler.CreateAttribute)
+							r.Put("/attributes/{id}", variantsHandler.UpdateAttribute)
+							r.Delete("/attributes/{id}", variantsHandler.DeleteAttribute)
 							r.Post("/attributes/{attribute_id}/values", variantsHandler.AddAttributeValue)
+							r.Delete("/attributes/values/{value_id}", variantsHandler.DeleteAttributeValue)
 
 							// Variants & Matrix
 							r.Get("/products/{product_id}/variants", variantsHandler.ListVariants)
@@ -319,14 +375,23 @@ func buildRouter(
 					r.Route("/orders", func(ordR chi.Router) {
 						ordR.Get("/", ordersHandler.ListOrders)
 						ordR.Post("/", ordersHandler.CreateOrder)
+						ordR.Get("/fulfillment-queue", ordersHandler.GetFulfillmentQueue)
+						ordR.Get("/abandoned", ordersHandler.ListAbandoned)
+						ordR.Patch("/abandoned/{id}/status", ordersHandler.UpdateAbandonedStatus)
+						ordR.Post("/abandoned/{id}/convert", ordersHandler.ConvertAbandonedToOrder)
 						ordR.Get("/{order_id}", ordersHandler.GetOrder)
 						ordR.Put("/{order_id}", ordersHandler.UpdateOrder)
 						ordR.Delete("/{order_id}", ordersHandler.DeleteOrder)
 						ordR.Patch("/{order_id}/status", ordersHandler.TransitionStatus)
+						ordR.Patch("/{order_id}/fulfillment-flags", ordersHandler.UpdateFulfillmentFlags)
 						ordR.Post("/{order_id}/shipments", ordersHandler.CreateShipment)
 						ordR.Post("/{order_id}/payments", ordersHandler.RecordPayment)
 						ordR.Post("/{order_id}/call-notes", ordersHandler.AddCallNote)
 						ordR.Get("/{order_id}/call-notes", ordersHandler.GetCallNotes)
+						// Phase 27: OrderPulse Analytics & Diagnostics
+						ordR.Get("/orderpulse/diagnostics", ordersHandler.GetOrderPulseDiagnostics)
+						ordR.Patch("/{order_id}/orderpulse-tags", ordersHandler.UpdateOrderPulseTags)
+						ordR.Post("/{order_id}/partial-split", ordersHandler.PartialSplit)
 					})
 				}
 
@@ -337,6 +402,9 @@ func buildRouter(
 						custR.Post("/", customersHandler.CreateCustomer)
 						custR.Get("/{customer_id}", customersHandler.GetCustomer)
 						custR.Put("/{customer_id}", customersHandler.UpdateCustomer)
+						custR.Patch("/{customer_id}/crm", customersHandler.UpdateCRMProfile)
+						custR.Post("/{customer_id}/blacklist", customersHandler.ToggleBlacklist)
+						custR.Post("/{customer_id}/impersonate", customersHandler.ImpersonateCustomer)
 						custR.Delete("/{customer_id}", customersHandler.DeleteCustomer)
 
 						custR.Post("/{customer_id}/addresses", customersHandler.AddAddress)
@@ -352,6 +420,7 @@ func buildRouter(
 						promR.Post("/coupons", promotionsHandler.CreateCoupon)
 						promR.Get("/coupons/{coupon_id}", promotionsHandler.GetCoupon)
 						promR.Put("/coupons/{coupon_id}", promotionsHandler.UpdateCoupon)
+						promR.Patch("/coupons/{coupon_id}/status", promotionsHandler.ToggleCouponStatus)
 						promR.Delete("/coupons/{coupon_id}", promotionsHandler.DeleteCoupon)
 						promR.Post("/validate", promotionsHandler.ValidateCoupon)
 
@@ -393,6 +462,8 @@ func buildRouter(
 						paySetR.Use(middleware.RequireStoreRole("STORE_OWNER"))
 						paySetR.Get("/", paymentHandler.ListConfigs)
 						paySetR.Put("/", paymentHandler.SaveConfig)
+						paySetR.Post("/{gateway}/default", paymentHandler.SetDefault)
+						paySetR.Patch("/{gateway}/toggle", paymentHandler.ToggleActive)
 					})
 				}
 
@@ -400,6 +471,78 @@ func buildRouter(
 				if logisticsHandler != nil {
 					r.Route("/logistics", func(logR chi.Router) {
 						logR.Post("/dispatch/{order_id}", logisticsHandler.DispatchOrder)
+						logR.Get("/shipments", func(w http.ResponseWriter, r *http.Request) {
+							stCtx, err := storeCtx.FromContext(r.Context())
+							if err != nil {
+								response.InternalServerError(w, r)
+								return
+							}
+							rows, err := stCtx.TenantDB.QueryContext(r.Context(), `
+								SELECT 
+									s.id,
+									o.order_number,
+									s.carrier,
+									COALESCE(s.tracking_number, ''),
+									COALESCE(c.first_name || ' ' || c.last_name, o.customer_email, 'Guest Customer'),
+									COALESCE(o.shipping_district, ''),
+									s.status,
+									s.shipped_at,
+									s.estimated_delivery
+								FROM order_shipments s
+								JOIN orders o ON o.id = s.order_id
+								LEFT JOIN customers c ON c.id = o.customer_id
+								ORDER BY s.created_at DESC
+								LIMIT 100
+							`)
+							if err != nil {
+								response.InternalServerError(w, r)
+								return
+							}
+							defer rows.Close()
+
+							type ShipmentDTO struct {
+								ID                string  `json:"id"`
+								OrderNumber       string  `json:"orderNumber"`
+								Carrier           string  `json:"carrier"`
+								TrackingNumber    string  `json:"trackingNumber"`
+								RecipientName     string  `json:"recipientName"`
+								RecipientCity     string  `json:"recipientCity"`
+								Status            string  `json:"status"`
+								ShippedAt         *string `json:"shippedAt,omitempty"`
+								EstimatedDelivery *string `json:"estimatedDelivery,omitempty"`
+							}
+
+							var list []ShipmentDTO
+							for rows.Next() {
+								var item ShipmentDTO
+								var shippedAt, estDelivery *time.Time
+								if err := rows.Scan(
+									&item.ID,
+									&item.OrderNumber,
+									&item.Carrier,
+									&item.TrackingNumber,
+									&item.RecipientName,
+									&item.RecipientCity,
+									&item.Status,
+									&shippedAt,
+									&estDelivery,
+								); err == nil {
+									if shippedAt != nil {
+										s := shippedAt.Format(time.RFC3339)
+										item.ShippedAt = &s
+									}
+									if estDelivery != nil {
+										e := estDelivery.Format(time.RFC3339)
+										item.EstimatedDelivery = &e
+									}
+									list = append(list, item)
+								}
+							}
+							if list == nil {
+								list = []ShipmentDTO{}
+							}
+							response.JSON(w, http.StatusOK, list)
+						})
 					})
 
 					r.Route("/settings/logistics", func(setR chi.Router) {
@@ -409,12 +552,49 @@ func buildRouter(
 					})
 				}
 
+				// Delivery zones & Hierarchical Locations: staff can read; only owners and admins can change them
+				if shippingHandler != nil {
+					r.Route("/shipping/zones", func(shipR chi.Router) {
+						shipR.Get("/", shippingHandler.ListZones)
+						shipR.Group(func(writeR chi.Router) {
+							writeR.Use(middleware.RequireStoreRole("STORE_OWNER", "STORE_ADMIN"))
+							writeR.Post("/", shippingHandler.CreateZone)
+							writeR.Put("/{id}", shippingHandler.UpdateZone)
+							writeR.Delete("/{id}", shippingHandler.DeleteZone)
+						})
+					})
+
+					r.Route("/shipping/locations", func(locR chi.Router) {
+						locR.Get("/districts", shippingHandler.ListDistricts)
+						locR.Get("/thanas", shippingHandler.ListThanas)
+
+						locR.Group(func(writeR chi.Router) {
+							writeR.Use(middleware.RequireStoreRole("STORE_OWNER", "STORE_ADMIN"))
+							writeR.Post("/districts", shippingHandler.CreateDistrict)
+							writeR.Put("/districts/{id}", shippingHandler.UpdateDistrict)
+							writeR.Delete("/districts/{id}", shippingHandler.DeleteDistrict)
+
+							writeR.Post("/thanas", shippingHandler.CreateThana)
+							writeR.Put("/thanas/{id}", shippingHandler.UpdateThana)
+							writeR.Delete("/thanas/{id}", shippingHandler.DeleteThana)
+						})
+					})
+				}
+
 				// Phase 27: Store Marketing & Tracking Telemetry Settings
 				if marketingHandler != nil {
 					r.Route("/settings/marketing", func(mktAdminR chi.Router) {
 						mktAdminR.Use(middleware.RequireStoreRole("STORE_OWNER", "STORE_ADMIN"))
 						mktAdminR.Get("/", marketingHandler.GetAdminConfig)
 						mktAdminR.Put("/", marketingHandler.SaveAdminConfig)
+					})
+					r.Route("/marketing", func(mktR chi.Router) {
+						mktR.Get("/meta-attribution", marketingHandler.GetMetaAttribution)
+						mktR.Get("/meta-accounts", marketingHandler.ListMetaAdAccounts)
+						mktR.Post("/meta-accounts", marketingHandler.SaveMetaAdAccount)
+						mktR.Delete("/meta-accounts/{id}", marketingHandler.DeleteMetaAdAccount)
+						mktR.Post("/meta-accounts/{id}/sync", marketingHandler.SyncMetaAdAccount)
+						mktR.Post("/meta-explorer/test", marketingHandler.TestGraphAPIExplorer)
 					})
 				}
 
@@ -442,6 +622,234 @@ func buildRouter(
 						revR.Put("/{id}", reviewsHandler.UpdateReview)
 						revR.Patch("/{id}/status", reviewsHandler.QuickModerate)
 						revR.Delete("/{id}", reviewsHandler.DeleteReview)
+					})
+				}
+
+				// Storefront Theme Appearance for Store Admin
+				if themeHandler != nil && themeHandler.GetService() != nil {
+					r.Get("/theme/current", func(w http.ResponseWriter, r *http.Request) {
+						sc := storeCtx.MustGetStoreContext(r.Context())
+						th, err := themeHandler.GetService().GetStoreTheme(r.Context(), sc.Store.ID)
+						if err != nil || th == nil {
+							response.JSON(w, http.StatusOK, map[string]interface{}{
+								"theme_id":          "",
+								"theme_name":        "Default Theme",
+								"theme_slug":        "fashion",
+								"primary_color":     "#0f172a",
+								"secondary_color":   "#3b82f6",
+								"heading_font":      "Inter",
+								"body_font":         "Inter",
+								"border_radius":     "sm",
+								"header_layout":     "standard",
+								"show_announcement": false,
+								"announcement_text": "",
+								"colors": map[string]interface{}{
+									"primary":    "#0f172a",
+									"secondary":  "#3b82f6",
+									"accent":     "#f59e0b",
+									"background": "#ffffff",
+									"surface":    "#f8fafc",
+									"text":       "#0f172a",
+									"muted":      "#64748b",
+								},
+								"fonts": map[string]interface{}{
+									"heading":         "Inter",
+									"body":            "Inter",
+									"heading_weight":  "700",
+									"letter_spacing":  "normal",
+									"text_transform":  "none",
+									"font_size_scale": "standard",
+								},
+							})
+							return
+						}
+						themeCfg := mergeThemeConfig(th.Theme.Config, th.CustomConfig)
+						primaryColor := "#0f172a"
+						secondaryColor := "#3b82f6"
+						accentColor := "#f59e0b"
+						backgroundColor := "#ffffff"
+						surfaceColor := "#f8fafc"
+						textColor := "#0f172a"
+						mutedColor := "#64748b"
+						headingFont := "Inter"
+						bodyFont := "Inter"
+						headingWeight := "700"
+						letterSpacing := "normal"
+						textTransform := "none"
+						fontSizeScale := "standard"
+						radius := "sm"
+						density := "compact"
+						showAnnouncement := false
+						announcementText := ""
+
+						if colors, ok := themeCfg["colors"].(map[string]interface{}); ok {
+							if p, ok := colors["primary"].(string); ok && p != "" {
+								primaryColor = p
+							}
+							if s, ok := colors["secondary"].(string); ok && s != "" {
+								secondaryColor = s
+							}
+							if a, ok := colors["accent"].(string); ok && a != "" {
+								accentColor = a
+							}
+							if b, ok := colors["background"].(string); ok && b != "" {
+								backgroundColor = b
+							}
+							if sf, ok := colors["surface"].(string); ok && sf != "" {
+								surfaceColor = sf
+							}
+							if t, ok := colors["text"].(string); ok && t != "" {
+								textColor = t
+							}
+							if m, ok := colors["muted"].(string); ok && m != "" {
+								mutedColor = m
+							}
+						}
+						if fonts, ok := themeCfg["fonts"].(map[string]interface{}); ok {
+							if h, ok := fonts["heading"].(string); ok && h != "" {
+								headingFont = h
+							}
+							if b, ok := fonts["body"].(string); ok && b != "" {
+								bodyFont = b
+							}
+							if hw, ok := fonts["heading_weight"].(string); ok && hw != "" {
+								headingWeight = hw
+							}
+							if ls, ok := fonts["letter_spacing"].(string); ok && ls != "" {
+								letterSpacing = ls
+							}
+							if tt, ok := fonts["text_transform"].(string); ok && tt != "" {
+								textTransform = tt
+							}
+							if fss, ok := fonts["font_size_scale"].(string); ok && fss != "" {
+								fontSizeScale = fss
+							}
+						}
+						if r, ok := themeCfg["radius"].(string); ok && r != "" {
+							radius = r
+						}
+						if d, ok := themeCfg["density"].(string); ok && d != "" {
+							density = d
+						}
+						if sa, ok := themeCfg["show_announcement_bar"].(bool); ok {
+							showAnnouncement = sa
+						}
+						if at, ok := themeCfg["announcement_text"].(string); ok {
+							announcementText = at
+						}
+
+						colorsMap := map[string]interface{}{
+							"primary":    primaryColor,
+							"secondary":  secondaryColor,
+							"accent":     accentColor,
+							"background": backgroundColor,
+							"surface":    surfaceColor,
+							"text":       textColor,
+							"muted":      mutedColor,
+						}
+						fontsMap := map[string]interface{}{
+							"heading":         headingFont,
+							"body":            bodyFont,
+							"heading_weight":  headingWeight,
+							"letter_spacing":  letterSpacing,
+							"text_transform":  textTransform,
+							"font_size_scale": fontSizeScale,
+						}
+
+						response.JSON(w, http.StatusOK, map[string]interface{}{
+							"theme_id":          th.ThemeID,
+							"theme_name":        th.ThemeName,
+							"theme_slug":        th.ThemeSlug,
+							"primary_color":     primaryColor,
+							"secondary_color":   secondaryColor,
+							"heading_font":      headingFont,
+							"body_font":         bodyFont,
+							"border_radius":     radius,
+							"density":           density,
+							"header_layout":     "standard",
+							"show_announcement": showAnnouncement,
+							"announcement_text": announcementText,
+							"colors":            colorsMap,
+							"fonts":             fontsMap,
+						})
+					})
+
+					r.Put("/theme/current", func(w http.ResponseWriter, r *http.Request) {
+						sc := storeCtx.MustGetStoreContext(r.Context())
+						var payload map[string]interface{}
+						if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+							response.BadRequest(w, r, "Invalid theme customization payload")
+							return
+						}
+						rawBytes, err := json.Marshal(payload)
+						if err != nil {
+							response.BadRequest(w, r, "Malformed JSON")
+							return
+						}
+						if err := themeHandler.GetService().UpdateStoreThemeCustomConfig(r.Context(), sc.Store.ID, rawBytes); err != nil {
+							response.Problem(w, r, http.StatusInternalServerError, "THEME_UPDATE_FAILED", "Theme Update Failed", err.Error())
+							return
+						}
+						// Also sync primary_color, secondary_color, font_heading, font_body to store_settings in tenant DB
+						var primary, secondary, heading, body string
+						if colors, ok := payload["colors"].(map[string]interface{}); ok {
+							if p, ok := colors["primary"].(string); ok {
+								primary = p
+							}
+							if s, ok := colors["secondary"].(string); ok {
+								secondary = s
+							}
+						}
+						if fonts, ok := payload["fonts"].(map[string]interface{}); ok {
+							if h, ok := fonts["heading"].(string); ok {
+								heading = h
+							}
+							if b, ok := fonts["body"].(string); ok {
+								body = b
+							}
+						}
+						_, _ = sc.TenantDB.ExecContext(r.Context(), `
+							UPDATE store_settings SET 
+								primary_color = COALESCE(NULLIF($1, ''), primary_color),
+								secondary_color = COALESCE(NULLIF($2, ''), secondary_color),
+								font_heading = COALESCE(NULLIF($3, ''), font_heading),
+								font_body = COALESCE(NULLIF($4, ''), font_body),
+								updated_at = CURRENT_TIMESTAMP
+							WHERE id = (SELECT id FROM store_settings LIMIT 1);
+						`, primary, secondary, heading, body)
+
+						response.JSON(w, http.StatusOK, map[string]interface{}{
+							"success": true,
+							"message": "Store theme appearance tokens updated successfully",
+						})
+					})
+				}
+
+				// Ambient Music System: Track Library and Master Switch
+				if musicHandler != nil {
+					r.Route("/music", func(musicR chi.Router) {
+						musicR.Get("/config", musicHandler.GetAdminConfig)
+						musicR.Put("/config", musicHandler.UpdateAdminConfig)
+						musicR.Get("/tracks", musicHandler.ListAdminTracks)
+						musicR.Post("/tracks", musicHandler.CreateAdminTrack)
+						musicR.Put("/tracks/{id}", musicHandler.UpdateAdminTrack)
+						musicR.Delete("/tracks/{id}", musicHandler.DeleteAdminTrack)
+						musicR.Post("/tracks/reorder", musicHandler.ReorderAdminTracks)
+						musicR.Post("/upload", musicHandler.UploadTrackAudio)
+					})
+				}
+
+				// Task Management Workstation Subsystem
+				if tasksHandler != nil {
+					r.Route("/tasks", func(taskR chi.Router) {
+						taskR.Get("/categories", tasksHandler.ListCategories)
+						taskR.Post("/categories", tasksHandler.CreateCategory)
+						taskR.Get("/", tasksHandler.ListTasks)
+						taskR.Post("/", tasksHandler.CreateTask)
+						taskR.Get("/{id}", tasksHandler.GetTask)
+						taskR.Put("/{id}", tasksHandler.UpdateTask)
+						taskR.Put("/{id}/complete", tasksHandler.CompleteTask)
+						taskR.Delete("/{id}", tasksHandler.DeleteTask)
 					})
 				}
 
@@ -480,8 +888,16 @@ func buildRouter(
 				sc := storeCtx.MustGetStoreContext(r.Context())
 				var themeData interface{}
 				if themeHandler != nil && themeHandler.GetService() != nil {
-					if th, err := themeHandler.GetService().GetStoreTheme(r.Context(), sc.Store.ID); err == nil {
-						themeData = th
+					if th, err := themeHandler.GetService().GetStoreTheme(r.Context(), sc.Store.ID); err == nil && th != nil {
+						// Map to the shape the storefront expects: {id, name, slug, version, config}.
+						themeCfg := mergeThemeConfig(th.Theme.Config, th.CustomConfig)
+						themeData = map[string]interface{}{
+							"id":      th.ThemeID,
+							"name":    th.ThemeName,
+							"slug":    th.ThemeSlug,
+							"version": th.Version,
+							"config":  themeCfg,
+						}
 					}
 				}
 
@@ -567,12 +983,20 @@ func buildRouter(
 					}
 				}
 
+				var publicGateways interface{} = []interface{}{}
+				if paymentHandler != nil && paymentHandler.GetService() != nil {
+					if pgList, err := paymentHandler.GetService().ListPublicGateways(r.Context()); err == nil {
+						publicGateways = pgList
+					}
+				}
+
 				response.JSON(w, http.StatusOK, map[string]interface{}{
 					"store":            brand,
 					"domain":           sc.Domain,
 					"is_custom_domain": sc.IsCustom,
 					"theme":            themeData,
 					"seo":              seoSettings,
+					"payment_gateways": publicGateways,
 					"brand_name":       sc.Store.Name,
 					"slug":             sc.Store.Slug,
 					"currency":         sc.Store.Currency,
@@ -806,11 +1230,21 @@ Sitemap: %s/sitemap.xml
 			if storefrontCheckoutHandler != nil {
 				r.Post("/checkout", storefrontCheckoutHandler.ProcessCheckout)
 				r.Get("/orders/{order_number}", storefrontCheckoutHandler.LookupOrder)
+				if ordersHandler != nil {
+					r.Post("/orders/abandoned/capture", ordersHandler.CaptureAbandoned)
+				}
+			}
+
+			// Public delivery zones used to show and check shipping availability
+			if shippingHandler != nil {
+				r.Get("/shipping/zones", shippingHandler.ListPublicZones)
 			}
 
 			// Phase 25: Public Storefront Payment Gateway APIs
 			if paymentHandler != nil {
 				r.Route("/payments", func(payR chi.Router) {
+					payR.Get("/methods", paymentHandler.ListPublicGateways)
+					payR.Get("/gateways", paymentHandler.ListPublicGateways)
 					payR.Post("/initiate", paymentHandler.Initiate)
 					payR.HandleFunc("/{gateway}/callback", paymentHandler.Callback)
 					payR.Post("/{gateway}/webhook", paymentHandler.Webhook)
@@ -837,6 +1271,14 @@ Sitemap: %s/sitemap.xml
 				r.Route("/reviews", func(revR chi.Router) {
 					revR.Get("/products/{product_slug}", reviewsHandler.GetProductReviewsStorefront)
 					revR.Post("/products/{product_slug}", reviewsHandler.SubmitCustomerReview)
+				})
+			}
+
+			// Public Ambient Music System APIs
+			if musicHandler != nil {
+				r.Route("/music", func(musR chi.Router) {
+					musR.Get("/config", musicHandler.GetStorefrontConfig)
+					musR.Get("/tracks", musicHandler.ListStorefrontTracks)
 				})
 			}
 
@@ -920,13 +1362,11 @@ func main() {
 	pAuthService := platformAuth.NewService(platformDB.DB, tokenManager, sessionManager)
 	pAuthHandler := platformAuth.NewHandler(pAuthService)
 
-	sAuthService := storeAuth.NewService(tokenManager)
+	sAuthService := storeAuth.NewService(tokenManager, platformDB.DB)
 	sAuthHandler := storeAuth.NewHandler(sAuthService)
 
-	encryptionKeyBytes := []byte(cfg.Security.JWTSecret[:32])
-	if len(cfg.DatabaseEncryptionKey) >= 32 {
-		encryptionKeyBytes = []byte(cfg.DatabaseEncryptionKey[:32])
-	}
+	// The encryption key is independent of JWT_SECRET and is validated to 32 bytes by config.Load.
+	encryptionKeyBytes := []byte(cfg.DatabaseEncryptionKey)
 	storeResolver, err := resolver.NewStoreResolver(platformDB.DB, redisClient, tenantPool, encryptionKeyBytes)
 	if err != nil {
 		logger.Error("FATAL: Failed to initialize StoreResolver", slog.String("error", err.Error()))
@@ -953,13 +1393,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	storeMgmtService := store_mgmt.NewService(platformDB.DB, dbProvisioner, storeResolver, tenantPool)
+	storeMgmtService := store_mgmt.NewService(platformDB.DB, dbProvisioner, storeResolver, tenantPool, cfg.IsDevelopment())
 	storeMgmtHandler := store_mgmt.NewHandler(storeMgmtService)
 
 	// Domains Engine
 	dnsVerifier := domains.NewStandardDNSVerifier()
 	cfClient := domains.NewCloudflareClient(os.Getenv("CLOUDFLARE_API_TOKEN"), os.Getenv("CLOUDFLARE_ZONE_ID"))
-	domainService := domains.NewService(platformDB.DB, dnsVerifier, cfClient, storeResolver)
+	domainService := domains.NewService(platformDB.DB, dnsVerifier, cfClient, storeResolver, cfg.IsDevelopment())
 	domainHandler := domains.NewHandler(domainService)
 
 	// Theme Management Engine
@@ -995,7 +1435,7 @@ func main() {
 	// Phase 18: Customer Directory & LTV Analytics Subsystem
 	argonHasher := hasher.NewArgon2idHasher()
 	customersRepo := customers.NewSQLRepository()
-	customersService := customers.NewService(customersRepo, argonHasher)
+	customersService := customers.NewService(customersRepo, argonHasher, tokenManager)
 	customersHandler := customers.NewHandler(customersService)
 
 	// Phase 19: Promotions & Coupon Architecture
@@ -1018,9 +1458,14 @@ func main() {
 	storefrontCartService := storefrontCart.NewService(storefrontCartRepo)
 	storefrontCartHandler := storefrontCart.NewHandler(storefrontCartService)
 
+	// Delivery Zones Subsystem: shipping fees come from zones, never from a store-wide default
+	shippingRepo := shipping.NewSQLRepository()
+	shippingService := shipping.NewService(shippingRepo)
+	shippingHandler := shipping.NewHandler(shippingService)
+
 	// Phase 24: Public Storefront Checkout Subsystem
 	storefrontCheckoutRepo := storefrontCheckout.NewSQLRepository()
-	storefrontCheckoutService := storefrontCheckout.NewService(storefrontCheckoutRepo, inventoryRepo, promotionsService, settingsRepo)
+	storefrontCheckoutService := storefrontCheckout.NewService(storefrontCheckoutRepo, inventoryRepo, promotionsService, settingsRepo, shippingService)
 	storefrontCheckoutHandler := storefrontCheckout.NewHandler(storefrontCheckoutService)
 
 	// Phase 25: Payment Gateway Subsystem
@@ -1046,7 +1491,7 @@ func main() {
 	securityRunner := security.NewAuditRunner(platformDB.DB, tenantPool)
 	securityHandler := security.NewHandler(securityRunner)
 
-	systemService := platformSystem.NewService(platformDB.DB, redisClient, tenantPool)
+	systemService := platformSystem.NewService(platformDB.DB, redisClient, tenantPool, sessionManager)
 	systemHandler := platformSystem.NewHandler(systemService)
 
 	pAccountsService := platformAccounts.NewService(platformDB.DB)
@@ -1065,6 +1510,16 @@ func main() {
 	blogService := blog.NewService(blogRepo)
 	blogHandler := blog.NewHandler(blogService)
 
+	// Ambient Music System Subsystem
+	musicRepo := music.NewRepository()
+	musicService := music.NewService(musicRepo, localStorageProvider)
+	musicHandler := music.NewHandler(musicService)
+
+	// Task Management Workstation Subsystem
+	tasksRepo := tasks.NewRepository()
+	tasksService := tasks.NewService(tasksRepo)
+	tasksHandler := tasks.NewHandler(tasksService)
+
 	router := buildRouter(
 		cfg, logger, storeResolver, tokenManager,
 		pAuthHandler, sAuthHandler, storeMgmtHandler,
@@ -1082,6 +1537,10 @@ func main() {
 		rateLimiter,
 		reviewsHandler,
 		blogHandler,
+		shippingHandler,
+		musicHandler,
+		tasksHandler,
+		sessionManager,
 	)
 
 	server := &http.Server{
@@ -1118,4 +1577,39 @@ func main() {
 	}
 
 	logger.Info("Ecom Ventures API Kernel gracefully terminated.")
+}
+
+// mergeThemeConfig combines a theme's design configuration with a store's custom overrides.
+// The theme's config_schema is the base design; each top-level key in the overrides replaces the
+// base value, and when both values are objects (for example "colors") their keys are merged one
+// level deep so an override can change one colour without losing the rest. Invalid or empty JSON
+// is treated as an empty object, which the storefront then resolves to the neutral design.
+// Inputs: the raw theme config and the raw store overrides. Output: the merged map for the API.
+func mergeThemeConfig(base, overrides json.RawMessage) map[string]interface{} {
+	merged := map[string]interface{}{}
+	if len(base) > 0 {
+		var b map[string]interface{}
+		if err := json.Unmarshal(base, &b); err == nil {
+			merged = b
+		}
+	}
+	if len(overrides) == 0 {
+		return merged
+	}
+	var o map[string]interface{}
+	if err := json.Unmarshal(overrides, &o); err != nil {
+		return merged
+	}
+	for key, value := range o {
+		baseMap, baseIsMap := merged[key].(map[string]interface{})
+		overMap, overIsMap := value.(map[string]interface{})
+		if baseIsMap && overIsMap {
+			for k, v := range overMap {
+				baseMap[k] = v
+			}
+			continue
+		}
+		merged[key] = value
+	}
+	return merged
 }

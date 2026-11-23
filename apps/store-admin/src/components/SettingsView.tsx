@@ -1,269 +1,882 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Settings,
   Save,
-  CheckCircle2,
-  Shield,
-  UserPlus,
-  Trash2,
-  Pencil,
-  Plus,
+  Users,
+  Image as ImageIcon,
   Globe,
-  Search,
   Share2,
-  FileText,
-  Lock,
-  ExternalLink,
-  Sparkles,
-  Smartphone,
-  Eye,
+  FileCode,
+  Shield,
+  Layers,
   Check,
+  Eye,
+  Sliders,
+  UserPlus,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
-import { StoreSettings, StoreBrand } from '../types/store';
-import { AddStaffModal, StoreStaffMember } from './AddStaffModal';
-import { EditStaffModal } from './EditStaffModal';
+import { StoreBrand, StoreSettings, StoreStaff } from '../types/store';
+import { getStorefrontUrl } from '../lib/storefront';
+// Staff and store configuration API services
+import {
+  fetchStaffList,
+  fetchStoreSettings,
+  updateStoreSettings,
+  createStaffMember,
+  updateStaffMember,
+  deleteStaffMember,
+} from '../lib/settings-api';
+import { RecordModal } from './RecordModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
-import { GoogleSerpPreview } from './GoogleSerpPreview';
 
 interface SettingsViewProps {
   currentStore: StoreBrand;
-  settings: StoreSettings;
-  onSaveSettings: (settings: StoreSettings) => void;
+  settings?: StoreSettings | null;
 }
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ currentStore, settings, onSaveSettings }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'operations' | 'seo'>('operations');
-  const [form, setForm] = useState<StoreSettings>({
-    ...settings,
-    metaTitleTemplate: settings.metaTitleTemplate || '%s | ' + currentStore.name,
-    defaultMetaTitle: settings.defaultMetaTitle || `${currentStore.name} — Luxury Boutique & Online Store`,
-    defaultMetaDescription: settings.defaultMetaDescription || `Discover curated fashion, artisan goods, and premium collections at ${currentStore.name}.`,
-    defaultKeywords: settings.defaultKeywords || `${currentStore.name}, online shopping, fashion boutique, premium collections`,
-    faviconUrl: settings.faviconUrl || '',
-    appleTouchIconUrl: settings.appleTouchIconUrl || '',
-    defaultOgImageUrl: settings.defaultOgImageUrl || '',
-    twitterHandle: settings.twitterHandle || '',
-    googleSiteVerification: settings.googleSiteVerification || '',
-    bingSiteVerification: settings.bingSiteVerification || '',
-    pinterestVerification: settings.pinterestVerification || '',
-    robotsTxtCustom: settings.robotsTxtCustom || `User-agent: *\nAllow: /\nDisallow: /checkout\nDisallow: /admin\nDisallow: /api/\nSitemap: https://${currentStore.primaryDomain}/sitemap.xml`,
-    sitemapEnabled: settings.sitemapEnabled !== undefined ? settings.sitemapEnabled : true,
+const Field: React.FC<{ label: string; value: string | null; emptyText?: string }> = ({
+  label,
+  value,
+  emptyText = 'Not set',
+}) => (
+  <div
+    style={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      gap: '12px',
+      padding: '8px 0',
+      borderBottom: '1px solid var(--border)',
+      fontSize: '0.85rem',
+    }}
+  >
+    <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+    <span
+      style={{
+        fontWeight: 600,
+        fontFamily: 'var(--font-mono)',
+        textAlign: 'right',
+        wordBreak: 'break-all',
+      }}
+    >
+      {value !== null && value !== '' ? value : emptyText}
+    </span>
+  </div>
+);
+
+export const SettingsView: React.FC<SettingsViewProps> = ({ currentStore }) => {
+  const [activeTab, setActiveTab] = useState<'general' | 'branding' | 'social_seo' | 'staff'>('general');
+  const [staffList, setStaffList] = useState<StoreStaff[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // General & Operations
+  const [brandName, setBrandName] = useState(currentStore.name);
+  const [legalName, setLegalName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [orderPrefix, setOrderPrefix] = useState('ORD-');
+  const [shippingFee, setShippingFee] = useState<number>(60);
+  const [taxRatePercent, setTaxRatePercent] = useState<number>(0);
+  const [pricesIncludeTax, setPricesIncludeTax] = useState<boolean>(false);
+
+  // Visual Branding & Media
+  const [logoUrl, setLogoUrl] = useState('');
+  const [desktopHeroBannerUrl, setDesktopHeroBannerUrl] = useState('');
+  const [mobileHeroBannerUrl, setMobileHeroBannerUrl] = useState('');
+  const [faviconUrl, setFaviconUrl] = useState('');
+  const [appleTouchIconUrl, setAppleTouchIconUrl] = useState('');
+  const [defaultOgImageUrl, setDefaultOgImageUrl] = useState('');
+  const [siteDescription, setSiteDescription] = useState('');
+  const [footerContent, setFooterContent] = useState('');
+
+  // Social & Channels
+  const [whatsappPhone, setWhatsappPhone] = useState('');
+  const [facebookUrl, setFacebookUrl] = useState('');
+  const [instagramUrl, setInstagramUrl] = useState('');
+  const [twitterHandle, setTwitterHandle] = useState('');
+
+  // SEO & Webmaster Verification
+  const [metaTitleTemplate, setMetaTitleTemplate] = useState('');
+  const [defaultMetaTitle, setDefaultMetaTitle] = useState('');
+  const [defaultMetaDescription, setDefaultMetaDescription] = useState('');
+  const [defaultKeywords, setDefaultKeywords] = useState('');
+  const [googleSiteVerification, setGoogleSiteVerification] = useState('');
+  const [bingSiteVerification, setBingSiteVerification] = useState('');
+  const [pinterestVerification, setPinterestVerification] = useState('');
+  const [robotsTxtCustom, setRobotsTxtCustom] = useState('');
+  const [sitemapEnabled, setSitemapEnabled] = useState(true);
+
+  // Staff Management State
+  const [staffModal, setStaffModal] = useState<{ mode: 'create' | 'edit'; staff: StoreStaff | null } | null>(null);
+  const [deleteStaffTarget, setDeleteStaffTarget] = useState<StoreStaff | null>(null);
+  const [staffForm, setStaffForm] = useState<{
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+    role: 'STORE_OWNER' | 'STORE_ADMIN' | 'STORE_STAFF';
+    isActive: boolean;
+  }>({
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+    role: 'STORE_STAFF',
+    isActive: true,
   });
-  const [savedSuccess, setSavedSuccess] = useState(false);
 
-  const [staffList, setStaffList] = useState<StoreStaffMember[]>([
-    { id: 'st-1', name: 'Store Owner', email: `admin@${currentStore.slug}.com`, role: 'STORE_OWNER', status: 'ACTIVE' },
-    { id: 'st-2', name: 'Inventory Manager', email: `ops@${currentStore.slug}.com`, role: 'STORE_ADMIN', status: 'ACTIVE' },
-  ]);
+  const storefrontUrl = getStorefrontUrl(currentStore);
 
-  const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
-  const [editingStaff, setEditingStaff] = useState<StoreStaffMember | null>(null);
-  const [deletingStaff, setDeletingStaff] = useState<StoreStaffMember | null>(null);
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const [sData, stList] = await Promise.all([fetchStoreSettings(), fetchStaffList()]);
+      if (sData) {
+        setBrandName(sData.brandName || currentStore.name);
+        setLegalName(sData.legalBusinessName || '');
+        setContactEmail(sData.contactEmail || '');
+        setContactPhone(sData.contactPhone || '');
+        setOrderPrefix(sData.orderPrefix || 'ORD-');
+        setShippingFee(sData.shippingInsideDhaka ?? 60);
+        setTaxRatePercent(sData.taxRatePercent ?? 0);
+        setPricesIncludeTax(Boolean(sData.pricesIncludeTax));
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSaveSettings(form);
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2500);
+        setLogoUrl(sData.logoUrl || '');
+        setDesktopHeroBannerUrl(sData.desktopHeroBannerUrl || '');
+        setMobileHeroBannerUrl(sData.mobileHeroBannerUrl || '');
+        setFaviconUrl(sData.faviconUrl || '');
+        setAppleTouchIconUrl(sData.appleTouchIconUrl || '');
+        setDefaultOgImageUrl(sData.defaultOgImageUrl || '');
+
+        setSiteDescription(sData.siteDescription || '');
+        setFooterContent(sData.footerContent || '');
+
+        setWhatsappPhone(sData.whatsappPhone || '');
+        setFacebookUrl(sData.facebookUrl || '');
+        setInstagramUrl(sData.instagramUrl || '');
+        setTwitterHandle(sData.twitterHandle || '');
+
+        setMetaTitleTemplate(sData.metaTitleTemplate || '');
+        setDefaultMetaTitle(sData.defaultMetaTitle || '');
+        setDefaultMetaDescription(sData.defaultMetaDescription || '');
+        setDefaultKeywords(sData.defaultKeywords || '');
+        setGoogleSiteVerification(sData.googleSiteVerification || '');
+        setBingSiteVerification(sData.bingSiteVerification || '');
+        setPinterestVerification(sData.pinterestVerification || '');
+        setRobotsTxtCustom(sData.robotsTxtCustom || '');
+        setSitemapEnabled(sData.sitemapEnabled !== undefined ? sData.sitemapEnabled : true);
+      }
+      setStaffList(stList);
+    } catch {
+      setNotice({ type: 'error', text: 'Failed to load store settings & staff accounts.' });
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  useEffect(() => {
+    loadData();
+  }, [currentStore.slug]);
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    setNotice(null);
+
+    try {
+      await updateStoreSettings({
+        store_name: brandName.trim(),
+        legal_business_name: legalName.trim(),
+        support_email: contactEmail.trim(),
+        contact_phone: contactPhone.trim(),
+        order_number_prefix: orderPrefix.trim(),
+        default_shipping_fee: Number(shippingFee),
+        tax_rate_percent: Number(taxRatePercent),
+        prices_include_tax: pricesIncludeTax,
+
+        logo_url: logoUrl.trim(),
+        desktop_hero_banner_url: desktopHeroBannerUrl.trim(),
+        mobile_hero_banner_url: mobileHeroBannerUrl.trim(),
+        favicon_url: faviconUrl.trim(),
+        apple_touch_icon_url: appleTouchIconUrl.trim(),
+        default_og_image_url: defaultOgImageUrl.trim(),
+
+        site_description: siteDescription.trim(),
+        footer_content: footerContent.trim(),
+
+        whatsapp_phone: whatsappPhone.trim(),
+        facebook_url: facebookUrl.trim(),
+        instagram_url: instagramUrl.trim(),
+        twitter_handle: twitterHandle.trim(),
+
+        meta_title_template: metaTitleTemplate.trim(),
+        default_meta_title: defaultMetaTitle.trim(),
+        default_meta_description: defaultMetaDescription.trim(),
+        default_keywords: defaultKeywords.trim(),
+        google_site_verification: googleSiteVerification.trim(),
+        bing_site_verification: bingSiteVerification.trim(),
+        pinterest_verification: pinterestVerification.trim(),
+        robots_txt_custom: robotsTxtCustom.trim(),
+        sitemap_enabled: sitemapEnabled,
+      });
+      setNotice({ type: 'success', text: 'Store preferences and visual branding updated successfully!' });
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err?.message || 'Failed to save store settings.' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const openCreateStaff = () => {
+    setStaffForm({
+      firstName: '',
+      lastName: '',
+      email: '',
+      password: '',
+      role: 'STORE_STAFF',
+      isActive: true,
+    });
+    setStaffModal({ mode: 'create', staff: null });
+  };
+
+  const openEditStaff = (st: StoreStaff) => {
+    const parts = st.name.split(' ');
+    const firstName = st.firstName || parts[0] || '';
+    const lastName = st.lastName || parts.slice(1).join(' ') || '';
+    setStaffForm({
+      firstName,
+      lastName,
+      email: st.email,
+      password: '',
+      role: (st.role as any) || 'STORE_STAFF',
+      isActive: st.isActive,
+    });
+    setStaffModal({ mode: 'edit', staff: st });
+  };
+
+  const handleSaveStaff = async () => {
+    if (staffModal?.mode === 'create') {
+      if (!staffForm.email.trim()) throw new Error('Email address is required.');
+      if (!staffForm.password.trim() || staffForm.password.length < 8) {
+        throw new Error('Password must be at least 8 characters long.');
+      }
+      const created = await createStaffMember({
+        email: staffForm.email.trim(),
+        password: staffForm.password,
+        firstName: staffForm.firstName.trim(),
+        lastName: staffForm.lastName.trim(),
+        role: staffForm.role === 'STORE_OWNER' ? 'STORE_ADMIN' : (staffForm.role as 'STORE_ADMIN' | 'STORE_STAFF'),
+      });
+      setStaffList((prev) => [created, ...prev]);
+      setNotice({ type: 'success', text: `Staff account for ${created.name} (${created.email}) created successfully!` });
+    } else if (staffModal?.mode === 'edit' && staffModal.staff) {
+      const updated = await updateStaffMember(staffModal.staff.id, {
+        firstName: staffForm.firstName.trim(),
+        lastName: staffForm.lastName.trim(),
+        role: staffForm.role,
+        isActive: staffForm.isActive,
+      });
+      setStaffList((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      setNotice({ type: 'success', text: `Staff member ${updated.name} updated successfully!` });
+    }
+  };
+
+  const handleDeleteStaff = async () => {
+    if (!deleteStaffTarget) return;
+    if (deleteStaffTarget.role === 'STORE_OWNER') {
+      setNotice({ type: 'error', text: 'Store Owner account cannot be deleted.' });
+      setDeleteStaffTarget(null);
+      return;
+    }
+    try {
+      await deleteStaffMember(deleteStaffTarget.id);
+      setStaffList((prev) => prev.filter((s) => s.id !== deleteStaffTarget.id));
+      setNotice({ type: 'success', text: `Staff member "${deleteStaffTarget.name}" deleted successfully.` });
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err?.message || 'Failed to delete staff member.' });
+    } finally {
+      setDeleteStaffTarget(null);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ height: '28px', width: '260px', background: 'var(--border)', borderRadius: '6px' }} />
+        <div style={{ height: '360px', background: '#fff', borderRadius: '8px', border: '1px solid var(--border)' }} />
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-        <div>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
-            Store Settings & Operations
-          </h1>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
-            Operational parameters, delivery rates, Favicon, and 100% SEO metadata for <code>{currentStore.name}</code>
-          </p>
-        </div>
+      <div style={{ marginBottom: '14px' }}>
+        <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
+          Store Settings & Brand Engine
+        </h1>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
+          Visual identity, theme tokens, operational policies, SEO, and staff accounts for <code>{currentStore.slug}</code>
+        </p>
       </div>
 
-      {/* Subtab Navigation Pills */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
+      {notice && (
+        <div className={`notice notice-${notice.type === 'success' ? 'success' : 'warning'}`} style={{ marginBottom: '14px' }}>
+          {notice.text}
+        </div>
+      )}
+
+      {/* Main Tabs */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border)', marginBottom: '18px', paddingBottom: '8px', flexWrap: 'wrap' }}>
         <button
-          type="button"
-          onClick={() => setActiveSubTab('operations')}
-          className={`btn btn-sm ${activeSubTab === 'operations' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 16px', fontSize: '0.82rem' }}
+          onClick={() => setActiveTab('general')}
+          className={`btn btn-sm ${activeTab === 'general' ? 'btn-primary' : 'btn-secondary'}`}
         >
-          <Settings size={15} />
-          <span>Operations & Staff</span>
+          <Sliders size={14} />
+          <span>General & Operations</span>
         </button>
         <button
-          type="button"
-          onClick={() => setActiveSubTab('seo')}
-          className={`btn btn-sm ${activeSubTab === 'seo' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 16px', fontSize: '0.82rem' }}
+          onClick={() => setActiveTab('branding')}
+          className={`btn btn-sm ${activeTab === 'branding' ? 'btn-primary' : 'btn-secondary'}`}
         >
-          <Globe size={15} />
-          <span>SEO, Favicon & Webmaster</span>
-          <span
+          <ImageIcon size={14} />
+          <span>Visual Branding & Media</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('social_seo')}
+          className={`btn btn-sm ${activeTab === 'social_seo' ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          <Globe size={14} />
+          <span>Social & SEO Webmaster</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('staff')}
+          className={`btn btn-sm ${activeTab === 'staff' ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          <Users size={14} />
+          <span>Staff Accounts ({staffList.length})</span>
+        </button>
+      </div>
+
+      {/* Settings Form Container */}
+      {activeTab !== 'staff' && (
+        <form onSubmit={handleSaveSettings}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', maxWidth: '1080px', marginBottom: '24px' }}>
+
+            {/* TAB 1: GENERAL & OPERATIONS */}
+            {activeTab === 'general' && (
+              <>
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title">Tenant Identity & Domain</div>
+                  </div>
+                  <Field label="Store Name" value={currentStore.name} />
+                  <Field label="Store Slug" value={currentStore.slug} />
+                  <Field label="Status" value={currentStore.status ?? 'ACTIVE'} />
+                  <Field label="Currency" value={currentStore.currency} />
+                  <Field label="Timezone" value={currentStore.timezone} />
+                  <Field label="Primary Domain" value={currentStore.primaryDomain} emptyText="Not set" />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '8px 0', fontSize: '0.85rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Storefront URL</span>
+                    {storefrontUrl === null ? (
+                      <span style={{ fontWeight: 600 }}>Not set</span>
+                    ) : (
+                      <a
+                        href={storefrontUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}
+                      >
+                        {storefrontUrl}
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title">Operational Policies</div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">Store Brand Display Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={brandName}
+                      onChange={(e) => setBrandName(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">Legal Entity / Registered Business Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Poshplex Holdings Ltd."
+                      value={legalName}
+                      onChange={(e) => setLegalName(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-grid" style={{ marginBottom: '12px' }}>
+                    <div className="form-group">
+                      <label className="form-label">Customer Support Email</label>
+                      <input
+                        type="email"
+                        placeholder="support@domain.com"
+                        value={contactEmail}
+                        onChange={(e) => setContactEmail(e.target.value)}
+                        className="form-input"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Contact Phone</label>
+                      <input
+                        type="tel"
+                        placeholder="+8801..."
+                        value={contactPhone}
+                        onChange={(e) => setContactPhone(e.target.value)}
+                        className="form-input"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-grid" style={{ marginBottom: '12px' }}>
+                    <div className="form-group">
+                      <label className="form-label">Order Prefix</label>
+                      <input
+                        type="text"
+                        required
+                        value={orderPrefix}
+                        onChange={(e) => setOrderPrefix(e.target.value)}
+                        className="form-input"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Default Shipping Fee ({currentStore.currency})</label>
+                      <input
+                        type="number"
+                        required
+                        value={shippingFee}
+                        onChange={(e) => setShippingFee(Number(e.target.value))}
+                        className="form-input"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-grid" style={{ marginBottom: '12px' }}>
+                    <div className="form-group">
+                      <label className="form-label">Tax Rate (%)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={taxRatePercent}
+                        onChange={(e) => setTaxRatePercent(Number(e.target.value))}
+                        className="form-input"
+                      />
+                    </div>
+                    <div className="form-group" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                      <label className="form-label" style={{ marginBottom: '6px' }}>Prices Include Tax</label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={pricesIncludeTax}
+                          onChange={(e) => setPricesIncludeTax(e.target.checked)}
+                        />
+                        <span>Catalog prices are tax-inclusive</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* TAB 2: VISUAL BRANDING & MEDIA */}
+            {activeTab === 'branding' && (
+              <>
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title">Brand Assets & Previews</div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label className="form-label">Brand Logo URL</label>
+                    <input
+                      type="url"
+                      placeholder="https://.../logo.png"
+                      value={logoUrl}
+                      onChange={(e) => setLogoUrl(e.target.value)}
+                      className="form-input"
+                    />
+                    {logoUrl && (
+                      <div style={{ marginTop: '8px', padding: '10px', background: '#f8fafc', borderRadius: '6px', border: '1px solid var(--border)', display: 'inline-block' }}>
+                        <img src={logoUrl} alt="Store Logo Preview" style={{ maxHeight: '48px', maxWidth: '200px', objectFit: 'contain' }} onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label className="form-label">Favicon URL (32x32)</label>
+                    <input
+                      type="url"
+                      placeholder="https://.../favicon.ico"
+                      value={faviconUrl}
+                      onChange={(e) => setFaviconUrl(e.target.value)}
+                      className="form-input"
+                    />
+                    {faviconUrl && (
+                      <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <img src={faviconUrl} alt="Favicon" style={{ width: '24px', height: '24px', objectFit: 'contain' }} />
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Live tab icon</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label className="form-label">Apple Touch Icon URL (180x180)</label>
+                    <input
+                      type="url"
+                      placeholder="https://.../apple-touch-icon.png"
+                      value={appleTouchIconUrl}
+                      onChange={(e) => setAppleTouchIconUrl(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label className="form-label">Default Social Share Image URL (OG 1200x630)</label>
+                    <input
+                      type="url"
+                      placeholder="https://.../og-banner.jpg"
+                      value={defaultOgImageUrl}
+                      onChange={(e) => setDefaultOgImageUrl(e.target.value)}
+                      className="form-input"
+                    />
+                    {defaultOgImageUrl && (
+                      <div style={{ marginTop: '8px', maxHeight: '120px', overflow: 'hidden', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                        <img src={defaultOgImageUrl} alt="OG Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title">Storefront Hero Banners</div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label className="form-label">Desktop Hero Banner URL (Aspect 16:9 or 21:9)</label>
+                    <input
+                      type="url"
+                      placeholder="https://.../hero-desktop.jpg"
+                      value={desktopHeroBannerUrl}
+                      onChange={(e) => setDesktopHeroBannerUrl(e.target.value)}
+                      className="form-input"
+                    />
+                    {desktopHeroBannerUrl && (
+                      <div style={{ marginTop: '8px', height: '120px', overflow: 'hidden', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                        <img src={desktopHeroBannerUrl} alt="Desktop Hero" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label className="form-label">Mobile Hero Banner URL (Aspect 4:5 or 1:1)</label>
+                    <input
+                      type="url"
+                      placeholder="https://.../hero-mobile.jpg"
+                      value={mobileHeroBannerUrl}
+                      onChange={(e) => setMobileHeroBannerUrl(e.target.value)}
+                      className="form-input"
+                    />
+                    {mobileHeroBannerUrl && (
+                      <div style={{ marginTop: '8px', height: '140px', width: '120px', overflow: 'hidden', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                        <img src={mobileHeroBannerUrl} alt="Mobile Hero" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title">Brand Statement & Footer Summary</div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label className="form-label">Site Meta Description / Search Summary</label>
+                    <textarea
+                      rows={3}
+                      placeholder="Brief synopsis of what this brand offers..."
+                      value={siteDescription}
+                      onChange={(e) => setSiteDescription(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label className="form-label">Footer Brand Statement & Copyright</label>
+                    <textarea
+                      rows={3}
+                      placeholder="© 2026 Poshplex. All rights reserved. Premium Dhaka streetwear."
+                      value={footerContent}
+                      onChange={(e) => setFooterContent(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* TAB 4: SOCIAL & SEO WEBMASTER */}
+            {activeTab === 'social_seo' && (
+              <>
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title">Social Media Channels</div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">WhatsApp Helpline Number</label>
+                    <input
+                      type="text"
+                      placeholder="+8801..."
+                      value={whatsappPhone}
+                      onChange={(e) => setWhatsappPhone(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">Facebook Page URL</label>
+                    <input
+                      type="url"
+                      placeholder="https://facebook.com/..."
+                      value={facebookUrl}
+                      onChange={(e) => setFacebookUrl(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">Instagram Profile URL</label>
+                    <input
+                      type="url"
+                      placeholder="https://instagram.com/..."
+                      value={instagramUrl}
+                      onChange={(e) => setInstagramUrl(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">Twitter / X Handle</label>
+                    <input
+                      type="text"
+                      placeholder="@brand"
+                      value={twitterHandle}
+                      onChange={(e) => setTwitterHandle(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+                </div>
+
+                <div className="card">
+                  <div className="card-header">
+                    <div className="card-title">Search Engine & Webmaster Verification</div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">SEO Meta Title Pattern</label>
+                    <input
+                      type="text"
+                      placeholder="%s | {store_name}"
+                      value={metaTitleTemplate}
+                      onChange={(e) => setMetaTitleTemplate(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">Default Meta Title</label>
+                    <input
+                      type="text"
+                      placeholder="Premium Streetwear & Contemporary Drops"
+                      value={defaultMetaTitle}
+                      onChange={(e) => setDefaultMetaTitle(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">Default Meta Description</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Shop the latest drops in oversized tees, cargo pants, and hoodies..."
+                      value={defaultMetaDescription}
+                      onChange={(e) => setDefaultMetaDescription(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">Default SEO Keywords</label>
+                    <input
+                      type="text"
+                      placeholder="streetwear, hoodies, oversized tees, bangladesh fashion"
+                      value={defaultKeywords}
+                      onChange={(e) => setDefaultKeywords(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">Google Site Verification Code</label>
+                    <input
+                      type="text"
+                      placeholder="google-site-verification token"
+                      value={googleSiteVerification}
+                      onChange={(e) => setGoogleSiteVerification(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '12px' }}>
+                    <label className="form-label">Custom robots.txt Rules</label>
+                    <textarea
+                      rows={2}
+                      placeholder="User-agent: *&#10;Disallow: /admin"
+                      value={robotsTxtCustom}
+                      onChange={(e) => setRobotsTxtCustom(e.target.value)}
+                      className="form-input"
+                      style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={sitemapEnabled}
+                        onChange={(e) => setSitemapEnabled(e.target.checked)}
+                      />
+                      <span>Generate and serve dynamic XML Sitemap at /sitemap.xml</span>
+                    </label>
+                  </div>
+                </div>
+              </>
+            )}
+
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <button type="submit" disabled={isSaving} className="btn btn-primary" style={{ gap: '6px' }}>
+              <Save size={14} />
+              <span>{isSaving ? 'Saving Changes...' : 'Save Store Preferences'}</span>
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* TAB: STAFF ACCOUNTS */}
+      {activeTab === 'staff' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '1000px' }}>
+          <div
             style={{
-              fontSize: '0.68rem',
-              fontWeight: 800,
-              backgroundColor: activeSubTab === 'seo' ? '#ffffff' : 'var(--primary)',
-              color: activeSubTab === 'seo' ? 'var(--primary)' : '#ffffff',
-              borderRadius: '999px',
-              padding: '1px 6px',
-              marginLeft: '4px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px',
+              padding: '14px 18px',
+              background: '#ffffff',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-sm)',
             }}
           >
-            100% SEO
-          </span>
-        </button>
-      </div>
-
-      <form onSubmit={handleSubmit} style={{ maxWidth: '880px' }}>
-        {activeSubTab === 'operations' ? (
-          <>
-            {/* Store Profile */}
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">Brand Identity & Support Coordinates</div>
+            <div>
+              <div style={{ fontSize: '0.98rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                Store Staff Members & RBAC Permissions
               </div>
-
-              <div className="form-grid">
-                <div className="form-group">
-                  <label className="form-label">Store Brand Name</label>
-                  <input
-                    type="text"
-                    required
-                    value={form.brandName}
-                    onChange={(e) => setForm({ ...form, brandName: e.target.value })}
-                    className="form-input"
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Support Email Address</label>
-                  <input
-                    type="email"
-                    required
-                    value={form.contactEmail}
-                    onChange={(e) => setForm({ ...form, contactEmail: e.target.value })}
-                    className="form-input"
-                  />
-                </div>
-              </div>
-
-              <div className="form-grid">
-                <div className="form-group">
-                  <label className="form-label">Customer Contact Phone</label>
-                  <input
-                    type="text"
-                    required
-                    value={form.contactPhone}
-                    onChange={(e) => setForm({ ...form, contactPhone: e.target.value })}
-                    className="form-input"
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Order Number Prefix</label>
-                  <input
-                    type="text"
-                    required
-                    value={form.orderPrefix}
-                    onChange={(e) => setForm({ ...form, orderPrefix: e.target.value.toUpperCase() })}
-                    className="form-input"
-                  />
-                </div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                Authorize staff accounts, assign operational roles, and manage access credentials.
               </div>
             </div>
+            <button
+              type="button"
+              onClick={openCreateStaff}
+              className="btn btn-sm btn-primary"
+              style={{ gap: '6px' }}
+            >
+              <UserPlus size={14} />
+              <span>Add Staff Member</span>
+            </button>
+          </div>
 
-            {/* Shipping & Delivery Rates */}
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">Shipping & Logistics Rates</div>
-              </div>
-
-              <div className="form-grid">
-                <div className="form-group">
-                  <label className="form-label">Inside Dhaka Delivery Fee (BDT)</label>
-                  <input
-                    type="number"
-                    required
-                    value={form.shippingInsideDhaka}
-                    onChange={(e) => setForm({ ...form, shippingInsideDhaka: parseInt(e.target.value, 10) || 0 })}
-                    className="form-input"
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Outside Dhaka Delivery Fee (BDT)</label>
-                  <input
-                    type="number"
-                    required
-                    value={form.shippingOutsideDhaka}
-                    onChange={(e) => setForm({ ...form, shippingOutsideDhaka: parseInt(e.target.value, 10) || 0 })}
-                    className="form-input"
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Return & Replacement Window (Days)</label>
-                <input
-                  type="number"
-                  required
-                  value={form.returnPolicyDays}
-                  onChange={(e) => setForm({ ...form, returnPolicyDays: parseInt(e.target.value, 10) || 7 })}
-                  className="form-input"
-                />
-              </div>
-            </div>
-
-            {/* Staff Directory */}
-            <div className="card">
-              <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div className="card-title">Authorized Store Staff Accounts</div>
-                  <div className="card-desc">Authorized operators and team members with role permissions</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsAddStaffOpen(true)}
-                  className="btn btn-secondary btn-sm"
-                  style={{ fontSize: '0.78rem', padding: '5px 12px' }}
-                >
-                  <Plus size={14} />
-                  <span>Add Staff Operator</span>
-                </button>
-              </div>
-
-              <table className="data-table" style={{ marginBottom: '16px' }}>
+          <div className="card" style={{ padding: 0 }}>
+            <div className="table-container" style={{ border: 'none' }}>
+              <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Staff Name</th>
-                    <th>Email Address</th>
-                    <th>Assigned Role</th>
+                    <th>Staff Member</th>
+                    <th>Email</th>
+                    <th>Role</th>
                     <th>Status</th>
-                    <th>Actions</th>
+                    <th>Created</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {staffList.map((st) => (
                     <tr key={st.id}>
                       <td style={{ fontWeight: 600 }}>{st.name}</td>
-                      <td>{st.email}</td>
-                      <td><span className="badge badge-shipped">{st.role}</span></td>
-                      <td><span className="badge badge-active">{st.status}</span></td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{st.email}</td>
                       <td>
-                        <div style={{ display: 'flex', gap: '4px' }}>
+                        <span
+                          className={`badge ${
+                            st.role === 'STORE_OWNER'
+                              ? 'badge-active'
+                              : st.role === 'STORE_ADMIN'
+                                ? 'badge-shipped'
+                                : 'badge-outline'
+                          }`}
+                        >
+                          {st.role}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`badge ${st.isActive ? 'badge-active' : 'badge-outline'}`}>
+                          {st.isActive ? 'ACTIVE' : 'INACTIVE'}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        {st.createdAt ? new Date(st.createdAt).toLocaleDateString() : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: '6px' }}>
                           <button
                             type="button"
-                            onClick={() => setEditingStaff(st)}
-                            className="btn btn-secondary btn-sm"
-                            style={{ padding: '3px 6px' }}
+                            className="btn btn-sm btn-secondary"
                             title="Edit Staff Member"
+                            onClick={() => openEditStaff(st)}
+                            style={{ padding: '4px 8px' }}
                           >
                             <Pencil size={12} />
                           </button>
                           <button
                             type="button"
-                            onClick={() => setDeletingStaff(st)}
-                            className="btn btn-danger btn-sm"
-                            style={{ padding: '3px 6px' }}
-                            title="Delete Staff Member"
+                            className="btn btn-sm"
+                            title={st.role === 'STORE_OWNER' ? 'Store owner cannot be deleted' : 'Delete Staff Member'}
+                            disabled={st.role === 'STORE_OWNER'}
+                            onClick={() => setDeleteStaffTarget(st)}
+                            style={{
+                              padding: '4px 8px',
+                              color: st.role === 'STORE_OWNER' ? '#cbd5e1' : '#dc2626',
+                              borderColor: st.role === 'STORE_OWNER' ? '#e2e8f0' : '#fca5a5',
+                              cursor: st.role === 'STORE_OWNER' ? 'not-allowed' : 'pointer',
+                            }}
                           >
                             <Trash2 size={12} />
                           </button>
@@ -271,508 +884,133 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ currentStore, settin
                       </td>
                     </tr>
                   ))}
+                  {staffList.length === 0 && (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '28px', color: 'var(--text-muted)' }}>
+                        No staff members found. Click "Add Staff Member" to authorize team members.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-          </>
-        ) : (
-          /* ========================================================
-             SEO, FAVICON & WEBMASTER SUB-TAB
-             ======================================================== */
-          <>
-            {/* 1. Interactive Browser Tab Simulator */}
-            <div className="card" style={{ borderLeft: '4px solid var(--primary)' }}>
-              <div className="card-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Globe size={18} style={{ color: 'var(--primary)' }} />
-                  <div>
-                    <div className="card-title">Live Browser Tab Simulation</div>
-                    <div className="card-desc">Visual preview of how your store title and favicon appear in user browser tabs</div>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  backgroundColor: '#1e293b',
-                  borderRadius: '10px 10px 6px 6px',
-                  padding: '10px 12px 14px 12px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                }}
-              >
-                {/* Simulated Chrome/Safari window header */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
-                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#ef4444' }} />
-                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#f59e0b' }} />
-                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#10b981' }} />
-                  <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginLeft: '6px', fontFamily: 'var(--font-mono)' }}>
-                    Browser Viewport
-                  </div>
-                </div>
-
-                {/* Tabs row */}
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', paddingLeft: '4px' }}>
-                  {/* Active Store Tab */}
-                  <div
-                    style={{
-                      backgroundColor: '#334155',
-                      borderRadius: '8px 8px 0 0',
-                      padding: '8px 14px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      maxWidth: '240px',
-                      boxShadow: '0 -2px 6px rgba(0,0,0,0.1)',
-                      borderTop: '2px solid var(--primary)',
-                    }}
-                  >
-                    {form.faviconUrl ? (
-                      <img
-                        src={form.faviconUrl}
-                        alt="Favicon"
-                        style={{ width: '16px', height: '16px', borderRadius: '3px', objectFit: 'cover' }}
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <Globe size={14} style={{ color: '#38bdf8' }} />
-                    )}
-                    <span
-                      style={{
-                        fontSize: '0.76rem',
-                        fontWeight: 600,
-                        color: '#f8fafc',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {form.defaultMetaTitle || form.brandName}
-                    </span>
-                    <span style={{ fontSize: '0.72rem', color: '#94a3b8', cursor: 'pointer', marginLeft: 'auto' }}>×</span>
-                  </div>
-
-                  {/* Adjacent Inactive Tab */}
-                  <div
-                    style={{
-                      backgroundColor: 'rgba(51, 65, 85, 0.4)',
-                      borderRadius: '8px 8px 0 0',
-                      padding: '8px 12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      maxWidth: '120px',
-                    }}
-                  >
-                    <Search size={12} style={{ color: '#64748b' }} />
-                    <span style={{ fontSize: '0.72rem', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                      Google Search
-                    </span>
-                  </div>
-                </div>
-
-                {/* Simulated Address Bar */}
-                <div
-                  style={{
-                    backgroundColor: '#0f172a',
-                    borderRadius: '0 0 6px 6px',
-                    padding: '6px 12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '0.74rem',
-                    color: '#94a3b8',
-                    border: '1px solid #334155',
-                    borderTop: 'none',
-                  }}
-                >
-                  <Lock size={12} style={{ color: '#10b981' }} />
-                  <span style={{ color: '#cbd5e1' }}>https://{currentStore.primaryDomain || `${currentStore.slug}.localhost:3002`}</span>
-                  <span style={{ marginLeft: 'auto', color: '#64748b', fontSize: '0.68rem' }}>SSL TLS 1.3</span>
-                </div>
-              </div>
-            </div>
-
-            {/* 2. Favicon & App Icons Configuration */}
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">Favicon & Mobile Touch Icons</div>
-                <div className="card-desc">Visual identity displayed on browser tabs, bookmarks, and mobile home screens</div>
-              </div>
-
-              <div className="form-grid">
-                <div className="form-group">
-                  <label className="form-label">Favicon URL (.ico, .png, .svg)</label>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      type="url"
-                      placeholder="https://.../favicon.png"
-                      value={form.faviconUrl || ''}
-                      onChange={(e) => setForm({ ...form, faviconUrl: e.target.value })}
-                      className="form-input"
-                    />
-                    {form.faviconUrl && (
-                      <div
-                        style={{
-                          width: '38px',
-                          height: '38px',
-                          borderRadius: '6px',
-                          border: '1px solid var(--border)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          backgroundColor: '#ffffff',
-                          flexShrink: 0,
-                        }}
-                      >
-                        <img src={form.faviconUrl} alt="Favicon" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
-                      </div>
-                    )}
-                  </div>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-subtle)', marginTop: '4px', display: 'block' }}>
-                    Recommended size: 32x32px or 64x64px square image.
-                  </span>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Apple Touch Icon URL</label>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      type="url"
-                      placeholder="https://.../apple-touch-icon.png"
-                      value={form.appleTouchIconUrl || ''}
-                      onChange={(e) => setForm({ ...form, appleTouchIconUrl: e.target.value })}
-                      className="form-input"
-                    />
-                    {form.appleTouchIconUrl && (
-                      <div
-                        style={{
-                          width: '38px',
-                          height: '38px',
-                          borderRadius: '8px',
-                          border: '1px solid var(--border)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          backgroundColor: '#ffffff',
-                          flexShrink: 0,
-                        }}
-                      >
-                        <img src={form.appleTouchIconUrl} alt="Apple Icon" style={{ width: '26px', height: '26px', objectFit: 'contain' }} />
-                      </div>
-                    )}
-                  </div>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-subtle)', marginTop: '4px', display: 'block' }}>
-                    Recommended size: 180x180px PNG with opaque background for iOS.
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* 3. Global Metadata & Title Template */}
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">Global Meta Titles & Search Optimization</div>
-                <div className="card-desc">Default fallback metadata and dynamic title patterning for all storefront pages</div>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '14px' }}>
-                <label className="form-label">
-                  Meta Title Template
-                  <span style={{ fontWeight: 400, color: 'var(--text-subtle)', marginLeft: '6px' }}>
-                    (<code>%s</code> is automatically replaced by Product, Category or Blog title)
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="%s | Store Brand"
-                  value={form.metaTitleTemplate || ''}
-                  onChange={(e) => setForm({ ...form, metaTitleTemplate: e.target.value })}
-                  className="form-input"
-                />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '14px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label">Homepage / Default Meta Title</label>
-                  <span style={{ fontSize: '0.7rem', color: (form.defaultMetaTitle || '').length > 60 ? '#ef4444' : '#10b981' }}>
-                    {(form.defaultMetaTitle || '').length} / 60 characters
-                  </span>
-                </div>
-                <input
-                  type="text"
-                  required
-                  placeholder="Primary search title for homepage"
-                  value={form.defaultMetaTitle || ''}
-                  onChange={(e) => setForm({ ...form, defaultMetaTitle: e.target.value })}
-                  className="form-input"
-                />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '14px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label">Homepage / Default Meta Description</label>
-                  <span style={{ fontSize: '0.7rem', color: (form.defaultMetaDescription || '').length > 160 ? '#ef4444' : '#10b981' }}>
-                    {(form.defaultMetaDescription || '').length} / 160 characters
-                  </span>
-                </div>
-                <textarea
-                  rows={3}
-                  required
-                  placeholder="Engaging summary for search engines (120-160 characters recommended)"
-                  value={form.defaultMetaDescription || ''}
-                  onChange={(e) => setForm({ ...form, defaultMetaDescription: e.target.value })}
-                  className="form-textarea"
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Default Target Keywords (Comma-separated)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. evening dresses, silk fashion, luxury clothing dhaka"
-                  value={form.defaultKeywords || ''}
-                  onChange={(e) => setForm({ ...form, defaultKeywords: e.target.value })}
-                  className="form-input"
-                />
-              </div>
-            </div>
-
-            {/* 4. Live SERP & Social Card Preview */}
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">Homepage Google SERP & Social Preview</div>
-                <div className="card-desc">Simulate how your homepage appears in Google Search and Social Media shares</div>
-              </div>
-
-              <GoogleSerpPreview
-                title={form.defaultMetaTitle || form.brandName}
-                description={form.defaultMetaDescription || ''}
-                url={`https://${currentStore.primaryDomain}`}
-                faviconUrl={form.faviconUrl}
-                focusKeyword={form.defaultKeywords?.split(',')[0]}
-                ogImageUrl={form.defaultOgImageUrl}
-                brandName={form.brandName}
-              />
-            </div>
-
-            {/* 5. Open Graph & Social Media */}
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">Social Sharing (Open Graph & Twitter Cards)</div>
-                <div className="card-desc">Controls how shared links render on Facebook, WhatsApp, LinkedIn, and X</div>
-              </div>
-
-              <div className="form-grid">
-                <div className="form-group">
-                  <label className="form-label">Default Social Share Image (OG Image URL)</label>
-                  <input
-                    type="url"
-                    placeholder="https://.../og-banner-1200x630.jpg"
-                    value={form.defaultOgImageUrl || ''}
-                    onChange={(e) => setForm({ ...form, defaultOgImageUrl: e.target.value })}
-                    className="form-input"
-                  />
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-subtle)', marginTop: '4px', display: 'block' }}>
-                    Optimal resolution: 1200 x 630 pixels.
-                  </span>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Twitter / X Creator Handle</label>
-                  <input
-                    type="text"
-                    placeholder="@YourBrand"
-                    value={form.twitterHandle || ''}
-                    onChange={(e) => setForm({ ...form, twitterHandle: e.target.value })}
-                    className="form-input"
-                  />
-                </div>
-              </div>
-
-              {form.defaultOgImageUrl && (
-                <div style={{ marginTop: '10px' }}>
-                  <label className="form-label" style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>Image Preview:</label>
-                  <img
-                    src={form.defaultOgImageUrl}
-                    alt="OG Preview"
-                    style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', borderRadius: '6px', border: '1px solid var(--border)' }}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* 6. Webmaster Tools Verification */}
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">Search Engine & Webmaster Verification</div>
-                <div className="card-desc">Inject official ownership meta tags for Google Search Console, Bing, and Pinterest</div>
-              </div>
-
-              <div className="form-grid">
-                <div className="form-group">
-                  <label className="form-label">Google Search Console Verification Code</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. google-site-verification=xxxx or token"
-                    value={form.googleSiteVerification || ''}
-                    onChange={(e) => setForm({ ...form, googleSiteVerification: e.target.value })}
-                    className="form-input"
-                    style={{ fontFamily: 'var(--font-mono)' }}
-                  />
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-subtle)', marginTop: '4px', display: 'block' }}>
-                    Injected as <code>&lt;meta name="google-site-verification" ...&gt;</code>
-                  </span>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Bing Webmaster (msvalidate.01) Token</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 7484B79A3482C..."
-                    value={form.bingSiteVerification || ''}
-                    onChange={(e) => setForm({ ...form, bingSiteVerification: e.target.value })}
-                    className="form-input"
-                    style={{ fontFamily: 'var(--font-mono)' }}
-                  />
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-subtle)', marginTop: '4px', display: 'block' }}>
-                    Injected as <code>&lt;meta name="msvalidate.01" ...&gt;</code>
-                  </span>
-                </div>
-              </div>
-
-              <div className="form-group" style={{ marginTop: '10px' }}>
-                <label className="form-label">Pinterest Domain Verification Token</label>
-                <input
-                  type="text"
-                  placeholder="e.g. a39e8f492b0..."
-                  value={form.pinterestVerification || ''}
-                  onChange={(e) => setForm({ ...form, pinterestVerification: e.target.value })}
-                  className="form-input"
-                  style={{ fontFamily: 'var(--font-mono)' }}
-                />
-              </div>
-            </div>
-
-            {/* 7. Crawling & Sitemap */}
-            <div className="card">
-              <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div className="card-title">Search Engine Crawling & XML Sitemaps</div>
-                  <div className="card-desc">Configure search indexing bots and review your automated XML sitemap</div>
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <a
-                    href="http://localhost:3002/sitemap.xml"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: '0.74rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    <ExternalLink size={12} />
-                    <span>View /sitemap.xml</span>
-                  </a>
-                  <a
-                    href="http://localhost:3002/robots.txt"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: '0.74rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    <ExternalLink size={12} />
-                    <span>View /robots.txt</span>
-                  </a>
-                </div>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <input
-                  type="checkbox"
-                  id="sitemapEnabled"
-                  checked={form.sitemapEnabled}
-                  onChange={(e) => setForm({ ...form, sitemapEnabled: e.target.checked })}
-                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                />
-                <label htmlFor="sitemapEnabled" style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-main)', cursor: 'pointer', margin: 0 }}>
-                  Enable Automated Dynamic XML Sitemap Generation (<code>/sitemap.xml</code>)
-                </label>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">
-                  Custom Robots.txt Content
-                  <span style={{ fontWeight: 400, color: 'var(--text-subtle)', marginLeft: '6px' }}>
-                    (Served at <code>/robots.txt</code> for web spiders)
-                  </span>
-                </label>
-                <textarea
-                  rows={6}
-                  value={form.robotsTxtCustom || ''}
-                  onChange={(e) => setForm({ ...form, robotsTxtCustom: e.target.value })}
-                  className="form-textarea"
-                  style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}
-                  placeholder={`User-agent: *\nAllow: /\nDisallow: /checkout\nDisallow: /admin\nSitemap: https://${currentStore.primaryDomain}/sitemap.xml`}
-                />
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Global Save Button */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginTop: '20px' }}>
-          <button type="submit" className="btn btn-primary" style={{ padding: '10px 24px', fontSize: '0.88rem' }}>
-            <Save size={16} />
-            <span>Save Store Configuration</span>
-          </button>
-          {savedSuccess && (
-            <span style={{ color: '#059669', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <CheckCircle2 size={16} /> Store SEO & settings committed to database!
-            </span>
-          )}
+          </div>
         </div>
-      </form>
-
-      {/* Add Staff Modal */}
-      {isAddStaffOpen && (
-        <AddStaffModal
-          onClose={() => setIsAddStaffOpen(false)}
-          onAdd={(newMember) => {
-            setStaffList((prev) => [...prev, newMember]);
-            setIsAddStaffOpen(false);
-          }}
-        />
       )}
 
-      {/* Edit Staff Modal */}
-      {editingStaff && (
-        <EditStaffModal
-          staff={editingStaff}
-          onClose={() => setEditingStaff(null)}
-          onSave={(updated) => {
-            setStaffList((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-            setEditingStaff(null);
-          }}
-        />
-      )}
+              {/* CREATE / EDIT STAFF MODAL */}
+              {staffModal && (
+                <RecordModal
+                  title={staffModal.mode === 'create' ? 'Add Staff Member' : `Edit Staff: ${staffModal.staff?.name}`}
+                  submitLabel={staffModal.mode === 'create' ? 'Create Staff Account' : 'Save Changes'}
+                  onClose={() => setStaffModal(null)}
+                  onSubmit={handleSaveStaff}
+                  maxWidth="560px"
+                >
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label className="form-label">First Name *</label>
+                      <input
+                        className="form-input"
+                        required
+                        value={staffForm.firstName}
+                        onChange={(e) => setStaffForm({ ...staffForm, firstName: e.target.value })}
+                        placeholder="e.g. Tanvir"
+                        autoFocus
+                      />
+                    </div>
 
-      {/* Delete Approval Confirmation Modal */}
-      {deletingStaff && (
-        <ConfirmDeleteModal
-          isOpen={!!deletingStaff}
-          title="Delete Staff Account"
-          itemName={`${deletingStaff.name} (${deletingStaff.email})`}
-          itemType="Staff Account"
-          warningMessage={`Are you sure you want to permanently delete staff account for "${deletingStaff.name}"? This operator will immediately lose access to ${currentStore.name}.`}
-          onConfirm={() => {
-            setStaffList((prev) => prev.filter((s) => s.id !== deletingStaff.id));
-            setDeletingStaff(null);
-          }}
-          onClose={() => setDeletingStaff(null)}
-        />
-      )}
-    </div>
-  );
+                    <div className="form-group">
+                      <label className="form-label">Last Name *</label>
+                      <input
+                        className="form-input"
+                        required
+                        value={staffForm.lastName}
+                        onChange={(e) => setStaffForm({ ...staffForm, lastName: e.target.value })}
+                        placeholder="e.g. Ahmed"
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                      <label className="form-label">Email Address *</label>
+                      <input
+                        type="email"
+                        className="form-input"
+                        required
+                        disabled={staffModal.mode === 'edit'}
+                        value={staffForm.email}
+                        onChange={(e) => setStaffForm({ ...staffForm, email: e.target.value })}
+                        placeholder="tanvir@poshplex.com"
+                        style={staffModal.mode === 'edit' ? { backgroundColor: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                      />
+                      {staffModal.mode === 'edit' && (
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px', display: 'block' }}>
+                          Email address serves as unique store login credential and cannot be changed.
+                        </span>
+                      )}
+                    </div>
+
+                    {staffModal.mode === 'create' && (
+                      <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                        <label className="form-label">Temporary Account Password *</label>
+                        <input
+                          type="password"
+                          className="form-input"
+                          required
+                          value={staffForm.password}
+                          onChange={(e) => setStaffForm({ ...staffForm, password: e.target.value })}
+                          placeholder="Min. 8 characters"
+                        />
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px', display: 'block' }}>
+                          Provide initial password. Staff member can change their password anytime via the workstation.
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                      <label className="form-label">Access Role *</label>
+                      <select
+                        className="form-select"
+                        value={staffForm.role}
+                        disabled={staffModal.staff?.role === 'STORE_OWNER'}
+                        onChange={(e) => setStaffForm({ ...staffForm, role: e.target.value as any })}
+                      >
+                        {staffModal.staff?.role === 'STORE_OWNER' && (
+                          <option value="STORE_OWNER">Store Owner (Superuser / Full Authority)</option>
+                        )}
+                        <option value="STORE_ADMIN">Store Admin (Catalog, Orders, Inventory, Marketing)</option>
+                        <option value="STORE_STAFF">Store Staff (Order Processing, Packaging & Dispatch)</option>
+                      </select>
+                    </div>
+
+                    {staffModal.mode === 'edit' && staffModal.staff?.role !== 'STORE_OWNER' && (
+                      <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={staffForm.isActive}
+                            onChange={(e) => setStaffForm({ ...staffForm, isActive: e.target.checked })}
+                          />
+                          <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Account is active and authorized to log in</span>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </RecordModal>
+              )}
+
+              {/* CONFIRM DELETE STAFF MODAL */}
+              {deleteStaffTarget && (
+                <ConfirmDeleteModal
+                  isOpen={true}
+                  itemName={deleteStaffTarget.name || deleteStaffTarget.email}
+                  itemType="Staff Member"
+                  warningMessage={`Are you sure you want to delete staff account "${deleteStaffTarget.name}" (${deleteStaffTarget.email})? They will immediately lose access to the store admin workstation.`}
+                  confirmButtonText="Yes, Delete Staff"
+                  onClose={() => setDeleteStaffTarget(null)}
+                  onConfirm={handleDeleteStaff}
+                />
+              )}
+          </div>
+          );
 };

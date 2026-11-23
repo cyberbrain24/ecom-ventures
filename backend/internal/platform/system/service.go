@@ -4,8 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"time"
 
 	"ecom-ventures/backend/internal/platform/models"
@@ -20,14 +21,17 @@ type Service struct {
 	platformDB *sql.DB
 	redis      *redis.Client
 	tenantPool *storeDB.TenantPoolManager
+	sessions   SessionRevoker
 }
 
 // NewService instantiates the platform system and diagnostics service.
-func NewService(platformDB *sql.DB, rdb *redis.Client, pool *storeDB.TenantPoolManager) *Service {
+// sessions revokes a staff member's Redis sessions when the account is deleted or its access changes.
+func NewService(platformDB *sql.DB, rdb *redis.Client, pool *storeDB.TenantPoolManager, sessions SessionRevoker) *Service {
 	return &Service{
 		platformDB: platformDB,
 		redis:      rdb,
 		tenantPool: pool,
+		sessions:   sessions,
 	}
 }
 
@@ -83,22 +87,6 @@ func (s *Service) CreateAdmin(ctx context.Context, email, password, firstName, l
 	s.LogAudit(ctx, nil, email, "STAFF_CREATED", "platform_users", u.ID, nil, map[string]string{"role": role, "email": email}, "127.0.0.1", "Master Admin Panel")
 
 	return &u, nil
-}
-
-// UpdateAdminStatus toggles account status.
-func (s *Service) UpdateAdminStatus(ctx context.Context, id, status string) error {
-	query := `UPDATE platform_users SET status = $1, updated_at = NOW() WHERE id = $2;`
-	res, err := s.platformDB.ExecContext(ctx, query, status, id)
-	if err != nil {
-		return err
-	}
-	rows, _ := res.RowsAffected()
-	if rows == 0 {
-		return errors.New("user not found")
-	}
-
-	s.LogAudit(ctx, nil, "system", "STAFF_STATUS_UPDATED", "platform_users", id, nil, map[string]string{"status": status}, "127.0.0.1", "Master Admin Panel")
-	return nil
 }
 
 // ListAuditLogs returns recent platform audit logs with optional filtering.
@@ -211,6 +199,7 @@ type ClusterOverview struct {
 		Port    int                 `json:"port"`
 		Status  string              `json:"status"`
 		Streams []StreamQueueMetric `json:"streams"`
+		Error   string              `json:"error,omitempty"`
 	} `json:"redis"`
 	MaintenanceMode bool      `json:"maintenance_mode"`
 	Timestamp       time.Time `json:"timestamp"`
@@ -235,66 +224,76 @@ type StreamQueueMetric struct {
 func (s *Service) GetClusterOverview(ctx context.Context) (*ClusterOverview, error) {
 	var co ClusterOverview
 	co.Timestamp = time.Now().UTC()
+	co.TenantPools = make([]TenantPoolMetric, 0)
+	co.Redis.Streams = make([]StreamQueueMetric, 0)
 
 	// Platform DB stats
 	dbStats := s.platformDB.Stats()
-	co.PlatformDB.Host = "127.0.0.1"
-	co.PlatformDB.Port = 7496
-	co.PlatformDB.Database = "ecom_platform_main"
-	co.PlatformDB.Status = "HEALTHY"
+	co.PlatformDB.Status = "DEGRADED"
+	if err := s.platformDB.PingContext(ctx); err == nil {
+		co.PlatformDB.Status = "HEALTHY"
+	}
+	var host sql.NullString
+	err := s.platformDB.QueryRowContext(ctx, `
+		SELECT current_database(),
+		       inet_server_addr()::text,
+		       COALESCE(inet_server_port(), 0)
+	`).Scan(&co.PlatformDB.Database, &host, &co.PlatformDB.Port)
+	if err != nil {
+		return nil, fmt.Errorf("query platform database status: %w", err)
+	}
+	if host.Valid {
+		co.PlatformDB.Host = host.String
+	}
 	co.PlatformDB.MaxOpen = dbStats.MaxOpenConnections
 	co.PlatformDB.OpenConns = dbStats.OpenConnections
 	co.PlatformDB.InUse = dbStats.InUse
 	co.PlatformDB.Idle = dbStats.Idle
 
-	// Query stores for tenant pools
-	rows, err := s.platformDB.QueryContext(ctx, "SELECT slug, db_name, status FROM stores ORDER BY slug ASC;")
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var m TenantPoolMetric
-			var st string
-			if err := rows.Scan(&m.Slug, &m.DBName, &st); err == nil {
-				m.Status = "CONNECTED"
-				m.ActiveConns = 2
-				m.IdleConns = 3
-				co.TenantPools = append(co.TenantPools, m)
+	rows, err := s.platformDB.QueryContext(ctx, "SELECT id::text, slug, db_name FROM stores ORDER BY slug ASC")
+	if err != nil {
+		return nil, fmt.Errorf("query tenant database pools: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var metric TenantPoolMetric
+		if err := rows.Scan(&id, &metric.Slug, &metric.DBName); err != nil {
+			return nil, fmt.Errorf("scan tenant database pool: %w", err)
+		}
+		metric.Status = "POOL_NOT_OPEN"
+		if s.tenantPool != nil {
+			if stats, ok := s.tenantPool.PoolStats(id); ok {
+				metric.Status = "POOL_OPEN"
+				metric.ActiveConns = stats.InUse
+				metric.IdleConns = stats.Idle
 			}
 		}
+		co.TenantPools = append(co.TenantPools, metric)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate tenant database pools: %w", err)
 	}
 
 	// Redis status
-	co.Redis.Host = "127.0.0.1"
-	co.Redis.Port = 7396
 	if s.redis != nil {
+		host, port, err := net.SplitHostPort(s.redis.Options().Addr)
+		if err != nil {
+			return nil, fmt.Errorf("parse configured Redis address: %w", err)
+		}
+		co.Redis.Host = host
+		co.Redis.Port, err = strconv.Atoi(port)
+		if err != nil {
+			return nil, fmt.Errorf("parse configured Redis port: %w", err)
+		}
 		if pingErr := s.redis.Ping(ctx).Err(); pingErr == nil {
 			co.Redis.Status = "HEALTHY"
 		} else {
 			co.Redis.Status = "DEGRADED"
+			co.Redis.Error = pingErr.Error()
 		}
 	} else {
 		co.Redis.Status = "DISCONNECTED"
-	}
-
-	co.Redis.Streams = []StreamQueueMetric{
-		{
-			StreamKey:      "orders:lifecycle:stream",
-			ConsumerGroup:  "order-pipeline-workers",
-			PendingEntries: 0,
-			Status:         "ACTIVE",
-		},
-		{
-			StreamKey:      "notifications:dispatch:stream",
-			ConsumerGroup:  "sms-email-workers",
-			PendingEntries: 0,
-			Status:         "ACTIVE",
-		},
-		{
-			StreamKey:      "analytics:telemetry:stream",
-			ConsumerGroup:  "telemetry-processors",
-			PendingEntries: 0,
-			Status:         "ACTIVE",
-		},
 	}
 
 	return &co, nil

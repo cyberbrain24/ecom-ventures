@@ -24,6 +24,8 @@ type CheckoutRequest struct {
 
 // CheckoutReceiptItem represents a line item on the customer receipt.
 type CheckoutReceiptItem struct {
+	ProductID    string  `json:"product_id,omitempty"`
+	CategoryID   string  `json:"category_id,omitempty"`
 	VariantID    string  `json:"variant_id"`
 	ProductTitle string  `json:"product_title"`
 	VariantTitle string  `json:"variant_title"`

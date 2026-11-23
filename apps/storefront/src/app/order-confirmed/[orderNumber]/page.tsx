@@ -13,7 +13,7 @@ interface OrderConfirmationProps {
 
 export default async function OrderConfirmedPage({ params, searchParams }: OrderConfirmationProps) {
   const headersList = headers();
-  const host = headersList.get('x-storefront-host') || 'localhost';
+  const host = headersList.get('x-storefront-host') || '';
 
   const [config, receipt] = await Promise.all([
     getStorefrontConfig(host),
@@ -30,11 +30,18 @@ export default async function OrderConfirmedPage({ params, searchParams }: Order
           <CheckCircle2 className="h-9 w-9" />
         </div>
         <h1 className="text-2xl sm:text-3xl font-black text-slate-950 font-[var(--brand-font-heading)] tracking-tight">
-          Thank you for your order!
+          {receipt ? 'Thank you for your order!' : 'Order details not available'}
         </h1>
         <p className="text-xs text-slate-600 max-w-md mx-auto">
-          We have received your order and initiated processing. A confirmation SMS/Email has been dispatched to your contact details.
+          {receipt
+            ? 'Your order has been received and is being processed.'
+            : 'This order could not be verified with the details in this link. Use order lookup to check its status.'}
         </p>
+        {!receipt && (
+          <Link href="/orders/lookup" className="inline-block text-xs font-semibold text-[var(--brand-primary)] hover:underline">
+            Go to order lookup
+          </Link>
+        )}
         <div className="pt-2">
           <span className="inline-block px-4 py-1.5 bg-white border border-emerald-300 rounded-full text-xs font-mono font-bold text-emerald-800 shadow-sm">
             Order Reference: {params.orderNumber}

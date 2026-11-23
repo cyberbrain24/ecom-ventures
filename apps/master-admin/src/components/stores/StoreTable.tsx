@@ -7,20 +7,31 @@ import React from 'react';
 import { StoreSummary } from '../../types/store';
 import { StatusBadge } from '../ui/StatusBadge';
 import { ExternalLink, Eye, Pencil, Trash2 } from 'lucide-react';
+import { storefrontUrl } from '../../lib/storefront-url';
 
 interface StoreTableProps {
   stores: StoreSummary[];
   isLoading: boolean;
   onSelectStore: (storeId: string) => void;
   onEditStore?: (store: StoreSummary) => void;
+  /** When set, the Edit buttons are disabled and this text is shown as their tooltip. */
+  editDisabledReason?: string;
   onDeleteStore?: (store: StoreSummary) => void;
 }
 
+/**
+ * StoreTable renders the store registry list. Edit actions are shown disabled, with the reason,
+ * when the server has no update endpoint for stores.
+ *
+ * @param props - Store rows, loading flag, and row action handlers
+ * @returns The store table (cards on mobile, grid on desktop)
+ */
 export const StoreTable: React.FC<StoreTableProps> = ({
   stores,
   isLoading,
   onSelectStore,
   onEditStore,
+  editDisabledReason,
   onDeleteStore,
 }) => {
   if (isLoading) {
@@ -37,8 +48,8 @@ export const StoreTable: React.FC<StoreTableProps> = ({
 
   return (
     <>
-      {/* Mobile Card Stack View (< 768px Viewports) */}
-      <div className="block md:hidden space-y-3.5 p-3 sm:p-4">
+      {/* Mobile/Tablet Card Stack View (< 1024px Viewports) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:hidden gap-3.5 p-3 sm:p-4">
         {stores.map((store) => (
           <div
             key={store.id}
@@ -76,7 +87,7 @@ export const StoreTable: React.FC<StoreTableProps> = ({
               <div className="col-span-2">
                 <span className="text-[11px] text-slate-400 font-medium block">Primary Domain</span>
                 <span className="font-mono text-slate-700 truncate block mt-0.5">
-                  {store.primary_domain || 'None (Using default route)'}
+                  {store.primary_domain || 'None set'}
                 </span>
               </div>
             </div>
@@ -99,8 +110,9 @@ export const StoreTable: React.FC<StoreTableProps> = ({
                 {onEditStore && (
                   <button
                     onClick={() => onEditStore(store)}
-                    className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                    title="Edit Store"
+                    disabled={!!editDisabledReason}
+                    className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-600"
+                    title={editDisabledReason ?? 'Edit Store'}
                     aria-label={`Edit ${store.name}`}
                   >
                     <Pencil className="h-4 w-4" />
@@ -116,9 +128,9 @@ export const StoreTable: React.FC<StoreTableProps> = ({
                     <Trash2 className="h-4 w-4" />
                   </button>
                 )}
-                {store.primary_domain && (
+                {storefrontUrl(store.primary_domain) && (
                   <a
-                    href={`http://${store.primary_domain}`}
+                    href={storefrontUrl(store.primary_domain) ?? undefined}
                     target="_blank"
                     rel="noreferrer"
                     className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
@@ -134,8 +146,8 @@ export const StoreTable: React.FC<StoreTableProps> = ({
         ))}
       </div>
 
-      {/* Standard Desktop Table View (>= 768px Viewports) */}
-      <div className="hidden md:block overflow-x-auto">
+      {/* Standard Desktop Table View (>= 1024px Viewports) */}
+      <div className="hidden lg:block overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase text-xs font-bold tracking-wider">
             <tr>
@@ -176,8 +188,9 @@ export const StoreTable: React.FC<StoreTableProps> = ({
                     {onEditStore && (
                       <button
                         onClick={() => onEditStore(store)}
-                        className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition"
-                        title="Edit Store"
+                        disabled={!!editDisabledReason}
+                        className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-500"
+                        title={editDisabledReason ?? 'Edit Store'}
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
@@ -191,15 +204,17 @@ export const StoreTable: React.FC<StoreTableProps> = ({
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
-                    <a
-                      href={`http://${store.primary_domain}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded transition"
-                      title="Open Storefront"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
+                    {storefrontUrl(store.primary_domain) && (
+                      <a
+                        href={storefrontUrl(store.primary_domain) ?? undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded transition"
+                        title="Open Storefront"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </a>
+                    )}
                   </div>
                 </td>
               </tr>

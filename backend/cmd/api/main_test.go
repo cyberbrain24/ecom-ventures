@@ -13,6 +13,7 @@ import (
 	"ecom-ventures/backend/internal/config"
 	"ecom-ventures/backend/internal/platform/domains"
 	"ecom-ventures/backend/internal/platform/store_mgmt"
+	platformSystem "ecom-ventures/backend/internal/platform/system"
 	"ecom-ventures/backend/internal/platform/themes"
 	"ecom-ventures/backend/internal/security"
 	"ecom-ventures/backend/internal/store/catalog"
@@ -42,7 +43,7 @@ func TestRouterBaseHealthCheck(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
@@ -70,7 +71,7 @@ func TestStorefrontWithoutResolverConfigured(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/storefront/config", nil)
 	rr := httptest.NewRecorder()
@@ -90,7 +91,7 @@ func TestRouterRFC7807NotFound(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/non-existent-endpoint", nil)
 	rr := httptest.NewRecorder()
@@ -122,7 +123,7 @@ func TestRouterMethodNotAllowed(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/healthz", nil)
 	rr := httptest.NewRecorder()
@@ -146,7 +147,7 @@ func TestPlatformProtectedWithoutAuth(t *testing.T) {
 
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/platform/me", nil)
 	rr := httptest.NewRecorder()
@@ -171,7 +172,7 @@ func TestPlatformProtectedWithAuth(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/platform/me", nil)
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
@@ -193,7 +194,7 @@ func TestStoreRoutesUnauthorized(t *testing.T) {
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	storeHandler := store_mgmt.NewHandler(&store_mgmt.Service{})
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, storeHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, storeHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// 1. GET /api/v1/platform/stores without token -> 401
 	{
@@ -247,7 +248,7 @@ func TestDomainRoutesUnauthorized(t *testing.T) {
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	domainHandler := domains.NewHandler(&domains.Service{})
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, domainHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, domainHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// 1. GET /api/v1/platform/domains without token -> 401
 	{
@@ -310,7 +311,7 @@ func TestThemeRoutesUnauthorized(t *testing.T) {
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	themeHandler := themes.NewHandler(&themes.Service{})
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, themeHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, themeHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// 1. GET /api/v1/platform/themes without token -> 401
 	{
@@ -357,7 +358,7 @@ func TestUploadsStaticFileServing(t *testing.T) {
 	defer os.Remove(testFilePath)
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/uploads/test-static.txt", nil)
 	rr := httptest.NewRecorder()
@@ -383,7 +384,7 @@ func TestCatalogRoutesUnauthorized(t *testing.T) {
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	catalogHandler := catalog.NewHandler(&catalog.Service{})
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, catalogHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, catalogHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/store/mior/catalog/categories",
@@ -418,7 +419,7 @@ func TestVariantAndAttributeRoutesUnauthorized(t *testing.T) {
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	variantsHandler := catalog.NewVariantsHandler(&catalog.VariantsService{})
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, variantsHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, variantsHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/store/mior/catalog/attributes",
@@ -453,7 +454,7 @@ func TestInventoryRoutesUnauthorized(t *testing.T) {
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	inventoryHandler := inventory.NewHandler(&inventory.Service{})
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, inventoryHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, inventoryHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/store/mior/inventory",
@@ -489,7 +490,7 @@ func TestOrderRoutesUnauthorized(t *testing.T) {
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	ordersHandler := orders.NewHandler(&orders.Service{})
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, ordersHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, ordersHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/store/mior/orders",
@@ -524,7 +525,7 @@ func TestCustomerRoutesUnauthorized(t *testing.T) {
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	customersHandler := customers.NewHandler(&customers.Service{})
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, customersHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, customersHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/store/mior/customers",
@@ -559,7 +560,7 @@ func TestPromotionRoutesUnauthorized(t *testing.T) {
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	promotionsHandler := promotions.NewHandler(&promotions.Service{})
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, promotionsHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, promotionsHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/store/mior/promotions/coupons",
@@ -594,7 +595,7 @@ func TestSettingsRoutesUnauthorized(t *testing.T) {
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	settingsHandler := settings.NewHandler(&settings.Service{})
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, settingsHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, settingsHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/store/mior/settings",
@@ -628,7 +629,7 @@ func TestStaffRoutesUnauthorized(t *testing.T) {
 	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	settingsHandler := settings.NewHandler(&settings.Service{})
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, settingsHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, settingsHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/store/mior/staff",
@@ -662,7 +663,7 @@ func TestStorefrontCatalogRoutes(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	catHandler := storefrontCatalog.NewHandler(&storefrontCatalog.Service{})
-	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, catHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, catHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/storefront/catalog/categories",
@@ -690,7 +691,7 @@ func TestStorefrontCartRoutes(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cartHandler := storefrontCart.NewHandler(&storefrontCart.Service{})
-	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cartHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cartHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/storefront/cart",
@@ -717,7 +718,7 @@ func TestStorefrontCheckoutRoutes(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	checkoutHandler := storefrontCheckout.NewHandler(&storefrontCheckout.Service{})
-	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, checkoutHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, checkoutHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/storefront/checkout",
@@ -744,7 +745,7 @@ func TestStorefrontPaymentRoutes(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	paymentHandler := payments.NewHandler(&payments.Service{})
-	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, paymentHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, paymentHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/storefront/payments/initiate",
@@ -772,7 +773,7 @@ func TestStoreLogisticsRoutes(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	logisticsHandler := logistics.NewHandler(&logistics.Service{})
-	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, logisticsHandler, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, logisticsHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	endpoints := []string{
 		"/api/v1/storefront/logistics/track/TRK123456",
@@ -799,7 +800,7 @@ func TestStoreMarketingRoutes(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	marketingHandler := marketing.NewHandler(&marketing.Service{})
-	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, marketingHandler, nil, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, marketingHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// Public storefront marketing config requires tenant resolution; without resolver, returns 500
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/storefront/marketing/config", nil)
@@ -836,7 +837,7 @@ func TestPlatformSecurityAuditRoutes(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	secRunner := security.NewAuditRunner(nil, nil)
 	secHandler := security.NewHandler(secRunner)
-	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, secHandler, nil, nil, nil, nil, nil, nil)
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, secHandler, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	// 1. Unauthenticated request to /api/v1/platform/security/audit returns 401 Unauthorized Problem Details
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/platform/security/audit", nil)
@@ -895,5 +896,78 @@ func TestPlatformSecurityAuditRoutes(t *testing.T) {
 	}
 	if res.Data.OverallVerdict != security.StatusPass {
 		t.Errorf("expected overall verdict PASS, got %s", res.Data.OverallVerdict)
+	}
+}
+
+func TestPlatformEditDeleteRoutesRequireAuth(t *testing.T) {
+	cfg := &config.Config{AppEnv: "test", Port: "8080"}
+	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	storeHandler := store_mgmt.NewHandler(&store_mgmt.Service{})
+	domainHandler := domains.NewHandler(&domains.Service{})
+	themeHandler := themes.NewHandler(&themes.Service{})
+	systemHandler := platformSystem.NewHandler(&platformSystem.Service{})
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, storeHandler, domainHandler, themeHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, systemHandler, nil, nil, nil, nil, nil, nil, nil)
+
+	const id = "00000000-0000-0000-0000-000000000001"
+	routes := []struct {
+		method, path string
+	}{
+		{http.MethodPatch, "/api/v1/platform/stores/" + id},
+		{http.MethodPatch, "/api/v1/platform/themes/" + id},
+		{http.MethodPatch, "/api/v1/platform/domains/" + id},
+		{http.MethodPatch, "/api/v1/platform/admins/" + id},
+		{http.MethodDelete, "/api/v1/platform/admins/" + id},
+	}
+	for _, rt := range routes {
+		req := httptest.NewRequest(rt.method, rt.path, strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 for unauthenticated %s %s, got %d", rt.method, rt.path, rr.Code)
+		}
+	}
+}
+
+func TestPlatformSuperAdminOnlyRoutesRejectStaff(t *testing.T) {
+	cfg := &config.Config{AppEnv: "test", Port: "8080"}
+	tm, _ := pkgAuth.NewTokenManager("test_secret_key_with_at_least_32_characters!", 2, 7)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	themeHandler := themes.NewHandler(&themes.Service{})
+	systemHandler := platformSystem.NewHandler(&platformSystem.Service{})
+	router := buildRouter(cfg, logger, nil, tm, nil, nil, nil, nil, themeHandler, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, systemHandler, nil, nil, nil, nil, nil, nil, nil)
+
+	staff, err := tm.GeneratePlatformTokenPair("staff-1", "staff@platform.local", "PLATFORM_STAFF")
+	if err != nil {
+		t.Fatalf("failed to generate staff token: %v", err)
+	}
+
+	const id = "00000000-0000-0000-0000-000000000001"
+	forbidden := []struct {
+		method, path string
+	}{
+		{http.MethodPatch, "/api/v1/platform/admins/" + id},
+		{http.MethodDelete, "/api/v1/platform/admins/" + id},
+	}
+	for _, rt := range forbidden {
+		req := httptest.NewRequest(rt.method, rt.path, strings.NewReader(`{}`))
+		req.Header.Set("Authorization", "Bearer "+staff.AccessToken)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("expected 403 for PLATFORM_STAFF %s %s, got %d", rt.method, rt.path, rr.Code)
+		}
+	}
+
+	// PLATFORM_STAFF may edit a theme: the request passes the guard and fails validation (422).
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/platform/themes/"+id, strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+staff.AccessToken)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for staff PATCH /themes with an empty body, got %d", rr.Code)
 	}
 }

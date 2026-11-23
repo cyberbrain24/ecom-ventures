@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Script from 'next/script';
+import { fetchStorefrontData } from '../../lib/api';
 
 interface PublicMarketingConfig {
   meta_pixel_id?: string;
@@ -13,8 +14,6 @@ interface PublicMarketingConfig {
   is_gtm_enabled: boolean;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
-
 /**
  * AnalyticsScripts dynamically fetches sanitized public marketing configuration
  * for the current active tenant brand and injects GTM, GA4, and Meta Pixel scripts.
@@ -25,13 +24,15 @@ export const AnalyticsScripts: React.FC = () => {
   useEffect(() => {
     const fetchAnalyticsConfig = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/storefront/marketing/config`);
-        if (res.ok) {
-          const data = await res.json();
-          setConfig(data);
-        }
+        const data = await fetchStorefrontData<PublicMarketingConfig>(
+          window.location.host,
+          '/storefront/marketing/config'
+        );
+        setConfig(data);
       } catch (err) {
-        console.warn('Analytics configuration could not be loaded.', err);
+        // Tracking is optional, so the page still renders without it. The failure is
+        // logged as an error so it is visible to operators; it is not reported as success.
+        console.error('Analytics configuration could not be loaded; tracking scripts are not loaded.', err);
       }
     };
     fetchAnalyticsConfig();

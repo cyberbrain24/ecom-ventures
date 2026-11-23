@@ -2,30 +2,53 @@ import React, { useState } from 'react';
 import { X, Palette, AlertCircle } from 'lucide-react';
 import { ThemeItem, ThemeCustomConfig } from '../../types/theme';
 import { StoreSummary } from '../../types/store';
-import { api } from '../../lib/api';
+import { api, apiErrorMessage } from '../../lib/api';
+import { readThemePreview } from '../../lib/theme-preview';
 
 interface AssignThemeModalProps {
   theme: ThemeItem;
   stores: StoreSummary[];
+  /** Pre-selects this store when the modal is opened from a store (for example the store drawer). */
+  initialStoreId?: string;
   onClose: () => void;
-  onSuccess: () => void;
+  /** Called after the server confirmed the assignment, with a message for the parent to show. */
+  onSuccess: (message: string) => void;
 }
 
+/**
+ * AssignThemeModal assigns a theme to one store through PUT /platform/stores/{id}/theme.
+ * Errors stay inside the modal; success is reported to the parent instead of a browser alert.
+ *
+ * @param props - Theme, candidate stores, optional preselected store, and close and success handlers
+ * @returns The assignment modal
+ */
 export const AssignThemeModal: React.FC<AssignThemeModalProps> = ({
   theme,
   stores,
+  initialStoreId,
   onClose,
   onSuccess,
 }) => {
-  const [selectedStoreId, setSelectedStoreId] = useState(stores[0]?.id || '');
-  const [primaryColor, setPrimaryColor] = useState('#0d9488');
-  const [secondaryColor, setSecondaryColor] = useState('#14b8a6');
-  const [headingFont, setHeadingFont] = useState('Inter');
+  const preview = readThemePreview(theme.config_schema);
+  const defaultPrimary = preview.colors.find((c) => c.key === 'primary')?.value || '#0d9488';
+  const defaultSecondary = preview.colors.find((c) => c.key === 'secondary')?.value || '#14b8a6';
+  const defaultHeading = preview.headingFont || 'Inter';
+
+  const [selectedStoreId, setSelectedStoreId] = useState(
+    initialStoreId && stores.some((s) => s.id === initialStoreId) ? initialStoreId : stores[0]?.id || ''
+  );
+  const [primaryColor, setPrimaryColor] = useState(defaultPrimary);
+  const [secondaryColor, setSecondaryColor] = useState(defaultSecondary);
+  const [headingFont, setHeadingFont] = useState(defaultHeading);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!theme.is_active) {
+      setErrorMsg('This theme is inactive and cannot be assigned. Activate it in the Theme Registry first.');
+      return;
+    }
     if (!selectedStoreId) {
       setErrorMsg('Please select a target store.');
       return;
@@ -50,11 +73,11 @@ export const AssignThemeModal: React.FC<AssignThemeModalProps> = ({
         theme_id: theme.id,
         custom_config: customConfig,
       });
-      alert('Theme successfully assigned! Storefront cache purged.');
-      onSuccess();
+      const storeName = stores.find((s) => s.id === selectedStoreId)?.name ?? 'the store';
+      onSuccess(`Theme "${theme.name}" was assigned to ${storeName}.`);
       onClose();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.detail || 'Failed to assign theme.');
+    } catch (err) {
+      setErrorMsg(apiErrorMessage(err, 'Failed to assign theme.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -76,6 +99,12 @@ export const AssignThemeModal: React.FC<AssignThemeModalProps> = ({
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {!theme.is_active && (
+          <div role="status" className="mx-6 mt-4 p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg">
+            This theme is inactive. No store can be assigned it until it is activated in the Theme Registry.
+          </div>
+        )}
 
         {errorMsg && (
           <div className="mx-6 mt-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg flex items-center space-x-2">
@@ -168,7 +197,8 @@ export const AssignThemeModal: React.FC<AssignThemeModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !theme.is_active}
+              title={theme.is_active ? undefined : 'This theme is inactive'}
               className="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold shadow-sm transition disabled:opacity-50"
             >
               {isSubmitting ? 'Applying Theme...' : 'Confirm Theme Assignment'}

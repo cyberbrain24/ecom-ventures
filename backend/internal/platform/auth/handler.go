@@ -54,6 +54,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			response.Problem(w, r, http.StatusForbidden, "ACCOUNT_SUSPENDED", "Account Suspended", "Your account has been suspended.")
 			return
 		}
+		println("[AUTH_LOGIN_ERROR]:", err.Error())
 		response.InternalServerError(w, r)
 		return
 	}

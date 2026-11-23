@@ -1,31 +1,14 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useCart } from '../../context/CartContext';
-import { X, Plus, Minus, Trash2, ShoppingBag, ArrowRight, Layers, Truck, Sparkles } from 'lucide-react';
+import { AlertCircle, X, Plus, Minus, Trash2, ShoppingBag, ArrowRight } from 'lucide-react';
 
+/** Slide-in cart drawer. Totals and line prices come from the cart API. */
 export const CartDrawer: React.FC = () => {
-  const { cart, isDrawerOpen, closeDrawer, updateQuantity, removeItem } = useCart();
-  const [activeBundle, setActiveBundle] = useState<{
-    tierName: string;
-    discountPercentage: number;
-    hasFreeDelivery: boolean;
-  } | null>(null);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('ecom_active_bundle');
-        if (stored) {
-          setActiveBundle(JSON.parse(stored));
-        }
-      } catch (e) {
-        // Ignore parse error
-      }
-    }
-  }, [isDrawerOpen]);
+  const { cart, errorMessage, isDrawerOpen, closeDrawer, updateQuantity, removeItem } = useCart();
 
   if (!isDrawerOpen) return null;
 
@@ -49,19 +32,10 @@ export const CartDrawer: React.FC = () => {
           </button>
         </div>
 
-        {/* Active Bundle Banner Perk if present */}
-        {activeBundle && cart && cart.items.length > 0 && (
-          <div className="bg-orange-50/80 border-b border-orange-100 px-4 py-2.5 flex items-center justify-between text-xs">
-            <div className="flex items-center space-x-2 text-slate-800 font-bold">
-              <Layers className="h-4 w-4 text-[var(--brand-primary)]" />
-              <span>{activeBundle.tierName} Bundle Active ({activeBundle.discountPercentage}% OFF)</span>
-            </div>
-            {activeBundle.hasFreeDelivery && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
-                <Truck className="h-3 w-3" />
-                FREE SHIPPING
-              </span>
-            )}
+        {errorMessage && (
+          <div role="alert" className="mx-4 mt-3 flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{errorMessage}</span>
           </div>
         )}
 
@@ -106,16 +80,6 @@ export const CartDrawer: React.FC = () => {
                   <p className="text-[11px] text-slate-400 truncate mt-0.5">
                     {item.variant_title}
                   </p>
-
-                  {/* Bundle Item Tag */}
-                  {activeBundle && (
-                    <div className="mt-1">
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-orange-100/70 text-[var(--brand-primary)]">
-                        <Sparkles className="h-2.5 w-2.5" />
-                        Bundle: {activeBundle.tierName} ({activeBundle.discountPercentage}% OFF)
-                      </span>
-                    </div>
-                  )}
 
                   <p className="text-xs sm:text-sm font-bold text-slate-900 font-mono mt-1">
                     {cart.currency} {item.unit_price.toFixed(2)}
@@ -167,16 +131,6 @@ export const CartDrawer: React.FC = () => {
                 {cart.currency} {cart.subtotal.toFixed(2)}
               </span>
             </div>
-
-            {activeBundle?.hasFreeDelivery && (
-              <div className="flex items-center justify-between text-xs text-emerald-600 font-bold">
-                <span className="flex items-center gap-1">
-                  <Truck className="h-3.5 w-3.5" />
-                  Delivery Perk
-                </span>
-                <span>FREE Nationwide</span>
-              </div>
-            )}
 
             <p className="text-[11px] text-slate-400">
               Shipping and taxes calculated at checkout.

@@ -1,128 +1,39 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useCart } from '../../context/CartContext';
 import { submitCheckout } from '../../lib/checkout-api';
-import { CheckoutPayload } from '../../types/checkout';
+import { CheckoutPayload, StorePaymentGateway } from '../../types/checkout';
+import { ShippingZone } from '../../types/shipping';
 import { CheckoutSummary } from './CheckoutSummary';
-import { ShieldCheck, Truck, CreditCard, MapPin, AlertCircle } from 'lucide-react';
+import {
+  ShieldCheck,
+  Truck,
+  MapPin,
+  AlertCircle,
+  ShoppingBag,
+  ChevronDown,
+  Smartphone,
+  CreditCard,
+  Globe,
+} from 'lucide-react';
 
-interface LocationZone {
-  district: string;
-  zone: 'DHAKA_CITY' | 'DHAKA_SUBURBAN' | 'NATIONAL';
-  shippingFee: number;
-  thanas: string[];
+interface CheckoutFormProps {
+  /** Delivery districts and fees loaded from the store API. */
+  zones: ShippingZone[];
+  /** Why the zones could not be loaded. When set, ordering is blocked. */
+  zonesError: string | null;
+  /** Active payment gateways configured for this store. Deactivated ones are excluded/hidden. */
+  gateways?: StorePaymentGateway[];
 }
 
-const LOGISTICS_DISTRICTS: LocationZone[] = [
-  {
-    district: 'Dhaka City',
-    zone: 'DHAKA_CITY',
-    shippingFee: 80.0,
-    thanas: [
-      'Banani',
-      'Gulshan',
-      'Dhanmondi',
-      'Mirpur',
-      'Uttara',
-      'Mohakhali',
-      'Motijheel',
-      'Badda',
-      'Mohammadpur',
-      'Tejgaon',
-      'Khilgaon',
-      'Lalbagh',
-      'Paltan',
-      'Shahbagh',
-      'Bashundhara R/A',
-      'Rampura',
-      'Malibagh',
-      'Shantinagar',
-      'Wari',
-    ],
-  },
-  {
-    district: 'Dhaka Sub-Urban',
-    zone: 'DHAKA_SUBURBAN',
-    shippingFee: 110.0,
-    thanas: ['Savar', 'Ashulia', 'Keraniganj', 'Dhamrai', 'Nawabganj', 'Dohar'],
-  },
-  {
-    district: 'Gazipur',
-    zone: 'DHAKA_SUBURBAN',
-    shippingFee: 110.0,
-    thanas: ['Gazipur Sadar', 'Tongi', 'Kaliakair', 'Kapasia', 'Sreepur', 'Kaliganj'],
-  },
-  {
-    district: 'Narayanganj',
-    zone: 'DHAKA_SUBURBAN',
-    shippingFee: 110.0,
-    thanas: ['Narayanganj Sadar', 'Fatullah', 'Siddhirganj', 'Bandar', 'Araihazar', 'Sonargaon', 'Rupganj'],
-  },
-  {
-    district: 'Chattogram',
-    zone: 'NATIONAL',
-    shippingFee: 130.0,
-    thanas: ['Agrabad', 'Kotwali', 'Panchlaish', 'Nasirabad', 'Halishahar', 'Khulshi', 'GEC', 'Pahartali', 'Bakolia', 'Chawkbazar'],
-  },
-  {
-    district: 'Sylhet',
-    zone: 'NATIONAL',
-    shippingFee: 130.0,
-    thanas: ['Sylhet Sadar', 'Amberkhana', 'Zindabazar', 'Shahi Eidgah', 'Subidbazar', 'South Surma', 'Beanibazar', 'Golapganj'],
-  },
-  {
-    district: 'Rajshahi',
-    zone: 'NATIONAL',
-    shippingFee: 130.0,
-    thanas: ['Boalia', 'Motihar', 'Rajpara', 'Shah Makhdum', 'Paba', 'Durgapur', 'Godagari'],
-  },
-  {
-    district: 'Khulna',
-    zone: 'NATIONAL',
-    shippingFee: 130.0,
-    thanas: ['Khulna Sadar', 'Sonadanga', 'Khalishpur', 'Daulatpur', 'Khan Jahan Ali', 'Rupsha', 'Dumuria'],
-  },
-  {
-    district: 'Barishal',
-    zone: 'NATIONAL',
-    shippingFee: 130.0,
-    thanas: ['Kotwali', 'Airport', 'Kawnia', 'Bandar', 'Babuganj', 'Bakerganj'],
-  },
-  {
-    district: 'Rangpur',
-    zone: 'NATIONAL',
-    shippingFee: 130.0,
-    thanas: ['Kotwali', 'Tajhat', 'Mahiganj', 'Parashuram', 'Haragach', 'Pirgachha', 'Badarganj'],
-  },
-  {
-    district: 'Mymensingh',
-    zone: 'NATIONAL',
-    shippingFee: 130.0,
-    thanas: ['Kotwali', 'Trishal', 'Muktagachha', 'Bhaluka', 'Gafargaon', 'Fulbaria'],
-  },
-  {
-    district: 'Cumilla',
-    zone: 'NATIONAL',
-    shippingFee: 130.0,
-    thanas: ['Cumilla Adarsha Sadar', 'Cumilla Sadar Dakshin', 'Daudkandi', 'Chandina', 'Debidwar', 'Laksam'],
-  },
-  {
-    district: 'Cox\'s Bazar',
-    zone: 'NATIONAL',
-    shippingFee: 130.0,
-    thanas: ['Cox\'s Bazar Sadar', 'Ramu', 'Chakaria', 'Teknaf', 'Ukhiya', 'Maheshkhali'],
-  },
-  {
-    district: 'Bogura',
-    zone: 'NATIONAL',
-    shippingFee: 130.0,
-    thanas: ['Bogura Sadar', 'Sherpur', 'Shibganj', 'Sariakandi', 'Gabtali', 'Kahaloo'],
-  },
-];
-
-export const CheckoutForm: React.FC = () => {
+/**
+ * Checkout form. Districts, areas and fees come only from the store's delivery
+ * configuration. When that configuration is unavailable, the form shows the reason
+ * and does not allow the order to be placed.
+ */
+export const CheckoutForm: React.FC<CheckoutFormProps> = ({ zones, zonesError, gateways }) => {
   const router = useRouter();
   const { cart } = useCart();
 
@@ -130,10 +41,25 @@ export const CheckoutForm: React.FC = () => {
   const [discountAmount, setDiscountAmount] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
 
-  // Cascading Location Selector State
-  const [selectedDistrict, setSelectedDistrict] = useState<string>('Dhaka City');
-  const [selectedThana, setSelectedThana] = useState<string>('Banani');
+  const [selectedDistrict, setSelectedDistrict] = useState<string>(zones[0]?.district ?? '');
+  const [selectedThana, setSelectedThana] = useState<string>(zones[0]?.thanas[0] ?? '');
+
+  // Filter only active gateways (deactivated ones are completely hidden on checkout)
+  const activeGateways = (gateways && gateways.length > 0)
+    ? gateways.filter((g) => g.is_active !== false)
+    : [
+        {
+          id: 'COD',
+          name: 'Cash on Delivery (COD)',
+          description: 'Pay cash when the parcel is delivered to you.',
+          is_default: true,
+          is_active: true,
+        },
+      ];
+
+  const defaultGw = activeGateways.find((g) => g.is_default) || activeGateways[0];
 
   const [formData, setFormData] = useState({
     customer_email: '',
@@ -142,20 +68,87 @@ export const CheckoutForm: React.FC = () => {
     street_address: '',
     apartment_suite: '',
     postal_code: '',
-    payment_method: 'COD',
+    payment_method: defaultGw ? defaultGw.id : 'COD',
     notes: '',
   });
 
-  const activeZone = LOGISTICS_DISTRICTS.find((d) => d.district === selectedDistrict) || LOGISTICS_DISTRICTS[0];
-  const currentDeliveryFee = activeZone.shippingFee;
+  // Auto-select the default active payment gateway when gateways load or change
+  useEffect(() => {
+    if (activeGateways.length > 0) {
+      const def = activeGateways.find((g) => g.is_default) || activeGateways[0];
+      const isCurrentActive = activeGateways.some(
+        (g) => g.id.toUpperCase() === formData.payment_method.toUpperCase()
+      );
+      if (def && (!formData.payment_method || !isCurrentActive)) {
+        setFormData((prev) => ({ ...prev, payment_method: def.id }));
+      }
+    }
+  }, [gateways]);
+
+  // Pillar 1: Silent Non-Intrusive Client Telemetry (1,200ms debounce on valid 01XXXXXXXXX)
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const cleanPhone = formData.customer_phone.replace(/\D/g, '');
+    const isValidPhone = /^01[3-9]\d{8}$/.test(cleanPhone);
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    if (isValidPhone && cart && cart.items.length > 0) {
+      debounceRef.current = setTimeout(() => {
+        try {
+          const sessionToken = cart.session_id || `sess_${cleanPhone}`;
+          fetch('/api/v1/orders/abandoned/capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              session_token: sessionToken,
+              phone: cleanPhone,
+              customer_name: formData.customer_name.trim(),
+              customer_email: formData.customer_email.trim(),
+              district: selectedDistrict,
+              thana: selectedThana,
+              address: [formData.street_address, formData.apartment_suite].filter(Boolean).join(', ').trim(),
+              cart_items: cart.items,
+              cart_total: cart.subtotal,
+            }),
+            keepalive: true,
+          }).catch(() => {
+            // Non-intrusive: silent failure, zero customer disruption
+          });
+        } catch {
+          // Zero customer disruption
+        }
+      }, 1200);
+    }
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [
+    formData.customer_phone,
+    formData.customer_name,
+    formData.customer_email,
+    formData.street_address,
+    formData.apartment_suite,
+    selectedDistrict,
+    selectedThana,
+    cart,
+  ]);
+
+  const activeZone = zones.find((zone) => zone.district === selectedDistrict) ?? null;
+  const currentDeliveryFee = zonesError || !activeZone ? null : activeZone.shipping_fee;
+  const canPlaceOrder = currentDeliveryFee !== null;
 
   const handleDistrictChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newDistrict = e.target.value;
     setSelectedDistrict(newDistrict);
-    const zone = LOGISTICS_DISTRICTS.find((d) => d.district === newDistrict);
-    if (zone && zone.thanas.length > 0) {
-      setSelectedThana(zone.thanas[0]);
-    }
+    const zone = zones.find((item) => item.district === newDistrict);
+    setSelectedThana(zone?.thanas[0] ?? '');
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -164,6 +157,10 @@ export const CheckoutForm: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canPlaceOrder) {
+      setErrorMsg('Delivery fees are not available for this store, so the order cannot be placed.');
+      return;
+    }
     if (!cart || cart.items.length === 0) {
       setErrorMsg('Your cart is empty.');
       return;
@@ -204,6 +201,29 @@ export const CheckoutForm: React.FC = () => {
       const receipt = await submitCheckout(payload);
       if (typeof window !== 'undefined') {
         sessionStorage.setItem(`order_verify_${receipt.order_number}`, formData.customer_email);
+        try {
+          const hostKey = window.location.host.split(':')[0];
+          const storageKey = `ecom_recent_orders_${hostKey}`;
+          const existing = JSON.parse(localStorage.getItem(storageKey) || '[]');
+          const newOrder = {
+            order_number: receipt.order_number,
+            created_at: receipt.created_at || new Date().toISOString(),
+            status: receipt.status || 'PENDING',
+            total_amount: receipt.total_amount,
+            currency: receipt.currency || 'BDT',
+            item_count: receipt.items?.length || 1,
+            first_item_title: receipt.items?.[0]?.product_title || 'Store Item',
+            verify_contact: formData.customer_phone || formData.customer_email,
+            recipient_name: formData.customer_name,
+            payment_method: formData.payment_method,
+          };
+          localStorage.setItem(
+            storageKey,
+            JSON.stringify([newOrder, ...existing.filter((o: any) => o.order_number !== receipt.order_number)].slice(0, 10))
+          );
+        } catch {
+          // ignore
+        }
       }
       router.push(`/order-confirmed/${receipt.order_number}?verify=${encodeURIComponent(formData.customer_email)}`);
     } catch (err: any) {
@@ -213,7 +233,45 @@ export const CheckoutForm: React.FC = () => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+    <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-start">
+      {/* Mobile/Tablet Collapsible Order Summary Bar (< 1024px) */}
+      <div className="lg:hidden col-span-1 border border-slate-200 rounded-xl overflow-hidden bg-slate-50 shadow-xs">
+        <button
+          type="button"
+          onClick={() => setMobileSummaryOpen(!mobileSummaryOpen)}
+          className="w-full min-h-[48px] px-4 py-3 flex items-center justify-between text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200/80 transition"
+        >
+          <div className="flex items-center gap-2">
+            <ShoppingBag className="h-4 w-4 text-[var(--brand-primary)]" />
+            <span>{mobileSummaryOpen ? 'Hide order summary' : 'Show order summary & coupon'}</span>
+            <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${mobileSummaryOpen ? 'rotate-180' : ''}`} />
+          </div>
+          <span className="font-mono text-sm font-extrabold text-slate-900">
+            ৳{((cart?.subtotal || 0) + (currentDeliveryFee || 0) - discountAmount).toFixed(2)}
+          </span>
+        </button>
+
+        {mobileSummaryOpen && (
+          <div className="p-4 border-t border-slate-200 bg-white">
+            <CheckoutSummary
+              appliedCoupon={appliedCoupon}
+              discountAmount={discountAmount}
+              deliveryZoneFee={currentDeliveryFee}
+              customerPhone={formData.customer_phone}
+              customerEmail={formData.customer_email}
+              onApplyCoupon={(code, discount) => {
+                setAppliedCoupon(code);
+                setDiscountAmount(discount);
+              }}
+              onRemoveCoupon={() => {
+                setAppliedCoupon(null);
+                setDiscountAmount(0);
+              }}
+            />
+          </div>
+        )}
+      </div>
+
       {/* Left Column: Customer and Shipping Form */}
       <div className="lg:col-span-7 space-y-8">
         {errorMsg && (
@@ -259,16 +317,33 @@ export const CheckoutForm: React.FC = () => {
           </div>
         </div>
 
-        {/* 2-Step Cascading Delivery Location Engine */}
+        {/* Delivery Location */}
         <div className="space-y-4">
           <div className="flex items-center justify-between border-b pb-2">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 font-[var(--brand-font-heading)]">
-              2. Delivery Address & Logistics Zone
+              2. Delivery Address
             </h2>
-            <span className="text-[11px] font-bold text-[var(--brand-primary)]">
-              Courier Delivery: ৳{currentDeliveryFee.toFixed(2)}
-            </span>
+            {currentDeliveryFee !== null && (
+              <span className="text-[11px] font-bold text-[var(--brand-primary)]">
+                Delivery fee: ৳{currentDeliveryFee.toFixed(2)}
+              </span>
+            )}
           </div>
+
+          {zonesError ? (
+            <div role="alert" className="p-4 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-start space-x-2">
+              <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>
+                Delivery districts and fees could not be loaded for this store: {zonesError} Orders cannot be placed until
+                delivery is configured.
+              </span>
+            </div>
+          ) : zones.length === 0 ? (
+            <div role="alert" className="p-4 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl flex items-start space-x-2">
+              <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>No delivery districts are configured for this store. Orders cannot be placed.</span>
+            </div>
+          ) : null}
 
           <div className="space-y-3">
             <div>
@@ -285,55 +360,44 @@ export const CheckoutForm: React.FC = () => {
               />
             </div>
 
-            {/* 2-Step Cascading Selector */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">District / Logistics Zone *</label>
-                <select
-                  value={selectedDistrict}
-                  onChange={handleDistrictChange}
-                  aria-label="Select District"
-                  className="mt-1 w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-[var(--brand-radius)] text-xs font-medium outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
-                >
-                  <optgroup label="Dhaka Metropolitan (৳80.00)">
-                    <option value="Dhaka City">Dhaka City (Fast 24h COD)</option>
-                  </optgroup>
-                  <optgroup label="Dhaka Peripheral (৳110.00)">
-                    <option value="Dhaka Sub-Urban">Dhaka Sub-Urban (Savar, Keraniganj)</option>
-                    <option value="Gazipur">Gazipur District</option>
-                    <option value="Narayanganj">Narayanganj District</option>
-                  </optgroup>
-                  <optgroup label="National Courier Zone (৳130.00)">
-                    <option value="Chattogram">Chattogram</option>
-                    <option value="Sylhet">Sylhet</option>
-                    <option value="Rajshahi">Rajshahi</option>
-                    <option value="Khulna">Khulna</option>
-                    <option value="Barishal">Barishal</option>
-                    <option value="Rangpur">Rangpur</option>
-                    <option value="Mymensingh">Mymensingh</option>
-                    <option value="Cumilla">Cumilla</option>
-                    <option value="Cox's Bazar">Cox's Bazar</option>
-                    <option value="Bogura">Bogura</option>
-                  </optgroup>
-                </select>
-              </div>
+            {zones.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">District *</label>
+                  <select
+                    value={selectedDistrict}
+                    onChange={handleDistrictChange}
+                    aria-label="Select District"
+                    disabled={Boolean(zonesError)}
+                    className="mt-1 w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-[var(--brand-radius)] text-xs font-medium outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
+                  >
+                    {zones.map((zone) => (
+                      <option key={zone.district} value={zone.district}>
+                        {zone.district} (৳{zone.shipping_fee.toFixed(2)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Thana / Delivery Area *</label>
-                <select
-                  value={selectedThana}
-                  onChange={(e) => setSelectedThana(e.target.value)}
-                  aria-label="Select Thana"
-                  className="mt-1 w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-[var(--brand-radius)] text-xs font-medium outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
-                >
-                  {activeZone.thanas.map((th) => (
-                    <option key={th} value={th}>
-                      {th}
-                    </option>
-                  ))}
-                </select>
+                {activeZone && activeZone.thanas.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700">Area *</label>
+                    <select
+                      value={selectedThana}
+                      onChange={(e) => setSelectedThana(e.target.value)}
+                      aria-label="Select Thana"
+                      className="mt-1 w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-[var(--brand-radius)] text-xs font-medium outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
+                    >
+                      {activeZone.thanas.map((th) => (
+                        <option key={th} value={th}>
+                          {th}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold text-slate-700">Detailed Street Address *</label>
@@ -349,7 +413,7 @@ export const CheckoutForm: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700">Apartment / Flat (Optional)</label>
                 <input
@@ -380,7 +444,7 @@ export const CheckoutForm: React.FC = () => {
               <textarea
                 name="notes"
                 rows={2}
-                placeholder="e.g. Please call before delivery, deliver after 2 PM"
+                placeholder="e.g. Please call before delivery"
                 value={formData.notes}
                 onChange={handleChange}
                 aria-label="Special delivery instructions"
@@ -390,62 +454,95 @@ export const CheckoutForm: React.FC = () => {
           </div>
         </div>
 
-        {/* Payment Method Selector */}
+        {/* Payment Method: only active payment methods configured in Store Admin are rendered */}
         <div className="space-y-4">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 border-b pb-2 font-[var(--brand-font-heading)]">
-            3. Payment Method
-          </h2>
-          <div className="space-y-2.5">
-            <label className="flex items-center space-x-3 p-3.5 border rounded-xl cursor-pointer bg-white hover:border-[var(--brand-primary)] transition ring-1 ring-[var(--brand-primary)]/20">
-              <input
-                type="radio"
-                name="payment_method"
-                value="COD"
-                checked={formData.payment_method === 'COD'}
-                onChange={handleChange}
-                className="text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
-              />
-              <Truck className="h-5 w-5 text-[var(--brand-primary)]" />
-              <div>
-                <p className="text-xs font-bold text-slate-900">Cash on Delivery (COD)</p>
-                <p className="text-[11px] text-slate-500">Pay cash upon parcel delivery to your doorstep anywhere in Bangladesh.</p>
-              </div>
-            </label>
-
-            <label className="flex items-center space-x-3 p-3.5 border rounded-xl cursor-pointer bg-slate-50/50 opacity-80 hover:border-slate-300 transition">
-              <input
-                type="radio"
-                name="payment_method"
-                value="ONLINE"
-                disabled
-                className="text-slate-400"
-              />
-              <CreditCard className="h-5 w-5 text-slate-400" />
-              <div>
-                <p className="text-xs font-bold text-slate-600">Online Mobile Banking & Cards (bKash / Nagad / Visa)</p>
-                <p className="text-[11px] text-slate-400">Enabling in Phase 25 gateway integration.</p>
-              </div>
-            </label>
+          <div className="flex items-center justify-between border-b pb-2">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 font-[var(--brand-font-heading)]">
+              3. Payment Method
+            </h2>
+            <span className="text-[11px] text-slate-500 font-medium">
+              {activeGateways.length} payment {activeGateways.length === 1 ? 'option' : 'options'} available
+            </span>
           </div>
+
+          {activeGateways.length === 0 ? (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
+              <span>No payment methods are currently active for this store. Please contact the store administrator.</span>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {activeGateways.map((gw) => {
+                const isSelected = formData.payment_method.toUpperCase() === gw.id.toUpperCase();
+                const cleanId = gw.id.toUpperCase();
+                const icon =
+                  cleanId === 'COD' ? (
+                    <Truck className="h-5 w-5" />
+                  ) : cleanId === 'BKASH' || cleanId === 'NAGAD' ? (
+                    <Smartphone className="h-5 w-5" />
+                  ) : cleanId === 'STRIPE' ? (
+                    <Globe className="h-5 w-5" />
+                  ) : (
+                    <CreditCard className="h-5 w-5" />
+                  );
+
+                return (
+                  <label
+                    key={gw.id}
+                    className={`flex items-start space-x-3.5 p-3.5 border rounded-xl cursor-pointer transition ${
+                      isSelected
+                        ? 'bg-emerald-50/40 border-[var(--brand-primary)] ring-1 ring-[var(--brand-primary)]/30'
+                        : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="payment_method"
+                      value={gw.id}
+                      checked={isSelected}
+                      onChange={handleChange}
+                      className="mt-1 text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
+                    />
+                    <div className="shrink-0 mt-0.5 text-[var(--brand-primary)]">
+                      {icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-bold text-slate-900">{gw.name}</p>
+                        {gw.is_default && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded border border-emerald-200">
+                            Default
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">{gw.description}</p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Submit Order Action Button */}
         <button
           type="submit"
-          disabled={isSubmitting || !cart || cart.items.length === 0}
+          disabled={isSubmitting || !cart || cart.items.length === 0 || !canPlaceOrder || activeGateways.length === 0}
           className="w-full py-4 bg-[var(--brand-primary)] text-white font-bold text-sm rounded-[var(--brand-radius)] shadow-lg hover:opacity-95 transition disabled:opacity-50 flex items-center justify-center space-x-2"
         >
           <ShieldCheck className="h-5 w-5" />
-          <span>{isSubmitting ? 'Finalizing Order...' : 'Confirm & Place Order'}</span>
+          <span>{isSubmitting ? 'Placing Order...' : 'Place Order'}</span>
         </button>
       </div>
 
-      {/* Right Column: Order Summary Sidebar */}
-      <div className="lg:col-span-5 sticky top-28">
+      {/* Right Column: Order Summary Sidebar (Desktop >= 1024px) */}
+      <div className="hidden lg:block lg:col-span-5 sticky top-28">
         <CheckoutSummary
           appliedCoupon={appliedCoupon}
           discountAmount={discountAmount}
           deliveryZoneFee={currentDeliveryFee}
+          customerPhone={formData.customer_phone}
+          customerEmail={formData.customer_email}
           onApplyCoupon={(code, discount) => {
             setAppliedCoupon(code);
             setDiscountAmount(discount);

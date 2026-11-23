@@ -8,11 +8,22 @@ interface ConfirmDeleteModalProps {
   itemType?: string;
   warningMessage?: string;
   confirmButtonText?: string;
+  /** Label shown on the confirm button while the action is running. */
+  busyButtonText?: string;
   isDeleting?: boolean;
+  /** Server error from the last attempt, shown inside the modal so the admin can retry or cancel. */
+  errorMessage?: string | null;
   onConfirm: () => void;
   onClose: () => void;
 }
 
+/**
+ * Branded confirmation dialog for destructive or status-changing actions. It names the target,
+ * states the consequence, and shows any error inline without closing.
+ *
+ * @param props - Visibility, target description, copy, busy flag, error text and handlers
+ * @returns The confirmation modal, or null when closed
+ */
 export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   isOpen,
   title = 'Confirm Resource Deletion',
@@ -20,7 +31,9 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   itemType = 'Record',
   warningMessage = 'Are you sure you want to permanently delete this resource? This operation is irreversible and all linked tenant mappings will be affected.',
   confirmButtonText = 'Confirm & Delete',
+  busyButtonText = 'Deleting...',
   isDeleting = false,
+  errorMessage = null,
   onConfirm,
   onClose,
 }) => {
@@ -61,6 +74,12 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
             </span>
           </div>
 
+          {errorMessage && (
+            <div role="alert" className="text-xs text-rose-800 bg-rose-50 border border-rose-200 p-2 rounded whitespace-pre-line">
+              {errorMessage}
+            </div>
+          )}
+
           <div className="text-[10.5px] text-rose-600 font-medium bg-rose-50/60 p-2 rounded border border-rose-100 flex items-start space-x-1.5">
             <span className="font-bold">•</span>
             <span>Approval required: Please review carefully before confirming.</span>
@@ -84,7 +103,7 @@ export const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
             className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-md text-xs font-semibold shadow-sm transition disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            <span>{isDeleting ? 'Deleting...' : confirmButtonText}</span>
+            <span>{isDeleting ? busyButtonText : confirmButtonText}</span>
           </button>
         </div>
       </div>

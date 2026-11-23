@@ -25,6 +25,7 @@ dist-ssr/
 .env
 .env.local
 .env.*.local
+.env.production
 *.pem
 *.key
 
@@ -38,9 +39,6 @@ dump.rdb
 backend/uploads/
 *.exe~
 *.tsbuildinfo
-
-# Claude Code personal settings
-.claude/settings.local.json
 
 # Logs
 npm-debug.log*

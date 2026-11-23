@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -77,18 +78,25 @@ func TestStructuredLogger(t *testing.T) {
 }
 
 func TestCORSConfig(t *testing.T) {
-	corsHandler := CORSConfig("master.dropiobd.localhost", "store.dropiobd.localhost")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	corsHandler := CORSConfig("master.dropiobd.localhost", "store.dropiobd.localhost", true)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/test", nil)
 	req.Header.Set("Origin", "http://master.dropiobd.localhost")
 	req.Header.Set("Access-Control-Request-Method", "GET")
+	req.Header.Set("Access-Control-Request-Headers", "x-cart-session,x-forwarded-host,x-original-host")
 	rr := httptest.NewRecorder()
 
 	corsHandler.ServeHTTP(rr, req)
 
 	if allowedOrigin := rr.Header().Get("Access-Control-Allow-Origin"); allowedOrigin != "http://master.dropiobd.localhost" {
 		t.Errorf("expected allowed origin 'http://master.dropiobd.localhost', got %q", allowedOrigin)
+	}
+	allowedHeaders := strings.ToLower(rr.Header().Get("Access-Control-Allow-Headers"))
+	for _, header := range []string{"x-cart-session", "x-forwarded-host", "x-original-host"} {
+		if !strings.Contains(allowedHeaders, header) {
+			t.Errorf("expected preflight to allow %s, got %q", header, allowedHeaders)
+		}
 	}
 }

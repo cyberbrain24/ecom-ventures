@@ -113,12 +113,15 @@ services:
     build:
       context: ./apps/storefront
       dockerfile: Dockerfile
+      args:
+        # Inlined into the browser bundle at build time, so it must be present when the image is built.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Public API base URL required, for example https://api.example.com/api/v1}
     container_name: ecom_prod_storefront
     restart: unless-stopped
     environment:
       NODE_ENV: production
       PORT: 3000
-      NEXT_PUBLIC_API_URL: https://api.dropiobd.com/api/v1
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Public API base URL required, for example https://api.example.com/api/v1}
     depends_on:
       backend-api:
         condition: service_started

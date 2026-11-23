@@ -1,100 +1,44 @@
 /**
  * StoreCreatorWizard provides a 4-step guided brand creation experience
  * validating slug uniqueness, theme selection, owner credentials, and primary domain mapping.
+ * Themes are loaded only from GET /platform/themes; when that fails, store creation is blocked.
  */
 
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, Check, Sparkles, AlertCircle, Palette, Gem } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ArrowLeft, ArrowRight, Check, Sparkles, AlertCircle, Palette, RotateCcw } from 'lucide-react';
 import { CreateStorePayload } from '../../types/store';
-import { ThemeBlueprint } from '../../types/theme';
+import { ThemeItem } from '../../types/theme';
 import { ProvisioningTracker } from './ProvisioningTracker';
-import { api } from '../../lib/api';
-import { AxiosError } from 'axios';
-import { ProblemDetails } from '../../types/auth';
+import { api, apiErrorMessage } from '../../lib/api';
+import { readThemePreview } from '../../lib/theme-preview';
 
 interface StoreCreatorWizardProps {
   onCancel: () => void;
   onSuccess: (newStoreId: string) => void;
 }
 
-const defaultThemes: ThemeBlueprint[] = [
-  {
-    id: 'thm_modern_minimal',
-    name: 'Modern Minimal',
-    slug: 'modern-minimal',
-    description: 'Clean typography, high-contrast aesthetics optimized for fashion, luxury wear, and formal apparel.',
-    version: '1.0.0',
-    is_active: true,
-  },
-  {
-    id: 'thm_artisan_boutique',
-    name: 'Artisan Boutique',
-    slug: 'artisan-boutique',
-    description: 'Warm earth tones, serif headings tailored for handcrafted leather goods, ceramics, and perfumes.',
-    version: '1.0.0',
-    is_active: true,
-  },
-  {
-    id: 'thm_urban_streetwear',
-    name: 'Urban Streetwear',
-    slug: 'urban-streetwear',
-    description: 'Bold grids, dark-mode accents suited for footwear, sneakers, and contemporary hype apparel.',
-    version: '1.0.0',
-    is_active: true,
-  },
-  {
-    id: 'thm_jewelry_shop',
-    name: 'Jewelry Shop',
-    slug: 'jewelry-shop',
-    description: 'Warm champagne gold & ivory palette with serif elegance, ring size guides, and gemstone presentation.',
-    version: '1.0.0',
-    is_active: true,
-  },
-];
+/**
+ * Platform currency for new stores. The launch market is Bangladesh, so new stores default to BDT
+ * and the timezone to Asia/Dhaka. This is the platform default, not a per-brand value.
+ */
+const PLATFORM_DEFAULT_CURRENCY = 'BDT';
+const PLATFORM_DEFAULT_TIMEZONE = 'Asia/Dhaka';
 
-const getThemeAccent = (slug: string) => {
-  if (slug.includes('jewelry')) {
-    return {
-      border: 'border-[#B8975A]',
-      bgSelected: 'bg-[#FDFAF5] ring-2 ring-[#B8975A]',
-      badge: 'bg-[#B8975A]/20 text-[#8B6914] border-[#B8975A]/40',
-      dots: ['#B8975A', '#7A5C2E', '#F5ECD7', '#2C1810'],
-      Icon: Gem,
-    };
-  }
-  if (slug.includes('artisan')) {
-    return {
-      border: 'border-amber-500',
-      bgSelected: 'bg-amber-50/40 ring-2 ring-amber-500',
-      badge: 'bg-amber-500/20 text-amber-800 border-amber-500/40',
-      dots: ['#92400E', '#D97706', '#FEF3C7', '#78350F'],
-      Icon: Palette,
-    };
-  }
-  if (slug.includes('urban') || slug.includes('streetwear')) {
-    return {
-      border: 'border-violet-500',
-      bgSelected: 'bg-violet-50/40 ring-2 ring-violet-500',
-      badge: 'bg-violet-500/20 text-violet-800 border-violet-500/40',
-      dots: ['#7C3AED', '#EC4899', '#1A1A2E', '#F8F8F8'],
-      Icon: Palette,
-    };
-  }
-  return {
-    border: 'border-teal-500',
-    bgSelected: 'bg-teal-50/40 ring-2 ring-teal-500',
-    badge: 'bg-teal-500/20 text-teal-800 border-teal-500/40',
-    dots: ['#0F766E', '#0284C7', '#F8FAFC', '#1E293B'],
-    Icon: Palette,
-  };
-};
-
+/**
+ * Renders the store creation wizard. Step 5 hosts the provisioning tracker, and any provisioning
+ * failure remains visible in the wizard's error alert.
+ *
+ * @param props - Cancel handler and success handler receiving the new store id
+ * @returns The wizard
+ */
 export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel, onSuccess }) => {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [themes, setThemes] = useState<ThemeBlueprint[]>(defaultThemes);
-  const [isLoadingThemes, setIsLoadingThemes] = useState(false);
+  const [themes, setThemes] = useState<ThemeItem[]>([]);
+  const [themesStatus, setThemesStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [themesError, setThemesError] = useState<string | null>(null);
+  const [provisioningFailed, setProvisioningFailed] = useState(false);
 
   // Newly created store tracking for provisioning view
   const [createdStoreId, setCreatedStoreId] = useState<string | null>(null);
@@ -103,11 +47,11 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
     name: '',
     slug: '',
     description: '',
-    theme_slug: 'modern-minimal',
+    theme_slug: '',
     contact_email: '',
     contact_phone: '',
-    currency: 'BDT',
-    timezone: 'Asia/Dhaka',
+    currency: PLATFORM_DEFAULT_CURRENCY,
+    timezone: PLATFORM_DEFAULT_TIMEZONE,
     primary_domain: '',
     initial_owner: {
       email: '',
@@ -117,28 +61,35 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
     },
   });
 
-  useEffect(() => {
-    const fetchThemes = async () => {
-      setIsLoadingThemes(true);
-      try {
-        const res = await api.get<{ data: ThemeBlueprint[] }>('/platform/themes');
-        if (res.data?.data && res.data.data.length > 0) {
-          const activeOnly = res.data.data.filter((t) => t.is_active !== false);
-          if (activeOnly.length > 0) {
-            setThemes(activeOnly);
-          }
-        }
-      } catch (err) {
-        console.warn('Failed to load dynamic themes, using default blueprints', err);
-      } finally {
-        setIsLoadingThemes(false);
-      }
-    };
-    fetchThemes();
+  const activeThemes = themes.filter((t) => t.is_active !== false);
+
+  const loadThemes = useCallback(async () => {
+    setThemesStatus('loading');
+    setThemesError(null);
+    try {
+      const res = await api.get<{ data: ThemeItem[] }>('/platform/themes');
+      const list = res.data?.data ?? [];
+      const active = list.filter((t) => t.is_active !== false);
+      setThemes(list);
+      setThemesStatus('ready');
+      setFormData((prev) => {
+        if (active.length === 0) return { ...prev, theme_slug: '' };
+        const stillValid = active.some((t) => t.slug === prev.theme_slug);
+        return stillValid ? prev : { ...prev, theme_slug: active[0].slug };
+      });
+    } catch (err) {
+      setThemes([]);
+      setThemesStatus('error');
+      setThemesError(apiErrorMessage(err, 'Could not load the theme registry.'));
+    }
   }, []);
 
+  useEffect(() => {
+    loadThemes();
+  }, [loadThemes]);
+
   const handleNameChange = (name: string) => {
-    // Automatically generate lowercase hyphenated slug if not manually altered
+    // Automatically generate lowercase hyphenated slug
     const autoSlug = name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -160,6 +111,12 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
         return;
       }
     }
+    if (currentStep === 2) {
+      if (themesStatus !== 'ready' || activeThemes.length === 0 || !formData.theme_slug) {
+        setErrorMsg('Select an active theme from the theme registry before continuing.');
+        return;
+      }
+    }
     if (currentStep === 3) {
       const { email, password, first_name, last_name } = formData.initial_owner;
       if (!email || !password || !first_name || !last_name) {
@@ -176,38 +133,41 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
 
   const handleSubmit = async () => {
     setErrorMsg(null);
+    if (themesStatus !== 'ready' || !formData.theme_slug) {
+      setErrorMsg('A theme from the theme registry is required before provisioning.');
+      return;
+    }
     setIsSubmitting(true);
 
     try {
       const res = await api.post<{ data: { store: { id: string } } }>('/platform/stores', formData);
-      const newId = res.data?.data?.store?.id || (res.data as unknown as { store: { id: string } })?.store?.id;
+      const newId = res.data?.data?.store?.id;
+      if (!newId) {
+        setErrorMsg('The server accepted the request but did not return a store id. Check the portfolio list before retrying.');
+        return;
+      }
       setCreatedStoreId(newId);
       setCurrentStep(5); // Move to provisioning tracker view
     } catch (err) {
-      const axiosErr = err as AxiosError<ProblemDetails>;
-      if (axiosErr.response?.data?.detail) {
-        setErrorMsg(axiosErr.response.data.detail);
-      } else {
-        setErrorMsg('Failed to trigger store provisioning. Please verify inputs.');
-      }
+      setErrorMsg(apiErrorMessage(err, 'Failed to trigger store provisioning. Please verify inputs.'));
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Step 5: Live Provisioning View
-  if (currentStep === 5 && createdStoreId) {
-    return (
-      <ProvisioningTracker
-        storeId={createdStoreId}
-        storeSlug={formData.slug}
-        onComplete={() => {
-          setTimeout(() => onSuccess(createdStoreId), 2000);
-        }}
-        onFailed={(err) => setErrorMsg(err)}
-      />
-    );
-  }
+  const handleProvisioningComplete = useCallback(() => {
+    // Let the success state show briefly before the portfolio opens the new store.
+    window.setTimeout(() => {
+      if (createdStoreId) onSuccess(createdStoreId);
+    }, 2000);
+  }, [createdStoreId, onSuccess]);
+
+  const handleProvisioningFailed = useCallback((message: string) => {
+    setProvisioningFailed(true);
+    setErrorMsg(message);
+  }, []);
+
+  const selectedTheme = activeThemes.find((t) => t.slug === formData.theme_slug);
 
   return (
     <div className="w-full max-w-4xl mx-auto bg-white sm:rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
@@ -220,13 +180,13 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
           </p>
         </div>
         <span className="text-xs font-mono bg-slate-800 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-teal-400 shrink-0">
-          Step {currentStep} of 4
+          {currentStep <= 4 ? `Step ${currentStep} of 4` : 'Provisioning'}
         </span>
       </div>
 
       {/* Error Alert */}
       {errorMsg && (
-        <div className="mx-4 sm:mx-8 mt-4 sm:mt-6 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-lg text-sm flex items-start space-x-2">
+        <div role="alert" className="mx-4 sm:mx-8 mt-4 sm:mt-6 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-lg text-sm flex items-start space-x-2">
           <AlertCircle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
           <span>{errorMsg}</span>
         </div>
@@ -245,11 +205,11 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
                   type="text"
                   required
                   aria-label="Brand Name"
+                  placeholder="Store name"
                   value={formData.name}
                   onChange={(e) => handleNameChange(e.target.value)}
                   className="mt-1 w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none"
                 />
-                <span className="text-[11px] text-slate-400 mt-1 block">e.g. Mior Fashion</span>
               </div>
 
               <div>
@@ -262,7 +222,7 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
                   onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase() })}
                   className="mt-1 w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-teal-500 outline-none"
                 />
-                <p className="text-[11px] text-slate-400 mt-1">Admin route: store.dropiobd.com/{formData.slug || 'brand-slug'}</p>
+                <p className="text-[11px] text-slate-400 mt-1">Store slug: {formData.slug || 'not set yet'}</p>
               </div>
 
               <div>
@@ -271,11 +231,11 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
                   type="email"
                   required
                   aria-label="Official Contact Email"
+                  placeholder="contact@yourbrand.com"
                   value={formData.contact_email}
                   onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
                   className="mt-1 w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none"
                 />
-                <span className="text-[11px] text-slate-400 mt-1 block">e.g. contact@mior.com</span>
               </div>
 
               <div>
@@ -283,11 +243,11 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
                 <input
                   type="text"
                   aria-label="Contact Phone"
+                  placeholder="Optional"
                   value={formData.contact_phone}
                   onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
                   className="mt-1 w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none"
                 />
-                <span className="text-[11px] text-slate-400 mt-1 block">e.g. +880 1700 000000</span>
               </div>
 
               <div className="md:col-span-2">
@@ -299,7 +259,7 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   className="mt-1 w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none"
                 />
-                <span className="text-[11px] text-slate-400 mt-1 block">Brief summary of the brand catalog and target demographic</span>
+                <span className="text-[11px] text-slate-400 mt-1 block">Brief summary of the brand catalog and target customers</span>
               </div>
             </div>
           </div>
@@ -310,30 +270,70 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
           <div className="space-y-6">
             <div className="flex items-center justify-between border-b pb-2">
               <h3 className="text-base font-bold text-slate-900">2. Reusable Storefront Theme</h3>
-              <span className="text-xs text-slate-500 font-medium">
-                {themes.length} available blueprints
-              </span>
+              {themesStatus === 'ready' && (
+                <span className="text-xs text-slate-500 font-medium">
+                  {activeThemes.length} active {activeThemes.length === 1 ? 'theme' : 'themes'}
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500">
-              Select the initial presentation blueprint. Themes can be changed dynamically at any time without rebuilding frontend code.
+              Select the initial presentation theme. Themes can be changed later from the store drawer without rebuilding frontend code.
             </p>
 
-            {isLoadingThemes ? (
-              <div className="p-8 text-center text-slate-500 text-xs">Loading themes...</div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {themesStatus === 'loading' && (
+              <div className="p-8 text-center text-slate-500 text-xs">Loading themes from the registry...</div>
+            )}
+
+            {themesStatus === 'error' && (
+              <div role="alert" className="p-4 rounded-lg border border-rose-200 bg-rose-50 text-xs text-rose-800 space-y-3">
+                <p>Themes could not be loaded, so this store cannot be created: {themesError}</p>
+                <button
+                  type="button"
+                  onClick={loadThemes}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 border border-rose-300 rounded-md bg-white font-semibold hover:bg-rose-100"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Retry</span>
+                </button>
+              </div>
+            )}
+
+            {themesStatus === 'ready' && activeThemes.length === 0 && (
+              <div className="p-6 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600">
+                No active theme is registered. Register and activate a theme in the Theme Registry before creating a store.
+              </div>
+            )}
+
+            {themesStatus === 'ready' && themes.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {themes.map((theme) => {
-                  const isSelected = formData.theme_slug === theme.slug;
-                  const visual = getThemeAccent(theme.slug);
-                  const Icon = visual.Icon;
+                  const isActive = theme.is_active !== false;
+                  const isSelected = isActive && formData.theme_slug === theme.slug;
+                  const preview = readThemePreview(theme.config_schema);
+                  const hasColors = preview.colors.length > 0;
+                  const selectTheme = () => {
+                    if (isActive) setFormData({ ...formData, theme_slug: theme.slug });
+                  };
 
                   return (
                     <div
                       key={theme.slug}
-                      onClick={() => setFormData({ ...formData, theme_slug: theme.slug })}
-                      className={`cursor-pointer rounded-xl border p-4 transition flex flex-col justify-between ${
+                      role="button"
+                      tabIndex={isActive ? 0 : -1}
+                      aria-pressed={isSelected}
+                      aria-disabled={!isActive}
+                      onClick={selectTheme}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          selectTheme();
+                        }
+                      }}
+                      className={`rounded-xl border p-4 transition flex flex-col justify-between ${
+                        isActive ? 'cursor-pointer' : 'cursor-not-allowed opacity-60 bg-slate-50'
+                      } ${
                         isSelected
-                          ? `${visual.bgSelected} ${visual.border} shadow-sm`
+                          ? 'border-teal-500 bg-teal-50/40 ring-2 ring-teal-500 shadow-sm'
                           : 'border-slate-200 hover:border-slate-300 bg-white hover:shadow-xs'
                       }`}
                     >
@@ -342,7 +342,7 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center space-x-1.5">
                             <div className="p-1.5 rounded-md bg-slate-100 text-slate-700">
-                              <Icon className="h-4 w-4" />
+                              <Palette className="h-4 w-4" />
                             </div>
                             <h4 className="font-bold text-slate-900 text-sm leading-tight">{theme.name}</h4>
                           </div>
@@ -355,26 +355,39 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
 
                         {/* Description */}
                         <p className="text-xs text-slate-500 mt-2.5 leading-relaxed line-clamp-3">
-                          {theme.description}
+                          {theme.description || 'No description'}
                         </p>
 
-                        {/* Color palette preview dots */}
+                        {!isActive && (
+                          <p role="note" className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2">
+                            Inactive: this theme is deactivated in the Theme Registry, so it cannot be chosen for a new store.
+                          </p>
+                        )}
+
+                        {/* Colour swatches from the theme record */}
                         <div className="flex items-center space-x-1.5 mt-3 pt-2.5 border-t border-slate-100">
-                          {visual.dots.map((dot, idx) => (
-                            <span
-                              key={idx}
-                              className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-2xs"
-                              style={{ backgroundColor: dot }}
-                            />
-                          ))}
-                          <span className="text-[10px] text-slate-400 font-mono ml-1">palette</span>
+                          {hasColors ? (
+                            <>
+                              {preview.colors.map((token) => (
+                                <span
+                                  key={token.key}
+                                  className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-2xs"
+                                  style={{ backgroundColor: token.value }}
+                                  title={`${token.key}: ${token.value}`}
+                                />
+                              ))}
+                              <span className="text-[10px] text-slate-400 font-mono ml-1">palette</span>
+                            </>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">Colours not configured</span>
+                          )}
                         </div>
                       </div>
 
-                      {/* Footer Badge */}
+                      {/* Footer */}
                       <div className="mt-4 pt-2 flex items-center justify-between text-[11px]">
                         <span className="font-mono text-slate-400">v{theme.version}</span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${visual.badge}`}>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200 text-slate-600">
                           {theme.slug}
                         </span>
                       </div>
@@ -435,6 +448,7 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
                   type="email"
                   required
                   aria-label="Owner Login Email"
+                  placeholder="owner@yourbrand.com"
                   value={formData.initial_owner.email}
                   onChange={(e) =>
                     setFormData({
@@ -483,7 +497,7 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
                   className="mt-1 w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-teal-500 outline-none"
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Apex domains (e.g. `mior.com`) can be verified after provisioning.
+                  Apex domains (for example `yourbrand.com`) can be verified after provisioning.
                 </p>
               </div>
 
@@ -497,9 +511,9 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
                   <span className="font-mono text-slate-800">{formData.slug}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Active Theme:</span>
+                  <span className="text-slate-400 block">Theme:</span>
                   <span className="font-semibold text-slate-800">
-                    {themes.find((t) => t.slug === formData.theme_slug)?.name || formData.theme_slug} ({formData.theme_slug})
+                    {selectedTheme ? `${selectedTheme.name} (${selectedTheme.slug})` : 'No theme selected'}
                   </span>
                 </div>
                 <div>
@@ -510,34 +524,60 @@ export const StoreCreatorWizard: React.FC<StoreCreatorWizardProps> = ({ onCancel
             </div>
           </div>
         )}
+
+        {/* Step 5: Live Provisioning View. The error alert above stays visible if provisioning fails. */}
+        {currentStep === 5 && createdStoreId && (
+          <ProvisioningTracker
+            storeId={createdStoreId}
+            storeSlug={formData.slug}
+            onComplete={handleProvisioningComplete}
+            onFailed={handleProvisioningFailed}
+          />
+        )}
       </div>
 
       {/* Wizard Footer Controls */}
       <div className="px-4 sm:px-8 py-3.5 sm:py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between sticky bottom-0 z-10">
-        <button
-          onClick={currentStep === 1 ? onCancel : () => setCurrentStep((prev) => prev - 1)}
-          className="min-h-[44px] px-3 sm:px-4 py-2 text-slate-600 hover:text-slate-900 text-sm font-medium flex items-center space-x-1.5 rounded-lg hover:bg-slate-200/60 transition"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          <span>{currentStep === 1 ? 'Cancel' : 'Previous Step'}</span>
-        </button>
+        {currentStep <= 4 ? (
+          <button
+            onClick={currentStep === 1 ? onCancel : () => setCurrentStep((prev) => prev - 1)}
+            className="min-h-[44px] px-3 sm:px-4 py-2 text-slate-600 hover:text-slate-900 text-sm font-medium flex items-center space-x-1.5 rounded-lg hover:bg-slate-200/60 transition"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span>{currentStep === 1 ? 'Cancel' : 'Previous Step'}</span>
+          </button>
+        ) : (
+          <span />
+        )}
 
-        {currentStep < 4 ? (
+        {currentStep < 4 && (
           <button
             onClick={handleNext}
-            className="min-h-[44px] px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold shadow-xs flex items-center space-x-1.5 transition"
+            disabled={currentStep === 2 && themesStatus !== 'ready'}
+            className="min-h-[44px] px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold shadow-xs flex items-center space-x-1.5 transition disabled:opacity-50"
           >
             <span>Continue</span>
             <ArrowRight className="h-4 w-4" />
           </button>
-        ) : (
+        )}
+
+        {currentStep === 4 && (
           <button
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || themesStatus !== 'ready' || !formData.theme_slug}
             className="min-h-[44px] px-6 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold shadow-xs flex items-center space-x-2 transition disabled:opacity-50"
           >
             <Sparkles className="h-4 w-4" />
             <span>{isSubmitting ? 'Initializing...' : 'Execute Provisioning'}</span>
+          </button>
+        )}
+
+        {currentStep === 5 && provisioningFailed && (
+          <button
+            onClick={onCancel}
+            className="min-h-[44px] px-5 py-2.5 border border-slate-300 bg-white text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-100 transition"
+          >
+            Back to Portfolio
           </button>
         )}
       </div>

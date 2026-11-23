@@ -5,6 +5,7 @@ package store_mgmt
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -53,7 +54,11 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 			response.Problem(w, r, http.StatusConflict, "DOMAIN_ALREADY_EXISTS", "Conflict", "Domain is already mapped to another brand.")
 			return
 		}
-		if errors.Is(err, ErrThemeNotFound) {
+		if errors.Is(err, ErrThemeInactive) {
+			response.Problem(w, r, http.StatusUnprocessableEntity, "THEME_INACTIVE", "Unprocessable Entity", "Selected theme is deactivated and cannot be assigned to a store.")
+			return
+		}
+		if errors.Is(err, ErrThemeNotFound) || errors.Is(err, ErrThemeRequired) || errors.Is(err, ErrPrimaryDomainRequired) {
 			response.Problem(w, r, http.StatusBadRequest, "THEME_NOT_FOUND", "Bad Request", "Selected theme is not available in the platform.")
 			return
 		}
@@ -112,6 +117,7 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 			response.NotFound(w, r, "The requested store does not exist.")
 			return
 		}
+		log.Printf("store_mgmt: GetByID error for store %s: %v", storeID, err)
 		response.InternalServerError(w, r)
 		return
 	}

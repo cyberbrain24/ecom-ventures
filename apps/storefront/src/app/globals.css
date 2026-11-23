@@ -3,12 +3,28 @@
 @tailwind utilities;
 
 @layer base {
+  /* Neutral Fashion defaults. The injected :root block from ThemeInjector overrides every value. */
   :root {
-    --brand-primary: #0f766e;
-    --brand-secondary: #0284c7;
-    --brand-font-heading: 'Inter', sans-serif;
-    --brand-font-body: 'Inter', sans-serif;
+    --brand-primary: #1f2937;
+    --brand-secondary: #b45309;
+    --t-accent: #0f766e;
+    --t-bg: #fafaf9;
+    --t-surface: #ffffff;
+    --t-text: #111827;
+    --t-muted: #6b7280;
+    --t-on-primary: #ffffff;
+    --t-on-secondary: #0a0a0a;
+    --t-on-accent: #ffffff;
+    --brand-font-heading: "Playfair Display", serif;
+    --brand-font-body: "Inter", sans-serif;
     --brand-radius: 0.5rem;
+    --t-density-gap: 4rem;
+    --t-density-pad: 1rem;
+    --t-density-section: 3.5rem;
+    --t-line: color-mix(in srgb, var(--t-text) 12%, transparent);
+    --t-cta: var(--brand-primary);
+    --t-on-cta: var(--t-on-primary);
+    --t-ease: cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   html, body {
@@ -16,14 +32,27 @@
     max-width: 100vw;
   }
 
+  html {
+    background-color: var(--t-bg);
+  }
+
   body {
-    color: #0f172a;
-    background-color: #ffffff;
+    color: var(--t-text);
+    background-color: var(--t-bg);
     font-family: var(--brand-font-body);
   }
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--brand-font-heading);
+  }
+
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--t-accent);
+    outline-offset: 2px;
   }
 }
 
@@ -36,7 +65,7 @@
   scrollbar-width: none;
 }
 
-/* Poshplex Mobile App-Shell Architecture & Keyframe Animations */
+/* Mobile app-shell architecture and keyframe animations */
 :root {
   --storefront-header-height: 64px;
   --mobile-sticky-nav-height: 52px;
@@ -72,3 +101,1658 @@
   animation: categoryDrawerDown 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* ==========================================================================
+   Theme presentation layer
+   Colours, fonts, radius and density come from :root (ThemeInjector). Each
+   design family is selected by data-theme on <html>: fashion, streetculture,
+   innerwear or jewelry. Shared components use the sf-* classes below.
+   ========================================================================== */
+
+/* Shared layout */
+.sf-container {
+  max-width: 80rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+@media (min-width: 640px) {
+  .sf-container { padding-inline: 1.5rem; }
+}
+@media (min-width: 1024px) {
+  .sf-container { padding-inline: 2rem; }
+}
+
+.sf-hero {
+  position: relative;
+  padding-block: var(--t-density-section);
+  border-bottom: 1px solid var(--t-line);
+}
+@media (min-width: 768px) {
+  .sf-hero { padding-block: calc(var(--t-density-section) * 1.5); }
+}
+
+.sf-eyebrow {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--t-accent);
+}
+
+.sf-hero-title {
+  font-family: var(--brand-font-heading);
+  font-size: clamp(2.25rem, 6vw, 4.5rem);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: var(--t-text);
+  overflow-wrap: anywhere;
+}
+
+.sf-hero-lede {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--t-muted);
+}
+@media (min-width: 640px) {
+  .sf-hero-lede { font-size: 1.125rem; }
+}
+
+.sf-hero-fallback {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand-secondary) 30%, var(--t-surface)),
+    var(--t-surface)
+  );
+}
+
+.sf-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.75rem 1.5rem;
+  width: fit-content;
+  border-radius: var(--brand-radius);
+  background-color: var(--t-cta);
+  color: var(--t-on-cta);
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: filter 0.2s var(--t-ease), transform 0.2s var(--t-ease);
+}
+.sf-cta:hover { filter: brightness(1.08); }
+.sf-cta:active { transform: translateY(1px); }
+
+.sf-footer {
+  background-color: var(--brand-primary);
+  color: color-mix(in srgb, var(--t-on-primary) 78%, transparent);
+}
+.sf-footer-inner { padding-block: 2.5rem; }
+@media (min-width: 768px) {
+  .sf-footer-inner { padding-block: 4rem; }
+}
+.sf-footer-heading,
+.sf-footer-label { color: var(--t-on-primary); }
+.sf-footer-muted { color: color-mix(in srgb, var(--t-on-primary) 75%, transparent); }
+.sf-footer-link {
+  color: color-mix(in srgb, var(--t-on-primary) 80%, transparent);
+  transition: color 0.2s var(--t-ease);
+}
+.sf-footer-link:hover {
+  color: var(--t-on-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sf-footer-base {
+  border-top: 1px solid color-mix(in srgb, var(--t-on-primary) 18%, transparent);
+  color: color-mix(in srgb, var(--t-on-primary) 70%, transparent);
+}
+
+.sf-dev-notice {
+  background-color: #fef3c7;
+  color: #78350f;
+  border-bottom: 1px solid #fcd34d;
+}
+
+.sf-reassure-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border-radius: var(--brand-radius);
+  background-color: color-mix(in srgb, var(--brand-secondary) 30%, var(--t-surface));
+  color: var(--t-text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: center;
+  transition: background-color 0.2s var(--t-ease);
+}
+.sf-reassure-item:hover {
+  background-color: color-mix(in srgb, var(--brand-secondary) 55%, var(--t-surface));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Navbar and icon buttons */
+.sf-nav {
+  background-color: color-mix(in srgb, var(--t-surface) 94%, transparent);
+  border-bottom: 1px solid var(--t-line);
+}
+.sf-announcement {
+  background-color: var(--brand-primary);
+  color: var(--t-on-primary);
+}
+.sf-nav-link {
+  color: var(--t-text);
+  transition: color 0.2s var(--t-ease);
+}
+.sf-nav-link:hover { color: var(--t-accent); }
+.sf-icon-btn {
+  color: var(--t-text);
+  border-radius: var(--brand-radius);
+  transition: background-color 0.2s var(--t-ease), color 0.2s var(--t-ease);
+}
+.sf-icon-btn:hover { background-color: var(--t-line); }
+.sf-icon-btn--active {
+  background-color: var(--t-text);
+  color: var(--t-bg);
+}
+.sf-cart-count {
+  background-color: var(--t-cta);
+  color: var(--t-on-cta);
+}
+
+/* Product card (shared structure, variant styling below) */
+.sf-card {
+  background-color: var(--t-surface);
+  color: var(--t-text);
+  border: 1px solid var(--t-line);
+  border-radius: var(--brand-radius);
+  transition: box-shadow 0.3s var(--t-ease), transform 0.3s var(--t-ease), border-color 0.3s var(--t-ease);
+}
+.sf-card-media {
+  background-color: var(--t-bg);
+}
+.sf-card-body {
+  padding: var(--t-density-pad);
+}
+@media (min-width: 640px) {
+  .sf-card-body { padding: calc(var(--t-density-pad) * 1.25); }
+}
+.sf-card-title {
+  color: var(--t-text);
+}
+.sf-card-price {
+  color: var(--t-text);
+}
+.sf-card-compare {
+  color: var(--t-muted);
+}
+.sf-card-actions {
+  padding-top: 0.5rem;
+}
+.sf-quick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--t-line);
+  border-radius: var(--brand-radius);
+  background-color: var(--t-surface);
+  color: var(--t-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: background-color 0.2s var(--t-ease), color 0.2s var(--t-ease), border-color 0.2s var(--t-ease);
+}
+.sf-quick:hover {
+  background-color: var(--t-text);
+  color: var(--t-surface);
+}
+
+/* Home page strips */
+.sf-marquee {
+  padding-block: 0.75rem;
+}
+.sf-marquee-track {
+  animation: sfMarquee 24s linear infinite;
+}
+.sf-marquee-item {
+  padding-inline: 1.25rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.sf-marquee-item::after {
+  content: "/";
+  margin-left: 2.5rem;
+  opacity: 0.6;
+}
+@keyframes sfMarquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.sf-reassure { padding-block: 1.5rem; }
+
+/* ---------- Dark designs: remap the shared Tailwind slate utilities used by existing pages ---------- */
+:root[data-theme="jewelry"] .bg-white,
+:root[data-theme="gadget"] .bg-white,
+:root[data-theme="jewelry"] .bg-slate-50,
+:root[data-theme="gadget"] .bg-slate-50 {
+  background-color: var(--t-surface);
+}
+:root[data-theme="jewelry"] .bg-slate-100,
+:root[data-theme="gadget"] .bg-slate-100 {
+  background-color: color-mix(in srgb, var(--t-text) 8%, var(--t-surface));
+}
+:root[data-theme="jewelry"] .text-slate-900,
+:root[data-theme="jewelry"] .text-slate-950,
+:root[data-theme="jewelry"] .text-slate-800,
+:root[data-theme="gadget"] .text-slate-900,
+:root[data-theme="gadget"] .text-slate-950,
+:root[data-theme="gadget"] .text-slate-800 {
+  color: var(--t-text);
+}
+:root[data-theme="jewelry"] .text-slate-700,
+:root[data-theme="jewelry"] .text-slate-600,
+:root[data-theme="gadget"] .text-slate-700,
+:root[data-theme="gadget"] .text-slate-600 {
+  color: color-mix(in srgb, var(--t-text) 85%, var(--t-bg));
+}
+:root[data-theme="jewelry"] .text-slate-500,
+:root[data-theme="jewelry"] .text-slate-400,
+:root[data-theme="gadget"] .text-slate-500,
+:root[data-theme="gadget"] .text-slate-400 {
+  color: var(--t-muted);
+}
+:root[data-theme="jewelry"] .border-slate-100,
+:root[data-theme="jewelry"] .border-slate-200,
+:root[data-theme="gadget"] .border-slate-100,
+:root[data-theme="gadget"] .border-slate-200 {
+  border-color: var(--t-line);
+}
+
+/* ---------- Fashion: editorial ---------- */
+:root[data-theme="fashion"] h1,
+:root[data-theme="fashion"] h2,
+:root[data-theme="fashion"] h3 {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+:root[data-theme="fashion"] .sf-hero-title { font-weight: 500; }
+:root[data-theme="fashion"] .sf-hero-em {
+  font-style: italic;
+  color: var(--brand-secondary);
+}
+:root[data-theme="fashion"] .sf-eyebrow {
+  color: var(--brand-secondary);
+  letter-spacing: 0.2em;
+}
+:root[data-theme="fashion"] .sf-rule {
+  height: 1px;
+  width: 100%;
+  max-width: 5rem;
+  background-color: var(--t-text);
+}
+:root[data-theme="fashion"] .sf-hero-media {
+  border-radius: var(--brand-radius);
+  box-shadow: 0 30px 60px -30px rgb(15 23 42 / 0.35);
+}
+:root[data-theme="fashion"] .sf-cta {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.75rem;
+  padding: 0.9rem 1.75rem;
+}
+:root[data-theme="fashion"] .sf-nav-inner {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+}
+:root[data-theme="fashion"] .sf-nav-brand { grid-column: 2; grid-row: 1; justify-self: center; }
+:root[data-theme="fashion"] .sf-nav-links { grid-column: 1; grid-row: 1; justify-self: start; }
+:root[data-theme="fashion"] .sf-nav-actions { grid-column: 3; grid-row: 1; justify-self: end; }
+:root[data-theme="fashion"] .sf-nav-link {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.7rem;
+}
+:root[data-theme="fashion"] .sf-card {
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 14px 28px -20px rgb(15 23 42 / 0.4);
+  border-color: transparent;
+}
+:root[data-theme="fashion"] .sf-card:hover {
+  box-shadow: 0 2px 4px rgb(15 23 42 / 0.08), 0 24px 40px -22px rgb(15 23 42 / 0.45);
+  transform: translateY(-2px);
+}
+:root[data-theme="fashion"] .sf-card-title { font-family: var(--brand-font-heading); font-size: 0.95rem; }
+:root[data-theme="fashion"] .sf-card-price { font-family: var(--brand-font-body); }
+
+/* ---------- Fashion Theme Footer: Deep Obsidian Haute Couture ---------- */
+:root[data-theme="fashion"] .sf-footer {
+  --t-on-primary: #f8fafc;
+  --t-on-secondary: #ffffff;
+  background-color: #0b0f19;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  color: #94a3b8;
+}
+:root[data-theme="fashion"] .sf-footer h4 {
+  font-family: var(--brand-font-heading);
+  color: #f8fafc;
+  letter-spacing: 0.04em;
+}
+:root[data-theme="fashion"] .sf-footer p {
+  color: #94a3b8;
+  line-height: 1.6;
+}
+:root[data-theme="fashion"] .sf-footer .sf-footer-label {
+  font-family: var(--brand-font-heading);
+  letter-spacing: 0.14em;
+  color: #e2e8f0;
+}
+:root[data-theme="fashion"] .sf-footer .sf-footer-link {
+  color: #94a3b8;
+  transition: all 0.2s ease;
+}
+:root[data-theme="fashion"] .sf-footer .sf-footer-link:hover {
+  color: #d97706;
+  text-decoration: none;
+  transform: translateX(2px);
+}
+:root[data-theme="fashion"] .sf-footer input {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: #ffffff !important;
+  border-radius: var(--brand-radius);
+}
+:root[data-theme="fashion"] .sf-footer input::placeholder {
+  color: #64748b !important;
+}
+:root[data-theme="fashion"] .sf-footer input:focus {
+  border-color: #d97706 !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+:root[data-theme="fashion"] .sf-footer button[type="submit"] {
+  background-color: #b45309 !important;
+  color: #ffffff !important;
+  border-radius: var(--brand-radius);
+  transition: all 0.2s ease;
+}
+:root[data-theme="fashion"] .sf-footer button[type="submit"]:hover {
+  background-color: #92400e !important;
+  box-shadow: 0 4px 14px rgba(180, 83, 9, 0.4);
+}
+:root[data-theme="fashion"] .sf-footer div[class*="border-t"] {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+:root[data-theme="fashion"] .sf-footer span[class*="bg-white/10"] {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ---------- Streetculture: bold streetwear ---------- */
+:root[data-theme="streetculture"] {
+  --t-cta: var(--brand-secondary);
+  --t-on-cta: var(--t-on-secondary);
+  --t-line: color-mix(in srgb, var(--t-text) 18%, transparent);
+}
+:root[data-theme="streetculture"] h1,
+:root[data-theme="streetculture"] h2,
+:root[data-theme="streetculture"] h3,
+:root[data-theme="streetculture"] h4,
+:root[data-theme="streetculture"] h5,
+:root[data-theme="streetculture"] h6 {
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Creative Minimalist White Streetculture Presentation */
+:root[data-theme="streetculture"] {
+  --t-bg: #ffffff;
+  --t-surface: #ffffff;
+  --t-text: #0a0a0a;
+  --t-muted: #666666;
+  --t-line: rgba(0, 0, 0, 0.12);
+  --t-cta: #000000;
+  --t-on-cta: #ffffff;
+}
+
+/* Subtle Architectural Blueprint Grid Background Overlay */
+:root[data-theme="streetculture"] .sf-street-grid {
+  background-image: 
+    linear-gradient(to right, rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+:root[data-theme="streetculture"] .sf-hero {
+  background-color: #ffffff;
+  border-bottom: 2px solid #000000;
+  overflow: hidden;
+}
+
+:root[data-theme="streetculture"] .sf-hero-title {
+  font-weight: 900;
+  color: #000000;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  text-shadow: none;
+}
+
+:root[data-theme="streetculture"] .sf-hero-title--xxl {
+  font-size: clamp(3.5rem, 15vw, 8.5rem);
+  line-height: 0.9;
+  margin-top: 0.25rem;
+  letter-spacing: -0.03em;
+}
+
+:root[data-theme="streetculture"] .sf-hero-bold-image {
+  opacity: 0.12;
+  filter: grayscale(1) contrast(1.15);
+}
+
+:root[data-theme="streetculture"] .sf-eyebrow {
+  background-color: #000000;
+  color: #ffffff;
+  padding: 0.25rem 0.65rem;
+  letter-spacing: 0.15em;
+  font-family: var(--brand-font-body);
+  font-size: 0.6875rem;
+  font-weight: 800;
+}
+
+:root[data-theme="streetculture"] .sf-hero-slab {
+  position: relative;
+  background-color: #ffffff;
+  color: #000000;
+  border: 2px solid #000000;
+  padding: 1.5rem 1.5rem 1.75rem;
+  margin-inline: -1rem;
+  clip-path: none;
+  box-shadow: 6px 6px 0px #000000;
+}
+
+@media (min-width: 640px) {
+  :root[data-theme="streetculture"] .sf-hero-slab {
+    margin-inline: 0;
+    max-width: 38rem;
+    padding: 2rem 2.25rem 2.25rem;
+  }
+}
+
+:root[data-theme="streetculture"] .sf-hero-slab .sf-hero-lede {
+  color: #333333;
+}
+
+:root[data-theme="streetculture"] .sf-hero-slab .sf-cta,
+:root[data-theme="streetculture"] .sf-cta {
+  background-color: #000000;
+  color: #ffffff;
+  border: 2px solid #000000;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-family: var(--brand-font-body);
+  font-size: 0.75rem;
+  font-weight: 800;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="streetculture"] .sf-hero-slab .sf-cta:hover,
+:root[data-theme="streetculture"] .sf-cta:hover {
+  background-color: #ffffff;
+  color: #000000;
+  box-shadow: 4px 4px 0px #000000;
+}
+
+:root[data-theme="streetculture"] .sf-cta-outline {
+  background-color: #ffffff;
+  color: #000000;
+  border: 2px solid #000000;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-family: var(--brand-font-body);
+  font-size: 0.75rem;
+  font-weight: 800;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="streetculture"] .sf-cta-outline:hover {
+  background-color: #000000;
+  color: #ffffff;
+  box-shadow: 4px 4px 0px #000000;
+}
+
+:root[data-theme="streetculture"] .sf-marquee {
+  background-color: #ffffff;
+  color: #000000;
+  border-block: 2px solid #000000;
+  font-family: var(--brand-font-heading);
+  font-size: 1.35rem;
+  line-height: 1.25;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+:root[data-theme="streetculture"] .sf-nav {
+  background-color: #ffffff;
+  border-bottom: 2px solid #000000;
+}
+
+:root[data-theme="streetculture"] .sf-nav-link {
+  font-family: var(--brand-font-heading);
+  font-size: 1.15rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: #000000;
+}
+
+:root[data-theme="streetculture"] .sf-nav-link:hover {
+  color: var(--brand-accent, #ff2d55);
+}
+
+:root[data-theme="streetculture"] .sf-icon-btn {
+  border-radius: 0;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  color: #000000;
+  background-color: #ffffff;
+}
+
+:root[data-theme="streetculture"] .sf-icon-btn:hover {
+  background-color: #000000;
+  color: #ffffff;
+  border-color: #000000;
+}
+
+:root[data-theme="streetculture"] .sf-card {
+  background-color: #ffffff;
+  border: 1.5px solid #000000;
+  box-shadow: 2px 2px 0px #000000;
+  border-radius: 0px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="streetculture"] .sf-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px #000000;
+}
+
+:root[data-theme="streetculture"] .sf-card-media {
+  border-bottom: 1.5px solid #000000;
+  background-color: #f8f8f8;
+}
+
+:root[data-theme="streetculture"] .sf-card-title {
+  font-family: var(--brand-font-body);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: #0a0a0a;
+}
+
+:root[data-theme="streetculture"] .sf-card-price {
+  display: inline-block;
+  font-family: var(--brand-font-body);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  background-color: #000000;
+  color: #ffffff;
+  padding: 0.15rem 0.5rem;
+  font-weight: 800;
+}
+
+:root[data-theme="streetculture"] .sf-quick {
+  border: 1.5px solid #000000;
+  background-color: #000000;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 800;
+  font-size: 0.75rem;
+}
+
+:root[data-theme="streetculture"] .sf-quick:hover {
+  background-color: #ffffff;
+  color: #000000;
+}
+
+:root[data-theme="streetculture"] .sf-footer,
+:root[data-theme="streetculture"] .sf-footer * {
+  --t-on-primary: #000000;
+  --t-on-secondary: #ffffff;
+}
+
+/* ---------- Streetculture Footer: Architectural Pure White Brutalist Grid ---------- */
+:root[data-theme="streetculture"] .sf-footer {
+  --t-on-primary: #0a0a0a;
+  --t-on-secondary: #ffffff;
+  background-color: #ffffff !important;
+  background-image: 
+    linear-gradient(to right, rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+  border-top: 3px solid #000000 !important;
+  color: #333333;
+}
+
+:root[data-theme="streetculture"] .sf-footer h4 {
+  font-family: var(--brand-font-heading);
+  color: #000000 !important;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+
+:root[data-theme="streetculture"] .sf-footer p {
+  color: #555555 !important;
+  font-family: var(--brand-font-body);
+}
+
+:root[data-theme="streetculture"] .sf-footer-heading,
+:root[data-theme="streetculture"] .sf-footer-label {
+  font-family: monospace;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  font-size: 0.8rem;
+  color: #000000 !important;
+}
+
+:root[data-theme="streetculture"] .sf-footer input {
+  background-color: #ffffff !important;
+  border: 1.5px solid #000000 !important;
+  color: #000000 !important;
+  border-radius: 0px !important;
+  font-family: monospace;
+}
+
+:root[data-theme="streetculture"] .sf-footer input::placeholder {
+  color: #888888 !important;
+}
+
+:root[data-theme="streetculture"] .sf-footer input:focus {
+  border-color: #ff2d55 !important;
+}
+
+:root[data-theme="streetculture"] .sf-footer button[type="submit"] {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border: 1.5px solid #000000 !important;
+  border-radius: 0px !important;
+  box-shadow: 2px 2px 0px #000000;
+  font-family: monospace;
+  font-weight: 800;
+}
+
+:root[data-theme="streetculture"] .sf-footer button[type="submit"]:hover {
+  background-color: #ff2d55 !important;
+  border-color: #ff2d55 !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme="streetculture"] .sf-footer a {
+  color: #444444 !important;
+  font-family: monospace;
+  font-size: 0.75rem;
+}
+
+:root[data-theme="streetculture"] .sf-footer a:hover {
+  color: #ff2d55 !important;
+  text-decoration: underline;
+}
+
+:root[data-theme="streetculture"] .sf-footer div[class*="border-t"],
+:root[data-theme="streetculture"] .sf-footer div[class*="border-white"] {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+:root[data-theme="streetculture"] .sf-footer span[class*="bg-white/10"] {
+  background-color: #f5f5f5 !important;
+  color: #000000 !important;
+  border: 1px solid #000000 !important;
+  border-radius: 0px !important;
+  font-family: monospace;
+}
+
+/* ---------- Innerwear: soft minimal (Women Inner Theme) ---------- */
+:root[data-theme="innerwear"] {
+  --t-cta: var(--brand-primary);
+  --t-on-cta: #ffffff;
+  --t-line: color-mix(in srgb, var(--brand-primary) 12%, transparent);
+}
+:root[data-theme="innerwear"] .sf-hero--soft-minimal {
+  background:
+    radial-gradient(ellipse 80% 65% at 50% -10%, color-mix(in srgb, var(--brand-secondary) 40%, var(--t-bg)) 0%, transparent 70%),
+    linear-gradient(180deg, var(--t-bg) 0%, var(--t-surface) 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--brand-secondary) 25%, transparent);
+}
+:root[data-theme="innerwear"] .sf-hero-title {
+  font-family: var(--brand-font-heading);
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  color: var(--t-text);
+}
+:root[data-theme="innerwear"] .sf-hero-lede {
+  font-family: var(--brand-font-body);
+  color: var(--t-muted);
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+:root[data-theme="innerwear"] .sf-hero-soft-media {
+  border-radius: 1.25rem;
+  box-shadow: 0 25px 50px -20px color-mix(in srgb, var(--brand-primary) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-secondary) 30%, transparent);
+}
+:root[data-theme="innerwear"] .sf-eyebrow {
+  color: var(--brand-primary);
+  letter-spacing: 0.18em;
+  font-family: var(--brand-font-body);
+  font-weight: 700;
+  font-size: 0.725rem;
+  text-transform: uppercase;
+  background-color: color-mix(in srgb, var(--brand-secondary) 22%, transparent);
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  display: inline-block;
+}
+:root[data-theme="innerwear"] .sf-cta {
+  background-color: var(--brand-primary);
+  color: #ffffff;
+  border-radius: 9999px;
+  padding: 0.75rem 2rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  box-shadow: 0 8px 20px -6px color-mix(in srgb, var(--brand-primary) 40%, transparent);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+:root[data-theme="innerwear"] .sf-cta:hover {
+  background-color: color-mix(in srgb, var(--brand-primary) 85%, #000000);
+  transform: translateY(-1.5px);
+  box-shadow: 0 12px 24px -6px color-mix(in srgb, var(--brand-primary) 50%, transparent);
+}
+:root[data-theme="innerwear"] .sf-card {
+  border-radius: 1.25rem;
+  border: 1px solid color-mix(in srgb, var(--brand-primary) 10%, transparent);
+  background-color: #ffffff;
+  box-shadow: 0 8px 24px -12px color-mix(in srgb, var(--brand-primary) 15%, transparent);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+:root[data-theme="innerwear"] .sf-card:hover {
+  box-shadow: 0 16px 36px -16px color-mix(in srgb, var(--brand-primary) 28%, transparent);
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--brand-secondary) 50%, transparent);
+}
+:root[data-theme="innerwear"] .sf-card-media {
+  border-top-left-radius: 1.25rem;
+  border-top-right-radius: 1.25rem;
+}
+:root[data-theme="innerwear"] .sf-card-title {
+  font-family: var(--brand-font-heading);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--t-text);
+  letter-spacing: 0.01em;
+}
+:root[data-theme="innerwear"] .sf-card-price {
+  font-family: var(--brand-font-body);
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--brand-primary);
+}
+:root[data-theme="innerwear"] .sf-quick {
+  border-color: transparent;
+  border-radius: 9999px;
+  background-color: color-mix(in srgb, var(--brand-secondary) 25%, var(--t-surface));
+  color: var(--brand-primary);
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  min-height: 40px;
+  transition: all 0.2s ease;
+}
+:root[data-theme="innerwear"] .sf-quick:hover {
+  background-color: var(--brand-primary);
+  color: #ffffff;
+}
+:root[data-theme="innerwear"] .sf-reassure-item {
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--brand-secondary) 30%, transparent);
+  background-color: #ffffff;
+  color: var(--t-text);
+  padding: 1rem 1.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px -6px color-mix(in srgb, var(--brand-primary) 12%, transparent);
+}
+:root[data-theme="innerwear"] .sf-reassure-item:hover {
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
+  transform: translateY(-1px);
+}
+/* ---------- Innerwear Footer: Deep Velvet Plum Noir & Blushing Rose ---------- */
+:root[data-theme="innerwear"] .sf-footer {
+  --t-on-primary: #fce7f3;
+  --t-on-secondary: #ffffff;
+  background: linear-gradient(180deg, #220515 0%, #16030e 100%) !important;
+  border-top: 2px solid #f472b6 !important;
+  box-shadow: 0 -4px 20px rgba(244, 114, 182, 0.18);
+  color: #d4a5b9;
+}
+
+:root[data-theme="innerwear"] .sf-footer h4 {
+  font-family: var(--brand-font-heading);
+  color: #fce7f3 !important;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+:root[data-theme="innerwear"] .sf-footer p {
+  color: #d4a5b9 !important;
+  line-height: 1.6;
+}
+
+:root[data-theme="innerwear"] .sf-footer .sf-footer-label {
+  font-family: var(--brand-font-heading);
+  color: #fbcfe8 !important;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+:root[data-theme="innerwear"] .sf-footer .sf-footer-link {
+  color: #d4a5b9 !important;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="innerwear"] .sf-footer .sf-footer-link:hover {
+  color: #ffffff !important;
+  text-shadow: 0 0 10px rgba(244, 114, 182, 0.6);
+  transform: translateX(2px);
+}
+
+:root[data-theme="innerwear"] .sf-footer input {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(244, 114, 182, 0.3) !important;
+  color: #ffffff !important;
+  border-radius: 9999px !important;
+}
+
+:root[data-theme="innerwear"] .sf-footer input::placeholder {
+  color: #a77d92 !important;
+}
+
+:root[data-theme="innerwear"] .sf-footer input:focus {
+  border-color: #f472b6 !important;
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+:root[data-theme="innerwear"] .sf-footer button[type="submit"] {
+  background: linear-gradient(135deg, #be185d 0%, #db2777 100%) !important;
+  color: #ffffff !important;
+  border: 0 !important;
+  border-radius: 9999px !important;
+  box-shadow: 0 4px 14px rgba(190, 24, 93, 0.35);
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="innerwear"] .sf-footer button[type="submit"]:hover {
+  background: linear-gradient(135deg, #9d174d 0%, #be185d 100%) !important;
+  box-shadow: 0 6px 18px rgba(219, 39, 119, 0.45);
+}
+
+:root[data-theme="innerwear"] .sf-footer div[class*="border-t"],
+:root[data-theme="innerwear"] .sf-footer div[class*="border-white"] {
+  border-color: rgba(244, 114, 182, 0.15) !important;
+}
+
+:root[data-theme="innerwear"] .sf-footer span[class*="bg-white/10"] {
+  background-color: rgba(244, 114, 182, 0.12) !important;
+  color: #fce7f3 !important;
+  border: 1px solid rgba(244, 114, 182, 0.25) !important;
+  border-radius: 9999px !important;
+}
+
+/* ---------- Jewelry: luxe showcase ---------- */
+:root[data-theme="jewelry"] {
+  --t-cta: var(--brand-secondary);
+  --t-on-cta: #0f0d1a;
+  --t-line: color-mix(in srgb, var(--brand-secondary) 32%, transparent);
+}
+:root[data-theme="jewelry"] h1,
+:root[data-theme="jewelry"] h2,
+:root[data-theme="jewelry"] h3 {
+  font-weight: 400;
+  letter-spacing: 0.04em;
+}
+:root[data-theme="jewelry"] .sf-hero-title {
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+:root[data-theme="jewelry"] .sf-spotlight {
+  background: radial-gradient(ellipse 60% 55% at 50% 30%, var(--brand-primary) 0%, transparent 70%);
+  pointer-events: none;
+}
+:root[data-theme="jewelry"] .sf-hairline {
+  height: 1px;
+  background-color: var(--brand-secondary);
+}
+:root[data-theme="jewelry"] .sf-eyebrow {
+  color: var(--brand-secondary);
+  letter-spacing: 0.3em;
+}
+:root[data-theme="jewelry"] .sf-frame {
+  outline: 1px solid var(--brand-secondary);
+  outline-offset: 12px;
+  border-radius: var(--brand-radius);
+  box-shadow: 0 30px 60px -30px rgb(0 0 0 / 0.6);
+}
+:root[data-theme="jewelry"] .sf-nav {
+  background-color: color-mix(in srgb, var(--t-bg) 92%, transparent);
+  border-bottom: 1px solid var(--t-line);
+}
+:root[data-theme="jewelry"] .sf-nav-link {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.7rem;
+}
+:root[data-theme="jewelry"] .sf-card {
+  border-color: var(--t-line);
+}
+:root[data-theme="jewelry"] .sf-card:hover {
+  border-color: var(--brand-secondary);
+}
+:root[data-theme="jewelry"] .sf-card-media {
+  outline: 1px solid var(--brand-secondary);
+  outline-offset: -8px;
+}
+:root[data-theme="jewelry"] .sf-card-title {
+  font-family: var(--brand-font-heading);
+  font-weight: 400;
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+:root[data-theme="jewelry"] .sf-card-price {
+  font-family: var(--brand-font-heading);
+  color: var(--brand-secondary);
+  font-size: 1.05rem;
+  letter-spacing: 0.03em;
+}
+:root[data-theme="jewelry"] .sf-quick {
+  background-color: transparent;
+  border-color: var(--brand-secondary);
+  color: var(--brand-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+:root[data-theme="jewelry"] .sf-quick:hover {
+  background-color: var(--brand-secondary);
+  color: #0f0d1a;
+}
+/* ---------- Jewelry Footer: Luxe Amethyst Onyx & 24K Gold ---------- */
+:root[data-theme="jewelry"] .sf-footer {
+  --t-on-primary: #fef08a;
+  --t-on-secondary: #090714;
+  background: radial-gradient(ellipse 75% 55% at 50% 0%, rgba(212, 175, 55, 0.15) 0%, transparent 70%), #090714 !important;
+  border-top: 2px solid #d4af37 !important;
+  box-shadow: 0 -3px 20px rgba(212, 175, 55, 0.22);
+  color: #cfc8dc;
+}
+
+:root[data-theme="jewelry"] .sf-footer h4 {
+  font-family: var(--brand-font-heading);
+  color: #fef08a !important;
+  font-weight: 400;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="jewelry"] .sf-footer p {
+  color: #cfc8dc !important;
+  line-height: 1.65;
+}
+
+:root[data-theme="jewelry"] .sf-footer-heading,
+:root[data-theme="jewelry"] .sf-footer-label {
+  font-family: var(--brand-font-heading);
+  color: #d4af37 !important;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="jewelry"] .sf-footer .sf-footer-link {
+  color: #cfc8dc !important;
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="jewelry"] .sf-footer .sf-footer-link:hover {
+  color: #fef08a !important;
+  text-shadow: 0 0 10px rgba(212, 175, 55, 0.7);
+}
+
+:root[data-theme="jewelry"] .sf-footer input {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(212, 175, 55, 0.35) !important;
+  color: #ffffff !important;
+  border-radius: var(--brand-radius);
+}
+
+:root[data-theme="jewelry"] .sf-footer input::placeholder {
+  color: #8c83a0 !important;
+}
+
+:root[data-theme="jewelry"] .sf-footer input:focus {
+  border-color: #d4af37 !important;
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.3);
+}
+
+:root[data-theme="jewelry"] .sf-footer button[type="submit"] {
+  background: linear-gradient(135deg, #d4af37 0%, #aa8010 100%) !important;
+  color: #090714 !important;
+  border: 1px solid #fef08a !important;
+  border-radius: var(--brand-radius);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  box-shadow: 0 4px 16px rgba(212, 175, 55, 0.3);
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="jewelry"] .sf-footer button[type="submit"]:hover {
+  background: linear-gradient(135deg, #fef08a 0%, #d4af37 100%) !important;
+  box-shadow: 0 6px 22px rgba(212, 175, 55, 0.5);
+}
+
+:root[data-theme="jewelry"] .sf-footer div[class*="border-t"],
+:root[data-theme="jewelry"] .sf-footer div[class*="border-white"] {
+  border-color: rgba(212, 175, 55, 0.15) !important;
+}
+
+:root[data-theme="jewelry"] .sf-footer span[class*="bg-white/10"] {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  color: #fef08a !important;
+  border: 1px solid rgba(212, 175, 55, 0.3) !important;
+  border-radius: var(--brand-radius);
+}
+
+/* ---------- Reduced motion: keep state changes, drop movement ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .sf-marquee-track { animation: none; }
+  .sf-card,
+  .sf-cta,
+  .sf-quick,
+  .sf-reassure-item,
+  .sf-icon-btn,
+  .sf-footer-link,
+  .sf-nav-link {
+    transition: none !important;
+    transform: none !important;
+  }
+  .group:hover img {
+    transform: none !important;
+  }
+}
+
+
+/* Dark variants: text that uses the brand primary (a dark colour on these backgrounds) switches to the
+   theme's accent so eyebrows, links and labels stay readable. Buttons keep the primary background. */
+:root[data-theme="jewelry"] .text-\[var\(--brand-primary\)\],
+:root[data-theme="gadget"] .text-\[var\(--brand-primary\)\] {
+  color: var(--brand-secondary);
+}
+
+/* ==========================================================================
+   Gadget Theme: Tech Matrix & High-Performance Gadget Storefront
+   ========================================================================== */
+:root[data-theme="gadget"] {
+  --t-cta: #0284c7;
+  --t-on-cta: #ffffff;
+  --t-line: rgba(56, 189, 248, 0.15);
+}
+
+/* Circuit pattern overlay */
+:root[data-theme="gadget"] .sf-circuit-grid {
+  background-image: 
+    linear-gradient(to right, rgba(6, 182, 212, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(6, 182, 212, 0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+:root[data-theme="gadget"] .sf-hero--tech-matrix {
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 0%, rgba(2, 132, 199, 0.22) 0%, transparent 75%),
+    linear-gradient(180deg, #090d16 0%, #0c1220 100%);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+:root[data-theme="gadget"] .sf-gadget-marquee {
+  background: linear-gradient(90deg, #0f172a 0%, #0369a1 50%, #0f172a 100%);
+  color: #f8fafc;
+  border-block: 1px solid rgba(56, 189, 248, 0.3);
+  font-family: var(--brand-font-heading);
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding-block: 0.5rem;
+}
+
+:root[data-theme="gadget"] .sf-gadget-pill {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+}
+
+:root[data-theme="gadget"] .sf-card {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  background-color: #0f172a;
+  box-shadow: 0 4px 20px -6px rgba(0, 0, 0, 0.7);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="gadget"] .sf-card:hover {
+  border-color: #06b6d4;
+  box-shadow: 0 10px 30px -8px rgba(6, 182, 212, 0.35);
+  transform: translateY(-3px);
+}
+
+:root[data-theme="gadget"] .sf-card-media {
+  background-color: #090d16;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.12);
+}
+
+:root[data-theme="gadget"] .sf-card-title {
+  font-family: var(--brand-font-heading);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #f8fafc;
+  letter-spacing: 0.01em;
+}
+
+:root[data-theme="gadget"] .sf-card-price {
+  font-family: var(--brand-font-heading);
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #38bdf8;
+}
+
+:root[data-theme="gadget"] .sf-quick {
+  background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
+  border: 0;
+  border-radius: 0.5rem;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+}
+
+:root[data-theme="gadget"] .sf-quick:hover {
+  background: linear-gradient(135deg, #0369a1 0%, #0891b2 100%);
+  box-shadow: 0 6px 16px rgba(6, 182, 212, 0.45);
+}
+
+/* ---------- Gadget Store Footer: Tech Matrix & Cyber Void ---------- */
+:root[data-theme="gadget"] .sf-footer {
+  --t-on-primary: #00f0ff;
+  --t-on-secondary: #040711;
+  background-color: #040711 !important;
+  background-image: 
+    linear-gradient(to right, rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  border-top: 2px solid #00f0ff !important;
+  box-shadow: 0 -4px 25px rgba(0, 240, 255, 0.25);
+  color: #94a3b8;
+}
+
+:root[data-theme="gadget"] .sf-footer h4 {
+  font-family: var(--brand-font-heading);
+  color: #ffffff !important;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+:root[data-theme="gadget"] .sf-footer p {
+  color: #94a3b8 !important;
+  font-family: monospace;
+  font-size: 0.75rem;
+}
+
+:root[data-theme="gadget"] .sf-footer .sf-footer-label {
+  font-family: monospace;
+  color: #00f0ff !important;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+:root[data-theme="gadget"] .sf-footer .sf-footer-link {
+  color: #94a3b8 !important;
+  font-family: monospace;
+  font-size: 0.75rem;
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="gadget"] .sf-footer .sf-footer-link:hover {
+  color: #00f0ff !important;
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.8);
+  transform: translateX(3px);
+}
+
+:root[data-theme="gadget"] .sf-footer input {
+  background-color: #0b1120 !important;
+  border: 1px solid rgba(0, 240, 255, 0.35) !important;
+  color: #00f0ff !important;
+  font-family: monospace !important;
+  border-radius: 0.375rem !important;
+}
+
+:root[data-theme="gadget"] .sf-footer input::placeholder {
+  color: #475569 !important;
+}
+
+:root[data-theme="gadget"] .sf-footer input:focus {
+  border-color: #00f0ff !important;
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
+}
+
+:root[data-theme="gadget"] .sf-footer button[type="submit"] {
+  background: linear-gradient(135deg, #0284c7 0%, #00f0ff 100%) !important;
+  color: #040711 !important;
+  border: 0 !important;
+  border-radius: 0.375rem !important;
+  font-weight: 800;
+  font-family: monospace !important;
+  box-shadow: 0 4px 16px rgba(0, 240, 255, 0.3);
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="gadget"] .sf-footer button[type="submit"]:hover {
+  box-shadow: 0 6px 22px rgba(0, 240, 255, 0.55);
+  filter: brightness(1.15);
+}
+
+:root[data-theme="gadget"] .sf-footer div[class*="border-t"],
+:root[data-theme="gadget"] .sf-footer div[class*="border-white"] {
+  border-color: rgba(0, 240, 255, 0.12) !important;
+}
+
+:root[data-theme="gadget"] .sf-footer span[class*="bg-white/10"] {
+  background-color: #0b1120 !important;
+  color: #00f0ff !important;
+  border: 1px solid rgba(0, 240, 255, 0.3) !important;
+  border-radius: 0.25rem !important;
+  font-family: monospace;
+}
+
+/* ==========================================================================
+   Inner Fashion Theme: Sensual Couture, Luxury Intimates & Second-Skin Comfort
+   ========================================================================== */
+:root[data-theme="inner-fashion"] {
+  --t-cta: #4a0e2e;
+  --t-on-cta: #ffffff;
+  --t-line: color-mix(in srgb, #c05c7e 22%, transparent);
+}
+
+:root[data-theme="inner-fashion"] .sf-hero--sensual-couture {
+  background:
+    radial-gradient(ellipse 75% 60% at 50% 0%, rgba(226, 167, 184, 0.35) 0%, transparent 70%),
+    linear-gradient(180deg, #faf6f7 0%, #ffffff 100%);
+  border-bottom: 1px solid rgba(192, 92, 126, 0.2);
+}
+
+:root[data-theme="inner-fashion"] .sf-reassure-couture {
+  border-bottom: 1px solid rgba(192, 92, 126, 0.15);
+}
+
+:root[data-theme="inner-fashion"] .sf-couture-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.775rem;
+  font-weight: 600;
+  color: #4a0e2e;
+  background: #ffffff;
+  border: 1px solid rgba(192, 92, 126, 0.2);
+  padding: 0.65rem 0.85rem;
+  border-radius: 9999px;
+  box-shadow: 0 4px 12px -4px rgba(74, 14, 46, 0.08);
+}
+
+:root[data-theme="inner-fashion"] .sf-couture-icon {
+  color: #c05c7e;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+:root[data-theme="inner-fashion"] .sf-card {
+  border-radius: 1.5rem;
+  border: 1px solid rgba(192, 92, 126, 0.16);
+  background-color: #ffffff;
+  box-shadow: 0 8px 30px -10px rgba(74, 14, 46, 0.1);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="inner-fashion"] .sf-card:hover {
+  border-color: #c05c7e;
+  box-shadow: 0 16px 40px -12px rgba(74, 14, 46, 0.22);
+  transform: translateY(-4px);
+}
+
+:root[data-theme="inner-fashion"] .sf-card-media {
+  border-top-left-radius: 1.5rem;
+  border-top-right-radius: 1.5rem;
+  background-color: #fdf8f9;
+}
+
+:root[data-theme="inner-fashion"] .sf-card-title {
+  font-family: var(--brand-font-heading);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #220817;
+  letter-spacing: -0.01em;
+}
+
+:root[data-theme="inner-fashion"] .sf-card-price {
+  font-family: var(--brand-font-body);
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #4a0e2e;
+}
+
+:root[data-theme="inner-fashion"] .sf-quick {
+  background: #4a0e2e;
+  border: 0;
+  border-radius: 9999px;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.775rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(74, 14, 46, 0.25);
+  min-height: 42px;
+}
+
+:root[data-theme="inner-fashion"] .sf-quick:hover {
+  background: #34071f;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(74, 14, 46, 0.35);
+}
+
+/* ---------- Inner Fashion Footer: Sensual Couture & Midnight Mulberry Noir ---------- */
+:root[data-theme="inner-fashion"] .sf-footer {
+  --t-on-primary: #fed7aa;
+  --t-on-secondary: #ffffff;
+  background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(192, 92, 126, 0.22) 0%, transparent 70%), #14020c !important;
+  border-top: 2px solid rgba(226, 167, 184, 0.45) !important;
+  box-shadow: 0 -4px 20px rgba(192, 92, 126, 0.15);
+  color: #cca4b5;
+}
+
+:root[data-theme="inner-fashion"] .sf-footer h4 {
+  font-family: var(--brand-font-heading);
+  color: #fed7aa !important;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+:root[data-theme="inner-fashion"] .sf-footer p {
+  color: #cca4b5 !important;
+  line-height: 1.6;
+}
+
+:root[data-theme="inner-fashion"] .sf-footer .sf-footer-label {
+  font-family: var(--brand-font-heading);
+  color: #fed7aa !important;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+:root[data-theme="inner-fashion"] .sf-footer .sf-footer-link {
+  color: #caa1b2 !important;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="inner-fashion"] .sf-footer .sf-footer-link:hover {
+  color: #fed7aa !important;
+  text-shadow: 0 0 12px rgba(254, 215, 170, 0.5);
+  transform: translateX(2px);
+}
+
+:root[data-theme="inner-fashion"] .sf-footer input {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(226, 167, 184, 0.3) !important;
+  color: #ffffff !important;
+  border-radius: 9999px !important;
+}
+
+:root[data-theme="inner-fashion"] .sf-footer input::placeholder {
+  color: #94687d !important;
+}
+
+:root[data-theme="inner-fashion"] .sf-footer input:focus {
+  border-color: #fed7aa !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+:root[data-theme="inner-fashion"] .sf-footer button[type="submit"] {
+  background: linear-gradient(135deg, #7a1545 0%, #a21caf 100%) !important;
+  color: #ffffff !important;
+  border: 0 !important;
+  border-radius: 9999px !important;
+  box-shadow: 0 4px 16px rgba(122, 21, 69, 0.4);
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="inner-fashion"] .sf-footer button[type="submit"]:hover {
+  background: linear-gradient(135deg, #5c0f33 0%, #86198f 100%) !important;
+  box-shadow: 0 6px 20px rgba(162, 28, 175, 0.5);
+}
+
+:root[data-theme="inner-fashion"] .sf-footer div[class*="border-t"],
+:root[data-theme="inner-fashion"] .sf-footer div[class*="border-white"] {
+  border-color: rgba(226, 167, 184, 0.15) !important;
+}
+
+:root[data-theme="inner-fashion"] .sf-footer span[class*="bg-white/10"] {
+  background-color: rgba(226, 167, 184, 0.1) !important;
+  color: #fed7aa !important;
+  border: 1px solid rgba(226, 167, 184, 0.25) !important;
+  border-radius: 9999px !important;
+}
+
+/* ==========================================================================
+   Traditional Fashion Theme: Royal Heritage, Handloom Silks & Zari Embroidery
+   ========================================================================== */
+:root[data-theme="traditional-fashion"] {
+  --t-cta: #6b1124;
+  --t-on-cta: #faf7f2;
+  --t-line: color-mix(in srgb, #c59b27 30%, transparent);
+}
+
+:root[data-theme="traditional-fashion"] .sf-hero--royal-heritage {
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 0%, rgba(197, 155, 39, 0.18) 0%, transparent 70%),
+    linear-gradient(180deg, #faf7f2 0%, #fbf4e8 100%);
+  border-bottom: 2px solid rgba(197, 155, 39, 0.35);
+}
+
+:root[data-theme="traditional-fashion"] .sf-traditional-strip {
+  border-bottom: 1px solid rgba(197, 155, 39, 0.25);
+}
+
+:root[data-theme="traditional-fashion"] .sf-traditional-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.775rem;
+  font-weight: 600;
+  color: #6b1124;
+  background: #ffffff;
+  border: 1px solid rgba(197, 155, 39, 0.3);
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.375rem;
+  box-shadow: 0 4px 12px -4px rgba(107, 17, 36, 0.08);
+}
+
+:root[data-theme="traditional-fashion"] .sf-traditional-zari {
+  color: #c59b27;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+:root[data-theme="traditional-fashion"] .sf-card {
+  border-radius: 0.5rem;
+  border: 1px solid rgba(197, 155, 39, 0.28);
+  background-color: #ffffff;
+  box-shadow: 0 6px 20px -8px rgba(107, 17, 36, 0.1);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-theme="traditional-fashion"] .sf-card:hover {
+  border-color: #c59b27;
+  box-shadow: 0 14px 34px -10px rgba(107, 17, 36, 0.22);
+  transform: translateY(-3px);
+}
+
+:root[data-theme="traditional-fashion"] .sf-card-media {
+  border-top-left-radius: 0.5rem;
+  border-top-right-radius: 0.5rem;
+  background-color: #fbf7f2;
+}
+
+:root[data-theme="traditional-fashion"] .sf-card-title {
+  font-family: var(--brand-font-heading);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #2a161b;
+  letter-spacing: 0.02em;
+}
+
+:root[data-theme="traditional-fashion"] .sf-card-price {
+  font-family: var(--brand-font-heading);
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #6b1124;
+}
+
+:root[data-theme="traditional-fashion"] .sf-quick {
+  background: #6b1124;
+  border: 1px solid #c59b27;
+  border-radius: 0.375rem;
+  color: #faf7f2;
+  font-weight: 600;
+  font-size: 0.775rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(107, 17, 36, 0.2);
+  min-height: 40px;
+}
+
+:root[data-theme="traditional-fashion"] .sf-quick:hover {
+  background: #520919;
+  border-color: #eab308;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+/* ---------- Traditional Fashion Footer: Royal Heritage & Imperial Velvet Maroon Noir ---------- */
+:root[data-theme="traditional-fashion"] .sf-footer {
+  --t-on-primary: #fef08a;
+  --t-on-secondary: #1e040b;
+  background: radial-gradient(ellipse 70% 60% at 50% 0%, rgba(197, 155, 39, 0.25) 0%, transparent 75%), #1e040b !important;
+  border-top: 3px solid #c59b27 !important;
+  box-shadow: 0 -4px 25px rgba(197, 155, 39, 0.3);
+  color: #eed9b8;
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer h4 {
+  font-family: var(--brand-font-heading);
+  color: #fef08a !important;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer p {
+  color: #eed9b8 !important;
+  line-height: 1.65;
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer .sf-footer-label {
+  font-family: var(--brand-font-heading);
+  color: #fef08a !important;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer .sf-footer-link {
+  color: #eed9b8 !important;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer .sf-footer-link:hover {
+  color: #fef08a !important;
+  text-shadow: 0 0 10px rgba(254, 240, 138, 0.6);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer input {
+  background-color: rgba(0, 0, 0, 0.45) !important;
+  border: 1.5px solid rgba(197, 155, 39, 0.45) !important;
+  color: #faf7f2 !important;
+  border-radius: 0.375rem !important;
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer input::placeholder {
+  color: #aa9176 !important;
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer input:focus {
+  border-color: #fef08a !important;
+  box-shadow: 0 0 10px rgba(197, 155, 39, 0.4);
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer button[type="submit"] {
+  background: linear-gradient(135deg, #c59b27 0%, #b8860b 100%) !important;
+  color: #1e040b !important;
+  border: 1px solid #fef08a !important;
+  border-radius: 0.375rem !important;
+  font-weight: 800;
+  box-shadow: 0 4px 14px rgba(197, 155, 39, 0.35);
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer button[type="submit"]:hover {
+  background: linear-gradient(135deg, #eab308 0%, #c59b27 100%) !important;
+  color: #000000 !important;
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer div[class*="border-t"],
+:root[data-theme="traditional-fashion"] .sf-footer div[class*="border-white"] {
+  border-color: rgba(197, 155, 39, 0.2) !important;
+}
+
+:root[data-theme="traditional-fashion"] .sf-footer span[class*="bg-white/10"] {
+  background-color: rgba(0, 0, 0, 0.5) !important;
+  color: #fef08a !important;
+  border: 1px solid rgba(197, 155, 39, 0.4) !important;
+  border-radius: 0.25rem !important;
+}

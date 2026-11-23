@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"ecom-ventures/backend/internal/store/inventory"
+	"ecom-ventures/backend/internal/store/shipping"
 	"ecom-ventures/backend/pkg/response"
 )
 
@@ -48,6 +49,11 @@ func (h *Handler) ProcessCheckout(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, ErrEmptyCart) {
 			response.WriteBadRequest(w, r, "Cannot checkout with an empty cart.")
+			return
+		}
+		if errors.Is(err, shipping.ErrZoneNotFound) {
+			response.Problem(w, r, http.StatusUnprocessableEntity, "SHIPPING_ZONE_NOT_FOUND", "Shipping Not Available",
+				"We do not deliver to this district and city yet. Please check the shipping address.")
 			return
 		}
 		if errors.Is(err, inventory.ErrInsufficientStock) {

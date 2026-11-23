@@ -2,6 +2,7 @@ package reviews
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -71,23 +72,23 @@ func (s *Service) CreateStaffReview(ctx context.Context, req *CreateStaffReviewR
 		}
 	}
 
-	// Auto-provision basic customer record if not found by phone/email
+	// Create a customer record only from real data supplied with the review. A customer row requires
+	// a real email address; no invented email or name is ever used.
 	if customerID == "" {
-		if req.CustomerName == "" {
-			req.CustomerName = "Verified Customer"
+		fullName := strings.TrimSpace(req.CustomerName)
+		if fullName == "" {
+			return nil, errors.New("customer name is required to record a review for a new customer")
 		}
-		names := strings.SplitN(strings.TrimSpace(req.CustomerName), " ", 2)
+		if strings.TrimSpace(req.CustomerEmail) == "" {
+			return nil, errors.New("customer email is required to record a review for a customer not already on file")
+		}
+		names := strings.SplitN(fullName, " ", 2)
 		firstName := names[0]
-		lastName := "Customer"
+		lastName := ""
 		if len(names) > 1 {
-			lastName = names[1]
+			lastName = strings.TrimSpace(names[1])
 		}
-		email := req.CustomerEmail
-		if email == "" {
-			cleanPhone := strings.ReplaceAll(req.CustomerPhone, "+", "")
-			cleanPhone = strings.ReplaceAll(cleanPhone, " ", "")
-			email = fmt.Sprintf("cust_%s@store.dropiobd.localhost", cleanPhone)
-		}
+		email := strings.ToLower(strings.TrimSpace(req.CustomerEmail))
 
 		insertCustQuery := `
 			INSERT INTO customers (first_name, last_name, email, phone)
@@ -103,7 +104,10 @@ func (s *Service) CreateStaffReview(ctx context.Context, req *CreateStaffReviewR
 	}
 
 	// Single-Review Check: If customer already reviewed this product, update instead of duplicating
-	existing, _ := s.repo.GetReviewByProductAndCustomer(ctx, stCtx.TenantDB, req.ProductID, customerID)
+	existing, err := s.repo.GetReviewByProductAndCustomer(ctx, stCtx.TenantDB, req.ProductID, customerID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("checking existing review for customer: %w", err)
+	}
 	if existing != nil {
 		existing.Rating = req.Rating
 		existing.Title = req.Title
@@ -177,7 +181,10 @@ func (s *Service) CreateCustomerReview(ctx context.Context, customerID string, r
 	}
 
 	// 1. Single-Review Constraint: Check if customer already submitted a review
-	existing, _ := s.repo.GetReviewByProductAndCustomer(ctx, stCtx.TenantDB, req.ProductID, customerID)
+	existing, err := s.repo.GetReviewByProductAndCustomer(ctx, stCtx.TenantDB, req.ProductID, customerID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("checking existing review for customer: %w", err)
+	}
 	if existing != nil {
 		// Approval Reset Trigger: Any edit demotes back to PENDING
 		existing.Rating = req.Rating

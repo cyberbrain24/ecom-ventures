@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -18,15 +19,29 @@ import (
 	storeModels "ecom-ventures/backend/internal/store/models"
 )
 
+// stripeWebhookTolerance is the largest age accepted for a signed Stripe webhook timestamp.
+// Older signed events are rejected so that a captured request cannot be replayed.
+const stripeWebhookTolerance = 5 * time.Minute
+
+var (
+	// ErrStripeWebhookSecretRequired is returned when a Stripe configuration has no webhook signing secret.
+	ErrStripeWebhookSecretRequired = errors.New("stripe gateway requires a webhook signing secret")
+	// ErrStripeTimestampOutOfTolerance is returned when a signed Stripe event is older than the tolerance.
+	ErrStripeTimestampOutOfTolerance = errors.New("stripe webhook timestamp is outside the accepted tolerance")
+)
+
 // StripeDriver implements PaymentGatewayDriver for Stripe Checkout.
 type StripeDriver struct {
 	httpClient *http.Client
+	// now returns the current time; tests replace it to exercise the timestamp tolerance.
+	now func() time.Time
 }
 
 // NewStripeDriver instantiates the Stripe payment driver.
 func NewStripeDriver() *StripeDriver {
 	return &StripeDriver{
 		httpClient: &http.Client{Timeout: 15 * time.Second},
+		now:        time.Now,
 	}
 }
 
@@ -35,7 +50,7 @@ func (d *StripeDriver) InitiatePayment(ctx context.Context, order *storeModels.O
 	apiURL := "https://api.stripe.com/v1/checkout/sessions"
 
 	// Stripe accepts amounts in cents/smallest currency unit
-	amountInCents := int64(order.TotalAmount * 100)
+	amountInCents := int64(math.Round(order.TotalAmount * 100))
 
 	formData := url.Values{}
 	formData.Set("mode", "payment")
@@ -92,7 +107,7 @@ func (d *StripeDriver) VerifyPayment(ctx context.Context, payload map[string]str
 		return nil, errors.New("missing stripe session_id")
 	}
 
-	apiURL := fmt.Sprintf("https://api.stripe.com/v1/checkout/sessions/%s", sessionID)
+	apiURL := fmt.Sprintf("https://api.stripe.com/v1/checkout/sessions/%s", url.PathEscape(sessionID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
@@ -105,7 +120,10 @@ func (d *StripeDriver) VerifyPayment(ctx context.Context, payload map[string]str
 	}
 	defer resp.Body.Close()
 
-	rawBytes, _ := io.ReadAll(resp.Body)
+	rawBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading stripe session response: %w", err)
+	}
 	var session struct {
 		PaymentStatus     string `json:"payment_status"`
 		PaymentIntent     string `json:"payment_intent"`
@@ -131,8 +149,13 @@ func (d *StripeDriver) VerifyPayment(ctx context.Context, payload map[string]str
 	}, nil
 }
 
-// HandleWebhook validates Stripe webhook HMAC-SHA256 signature and parses events.
+// HandleWebhook validates the Stripe-Signature header (HMAC-SHA256 over timestamp and body) and
+// the timestamp tolerance, then parses the event. It refuses to run without a webhook secret.
 func (d *StripeDriver) HandleWebhook(ctx context.Context, rawBody []byte, headers map[string]string, config *GatewayConfig) (*WebhookEvent, error) {
+	if config == nil || config.WebhookKey == "" {
+		return nil, ErrStripeWebhookSecretRequired
+	}
+
 	sigHeader := headers["Stripe-Signature"]
 	if sigHeader == "" {
 		sigHeader = headers["stripe-signature"]
@@ -141,27 +164,37 @@ func (d *StripeDriver) HandleWebhook(ctx context.Context, rawBody []byte, header
 		return nil, errors.New("missing stripe-signature header")
 	}
 
-	// Verify HMAC-SHA256 signature
-	if config.WebhookKey != "" {
-		var timestamp, signature string
-		for _, part := range strings.Split(sigHeader, ",") {
-			kv := strings.SplitN(part, "=", 2)
-			if len(kv) == 2 {
-				if strings.TrimSpace(kv[0]) == "t" {
-					timestamp = strings.TrimSpace(kv[1])
-				} else if strings.TrimSpace(kv[0]) == "v1" {
-					signature = strings.TrimSpace(kv[1])
-				}
+	var timestamp, signature string
+	for _, part := range strings.Split(sigHeader, ",") {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) == 2 {
+			switch strings.TrimSpace(kv[0]) {
+			case "t":
+				timestamp = strings.TrimSpace(kv[1])
+			case "v1":
+				signature = strings.TrimSpace(kv[1])
 			}
 		}
+	}
+	if timestamp == "" || signature == "" {
+		return nil, ErrInvalidSignature
+	}
 
-		mac := hmac.New(sha256.New, []byte(config.WebhookKey))
-		mac.Write([]byte(timestamp + "." + string(rawBody)))
-		expectedSig := hex.EncodeToString(mac.Sum(nil))
+	signedAt, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("%w: unparsable timestamp", ErrInvalidSignature)
+	}
+	age := d.now().Sub(time.Unix(signedAt, 0))
+	if age > stripeWebhookTolerance || age < -stripeWebhookTolerance {
+		return nil, ErrStripeTimestampOutOfTolerance
+	}
 
-		if !hmac.Equal([]byte(signature), []byte(expectedSig)) {
-			return nil, ErrInvalidSignature
-		}
+	mac := hmac.New(sha256.New, []byte(config.WebhookKey))
+	mac.Write([]byte(timestamp + "." + string(rawBody)))
+	expectedSig := hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(signature), []byte(expectedSig)) {
+		return nil, ErrInvalidSignature
 	}
 
 	var event struct {

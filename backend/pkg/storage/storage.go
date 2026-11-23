@@ -13,7 +13,7 @@ import (
 
 var (
 	ErrFileTooLarge     = errors.New("storage: file exceeds maximum allowed size (10MB)")
-	ErrInvalidMimeType  = errors.New("storage: unsupported file format, only JPEG, PNG, WebP, and AVIF are permitted")
+	ErrInvalidMimeType  = errors.New("storage: unsupported file format, only JPEG, PNG, WebP, AVIF, MP3, and OGG are permitted")
 	ErrFileNotFound     = errors.New("storage: requested object could not be found")
 	ErrEmptyFilePayload = errors.New("storage: file payload is empty")
 )
@@ -22,7 +22,20 @@ const (
 	MaxUploadSize = 10 * 1024 * 1024 // 10 Megabytes
 )
 
-// AllowedImageMimes defines verified binary image signatures.
+// AllowedMediaMimes defines verified binary image and audio signatures.
+var AllowedMediaMimes = map[string]string{
+	"image/jpeg":        ".jpg",
+	"image/png":         ".png",
+	"image/webp":        ".webp",
+	"image/avif":        ".avif",
+	"audio/mpeg":        ".mp3",
+	"audio/mp3":         ".mp3",
+	"audio/ogg":         ".ogg",
+	"audio/vorbis":      ".ogg",
+	"application/ogg":   ".ogg",
+}
+
+// AllowedImageMimes defines verified binary image signatures (for backward compatibility).
 var AllowedImageMimes = map[string]string{
 	"image/jpeg": ".jpg",
 	"image/png":  ".png",
@@ -45,10 +58,11 @@ type ObjectStorage interface {
 	GetURL(key string) string
 }
 
-// ValidateMime ensures uploaded files conform to accepted visual media types.
+// ValidateMime ensures uploaded files conform to accepted media types.
 func ValidateMime(contentType string) (string, error) {
 	cleanType := strings.ToLower(strings.TrimSpace(contentType))
-	ext, ok := AllowedImageMimes[cleanType]
+	// Allow audio or image MIME
+	ext, ok := AllowedMediaMimes[cleanType]
 	if !ok {
 		return "", fmt.Errorf("%w: received %s", ErrInvalidMimeType, cleanType)
 	}

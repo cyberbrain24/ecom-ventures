@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -15,13 +16,15 @@ import (
 )
 
 var (
-	ErrThemeNotFound      = errors.New("themes: theme blueprint not found")
-	ErrThemeSlugConflict  = errors.New("themes: theme slug is already registered")
-	ErrCannotDeleteActive = errors.New("themes: cannot delete a theme currently used by active stores")
+	ErrThemeNotFound     = errors.New("themes: theme blueprint not found")
+	ErrThemeSlugConflict = errors.New("themes: theme slug is already registered")
+	// ErrThemeInactive reports that a theme is deactivated and cannot be assigned to a store.
+	ErrThemeInactive = errors.New("themes: theme is deactivated and cannot be assigned")
 )
 
 const (
-	redisThemeStorePrefix = "theme:store:"
+	// redisThemeStorePrefix is versioned (v2) because cached entries now carry the "theme" object.
+	redisThemeStorePrefix = "theme:store:v2:"
 	redisThemeTTL         = 30 * time.Minute
 )
 
@@ -58,6 +61,9 @@ func (s *Service) RegisterTheme(ctx context.Context, req RegisterThemeRequest) (
 
 	if len(req.ConfigSchema) == 0 {
 		req.ConfigSchema = json.RawMessage("{}")
+	}
+	if err := s.validator.ValidateThemeSchema(req.ConfigSchema); err != nil {
+		return nil, err
 	}
 	version := req.Version
 	if version == "" {
@@ -127,18 +133,25 @@ func (s *Service) AssignThemeToStore(ctx context.Context, storeID string, req As
 		return fmt.Errorf("theme validation failed: %w", err)
 	}
 
-	// Verify theme existence
-	var themeExists bool
-	_ = s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM themes WHERE id = $1 AND is_active = TRUE);", req.ThemeID).Scan(&themeExists)
-	if !themeExists {
+	// Verify theme existence and that it is active. A deactivated theme cannot be newly assigned.
+	var themeActive bool
+	err := s.db.QueryRowContext(ctx, "SELECT is_active FROM themes WHERE id = $1;", req.ThemeID).Scan(&themeActive)
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrThemeNotFound
+	} else if err != nil {
+		return fmt.Errorf("reading theme %s: %w", req.ThemeID, err)
+	}
+	if err := themeAssignableError(true, themeActive); err != nil {
+		return err
 	}
 
 	// Fetch store slug for validation
 	var storeSlug string
-	err := s.db.QueryRowContext(ctx, "SELECT slug FROM stores WHERE id = $1;", storeID).Scan(&storeSlug)
-	if err == sql.ErrNoRows {
+	err = s.db.QueryRowContext(ctx, "SELECT slug FROM stores WHERE id = $1;", storeID).Scan(&storeSlug)
+	if errors.Is(err, sql.ErrNoRows) {
 		return errors.New("themes: target store does not exist")
+	} else if err != nil {
+		return fmt.Errorf("reading store %s: %w", storeID, err)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -194,46 +207,91 @@ func (s *Service) GetStoreTheme(ctx context.Context, storeID string) (*StoreThem
 	}
 
 	// Query Central Platform Database
+	// The theme is served even when it has since been deactivated, so existing storefronts keep rendering.
 	query := `
-		SELECT t.id, t.name, t.slug, t.version, st.custom_config, st.activated_at
+		SELECT t.id, t.name, t.slug, t.version, t.config_schema, st.custom_config, st.activated_at
 		FROM store_themes st
 		JOIN themes t ON t.id = st.theme_id
 		WHERE st.store_id = $1 AND st.is_active = TRUE
 		LIMIT 1;`
 
 	var resp StoreThemeResponse
+	var configSchema []byte
 	err := s.db.QueryRowContext(ctx, query, storeID).Scan(
 		&resp.ThemeID, &resp.ThemeName, &resp.ThemeSlug, &resp.Version,
-		&resp.CustomConfig, &resp.ActivatedAt,
+		&configSchema, &resp.CustomConfig, &resp.ActivatedAt,
 	)
-	if err == sql.ErrNoRows {
-		// Fallback to platform default theme if unassigned
-		fallbackQuery := `
-			SELECT id, name, slug, version, '{}'::jsonb, CURRENT_TIMESTAMP
-			FROM themes WHERE is_active = TRUE ORDER BY created_at ASC LIMIT 1;`
-		err = s.db.QueryRowContext(ctx, fallbackQuery).Scan(
-			&resp.ThemeID, &resp.ThemeName, &resp.ThemeSlug, &resp.Version,
-			&resp.CustomConfig, &resp.ActivatedAt,
-		)
-		if err != nil {
-			return nil, ErrThemeNotFound
-		}
+	if errors.Is(err, sql.ErrNoRows) {
+		// An unassigned store gets no theme. No platform theme is substituted for it.
+		return nil, ErrThemeNotFound
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to query active store theme: %w", err)
 	}
+	resp.Theme = StoreThemeDescriptor{
+		Slug:   resp.ThemeSlug,
+		Name:   resp.ThemeName,
+		Config: json.RawMessage(configSchema),
+	}
 
-	// Cache resolved theme configuration in Redis
+	// Cache resolved theme configuration in Redis; a cache write failure does not fail the read.
 	if s.redisClient != nil {
-		if data, err := json.Marshal(resp); err == nil {
-			_ = s.redisClient.Set(ctx, cacheKey, data, redisThemeTTL).Err()
+		data, err := json.Marshal(resp)
+		if err != nil {
+			return nil, fmt.Errorf("encoding theme cache entry: %w", err)
+		}
+		if err := s.redisClient.Set(ctx, cacheKey, data, redisThemeTTL).Err(); err != nil {
+			slog.Default().Warn("Failed to cache store theme", slog.String("store_id", storeID), slog.String("error", err.Error()))
 		}
 	}
 
 	return &resp, nil
 }
 
+// UpdateStoreThemeCustomConfig updates the custom overrides for the active theme of a store.
+func (s *Service) UpdateStoreThemeCustomConfig(ctx context.Context, storeID string, customConfig json.RawMessage) error {
+	if len(customConfig) == 0 {
+		customConfig = json.RawMessage("{}")
+	}
+	query := `UPDATE store_themes SET custom_config = $1 WHERE store_id = $2 AND is_active = TRUE;`
+	res, err := s.db.ExecContext(ctx, query, customConfig, storeID)
+	if err != nil {
+		return fmt.Errorf("failed to update store theme config: %w", err)
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		var defaultThemeID string
+		err := s.db.QueryRowContext(ctx, `SELECT id FROM themes WHERE is_active = TRUE ORDER BY created_at ASC LIMIT 1;`).Scan(&defaultThemeID)
+		if err == nil && defaultThemeID != "" {
+			_, err = s.db.ExecContext(ctx, `
+				INSERT INTO store_themes (store_id, theme_id, custom_config, is_active, activated_at)
+				VALUES ($1, $2, $3, TRUE, CURRENT_TIMESTAMP);
+			`, storeID, defaultThemeID, customConfig)
+			if err != nil {
+				return fmt.Errorf("failed to insert default store theme config: %w", err)
+			}
+		} else {
+			return ErrThemeNotFound
+		}
+	}
+	s.invalidateThemeCache(ctx, storeID)
+	return nil
+}
+
 func (s *Service) invalidateThemeCache(ctx context.Context, storeID string) {
 	if s.redisClient != nil {
 		_ = s.redisClient.Del(ctx, redisThemeStorePrefix+storeID).Err()
 	}
+}
+
+// themeAssignableError decides whether a theme may be assigned to a store. A missing theme yields
+// ErrThemeNotFound and a deactivated theme yields ErrThemeInactive. Reactivating a theme is a
+// separate PATCH, so only an active theme passes.
+func themeAssignableError(exists, active bool) error {
+	if !exists {
+		return ErrThemeNotFound
+	}
+	if !active {
+		return ErrThemeInactive
+	}
+	return nil
 }

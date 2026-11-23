@@ -1,15 +1,22 @@
 import { MetadataRoute } from 'next';
+import { notFound } from 'next/navigation';
 import { headers } from 'next/headers';
+import { getStorefrontConfig } from '../lib/api';
 import { getStorefrontCategories, getStorefrontProducts } from '../lib/catalog-api';
 import { getStorefrontBlogPosts } from '../lib/blog-api';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const headersList = headers();
-  const host =
-    headersList.get('x-storefront-host') ||
-    headersList.get('x-forwarded-host') ||
-    headersList.get('host') ||
-    'localhost';
+  const host = headersList.get('x-storefront-host') || '';
+  if (!host) {
+    notFound();
+  }
+
+  // A deleted or unregistered store has no sitemap. API failures still propagate as 500.
+  const config = await getStorefrontConfig(host);
+  if (!config) {
+    notFound();
+  }
   const baseURL = `https://${host}`;
 
   const now = new Date();

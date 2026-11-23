@@ -37,6 +37,21 @@ const PageSkeleton: React.FC = () => (
 export const AppContent: React.FC = () => {
   const [currentPath, setCurrentPath] = useState<string>(window.location.pathname);
 
+  React.useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const handleNavigate = (path: string) => {
+    if (path !== currentPath) {
+      window.history.pushState({}, '', path);
+      setCurrentPath(path);
+    }
+  };
+
   if (currentPath === '/login') {
     return (
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">Loading...</div>}>
@@ -47,7 +62,7 @@ export const AppContent: React.FC = () => {
 
   return (
     <ProtectedRoute allowedRoles={['SUPER_ADMIN', 'PLATFORM_STAFF']}>
-      <AdminLayout activePath={currentPath} onNavigate={(path) => setCurrentPath(path)}>
+      <AdminLayout activePath={currentPath} onNavigate={handleNavigate}>
         <Suspense fallback={<PageSkeleton />}>
           {currentPath === '/' && (
             <DashboardPage onNavigateToCreateStore={() => setCurrentPath('/stores/create')} />

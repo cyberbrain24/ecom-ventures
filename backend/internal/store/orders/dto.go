@@ -78,6 +78,39 @@ type RecordPaymentRequest struct {
 	RawResponse   string  `json:"raw_response,omitempty"`
 }
 
+// UpdateFulfillmentFlagsRequest defines the payload to toggle is_ready and is_print_ready flags.
+type UpdateFulfillmentFlagsRequest struct {
+	IsReady      *bool `json:"is_ready,omitempty"`
+	IsPrintReady *bool `json:"is_print_ready,omitempty"`
+	IsUrgent     *bool `json:"is_urgent,omitempty"`
+}
+
+// FulfillmentQueueItem wraps an order in the actionable warehouse fulfillment queue with OrderPulse aging metrics.
+type FulfillmentQueueItem struct {
+	Order             storeModels.Order `json:"order"`
+	AgingHours        float64           `json:"aging_hours"`
+	AgingTier         string            `json:"aging_tier"` // "NORMAL" (<24h), "WARNING" (24-48h), "HIGH_DELAY" (48-72h), "CRITICAL" (>72h)
+	IsDelayedHubAlert bool              `json:"is_delayed_hub_alert"`
+}
+
+// FulfillmentQueueSummary provides aggregated pipeline counts for the fulfillment hub.
+type FulfillmentQueueSummary struct {
+	TotalQueueCount   int `json:"total_queue_count"`
+	UrgentCount       int `json:"urgent_count"`
+	ReadyToShipCount  int `json:"ready_to_ship_count"`
+	PrintPendingCount int `json:"print_pending_count"`
+	DelayedAlertCount int `json:"delayed_alert_count"`
+}
+
+// FulfillmentQueueResponse provides the prioritized queue list and summary statistics.
+type FulfillmentQueueResponse struct {
+	Items   []FulfillmentQueueItem  `json:"items"`
+	Summary FulfillmentQueueSummary `json:"summary"`
+	Total   int                     `json:"total"`
+	Page    int                     `json:"page"`
+	Limit   int                     `json:"limit"`
+}
+
 // OrderFilterParams defines query parameters for searching and paginating orders.
 type OrderFilterParams struct {
 	Search        string
@@ -98,10 +131,123 @@ type OrderDetailResponse struct {
 	History   []storeModels.OrderStatusHistory `json:"history"`
 }
 
-// PaginatedOrdersResponse wraps listed orders with pagination metadata.
+// PaginatedOrdersResponse wraps listed orders with pagination metadata and status counts.
 type PaginatedOrdersResponse struct {
-	Orders []storeModels.Order `json:"orders"`
-	Total  int                 `json:"total"`
-	Page   int                 `json:"page"`
-	Limit  int                 `json:"limit"`
+	Orders       []storeModels.Order `json:"orders"`
+	StatusCounts map[string]int      `json:"status_counts,omitempty"`
+	Total        int                 `json:"total"`
+	Page         int                 `json:"page"`
+	Limit        int                 `json:"limit"`
+}
+
+// CaptureAbandonedCheckoutRequest represents silent background telemetry from storefront checkout.
+type CaptureAbandonedCheckoutRequest struct {
+	SessionToken  string                 `json:"session_token"`
+	Phone         string                 `json:"phone"`
+	CustomerName  string                 `json:"customer_name"`
+	CustomerEmail string                 `json:"customer_email"`
+	District      string                 `json:"district"`
+	Thana         string                 `json:"thana"`
+	Address       string                 `json:"address"`
+	CartItems     []storeModels.CartItem `json:"cart_items"`
+	CartTotal     float64                `json:"cart_total"`
+}
+
+// UpdateAbandonedStatusRequest allows tele-sales staff to record call outcomes and follow-ups.
+type UpdateAbandonedStatusRequest struct {
+	Status              storeModels.AbandonedCheckoutStatus `json:"status"`
+	CallNotes           string                              `json:"call_notes"`
+	ScheduledCallbackAt *time.Time                          `json:"scheduled_callback_at,omitempty"`
+}
+
+// ConvertAbandonedToOrderRequest initiates 1-click order genesis from tele-sales.
+type ConvertAbandonedToOrderRequest struct {
+	CustomerName  *string `json:"customer_name,omitempty"`
+	Phone         *string `json:"phone,omitempty"`
+	CustomerEmail *string `json:"customer_email,omitempty"`
+	District      *string `json:"district,omitempty"`
+	Thana         *string `json:"thana,omitempty"`
+	Address       *string `json:"address,omitempty"`
+	PaymentMethod string  `json:"payment_method,omitempty"` // default "COD"
+	Notes         string  `json:"notes,omitempty"`
+}
+
+// AbandonedCheckoutsSummary provides pipeline counts for tele-sales.
+type AbandonedCheckoutsSummary struct {
+	TotalCount          int `json:"total_count"`
+	PendingCount        int `json:"pending_count"`
+	CalledBusyCount     int `json:"called_busy_count"`
+	CalledFollowupCount int `json:"called_followup_count"`
+	DeclinedCount       int `json:"declined_count"`
+	ConvertedCount      int `json:"converted_count"`
+}
+
+// PaginatedAbandonedResponse returns paginated abandoned carts with summary counts.
+type PaginatedAbandonedResponse struct {
+	Items   []storeModels.AbandonedCheckout `json:"items"`
+	Summary AbandonedCheckoutsSummary       `json:"summary"`
+	Total   int                             `json:"total"`
+	Page    int                             `json:"page"`
+	Limit   int                             `json:"limit"`
+}
+
+// OrderPulseAgingSummary aggregates orders stuck by aging buckets and blockers.
+type OrderPulseAgingSummary struct {
+	TotalDelayedCount int            `json:"total_delayed_count"`
+	Aging24to48hCount int            `json:"aging_24_to_48h_count"`
+	Aging48to72hCount int            `json:"aging_48_to_72h_count"`
+	CriticalOver72h   int            `json:"critical_over_72h_count"`
+	BlockerCounts     map[string]int `json:"blocker_counts"`
+}
+
+// OrderPulseCancellationSummary aggregates pre vs post dispatch cancellation causes.
+type OrderPulseCancellationSummary struct {
+	PreDispatchCount   int            `json:"pre_dispatch_count"`
+	PostDispatchCount  int            `json:"post_dispatch_count"`
+	PreDispatchCauses  map[string]int `json:"pre_dispatch_causes"`
+	PostDispatchCauses map[string]int `json:"post_dispatch_causes"`
+	TopPreReason       string         `json:"top_pre_reason"`
+	FrictionRate       float64        `json:"friction_rate"`
+}
+
+// CatalogRDMatrixItem represents SKU defect and return diagnostics.
+type CatalogRDMatrixItem struct {
+	VariantID        string         `json:"variant_id"`
+	SKU              string         `json:"sku"`
+	ProductTitle     string         `json:"product_title"`
+	VariantTitle     string         `json:"variant_title"`
+	ImageURL         *string        `json:"image_url,omitempty"`
+	ReturnedQuantity int            `json:"returned_quantity"`
+	PrimaryRootCause string         `json:"primary_root_cause"`
+	ReasonBreakdown  map[string]int `json:"reason_breakdown"`
+}
+
+// OrderPulseDiagnosticsResponse provides the complete OrderPulse intelligence suite payload.
+type OrderPulseDiagnosticsResponse struct {
+	AgingSummary        OrderPulseAgingSummary        `json:"aging_summary"`
+	CancellationSummary OrderPulseCancellationSummary `json:"cancellation_summary"`
+	PartialRecoveredBDT float64                       `json:"partial_recovered_bdt"`
+	PartialCount        int                           `json:"partial_count"`
+	TopPartialReason    string                        `json:"top_partial_reason"`
+	CatalogRDMatrix     []CatalogRDMatrixItem         `json:"catalog_rd_matrix"`
+}
+
+// UpdateOrderPulseTagRequest allows staff to tag blockers or root causes inline.
+type UpdateOrderPulseTagRequest struct {
+	DelayBlockerReason    *string `json:"delay_blocker_reason,omitempty"`
+	CancellationRootCause *string `json:"cancellation_root_cause,omitempty"`
+	ReturnRootCause       *string `json:"return_root_cause,omitempty"`
+}
+
+// PartialSplitItem defines accepted vs returned allocation for an item.
+type PartialSplitItem struct {
+	ItemID       string  `json:"item_id"`
+	Action       string  `json:"action"` // "ACCEPT" or "RETURN"
+	ReturnReason *string `json:"return_reason,omitempty"`
+}
+
+// PartialSplitRequest separates accepted cash items from returned items in an order.
+type PartialSplitRequest struct {
+	Items []PartialSplitItem `json:"items"`
+	Notes string             `json:"notes,omitempty"`
 }

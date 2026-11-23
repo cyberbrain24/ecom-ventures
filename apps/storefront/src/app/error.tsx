@@ -20,7 +20,7 @@ export default function ErrorBoundary({
           Something went wrong
         </h1>
         <p className="text-sm text-slate-600">
-          An unexpected error occurred while loading this page. Our technical team has been notified.
+          An unexpected error occurred while loading this page. Try again, or contact the store if the problem continues.
         </p>
         <div>
           <button

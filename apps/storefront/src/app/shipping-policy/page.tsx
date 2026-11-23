@@ -7,8 +7,8 @@ import { notFound } from 'next/navigation';
 
 export default async function ShippingPolicyPage() {
   const headersList = headers();
-  const host = headersList.get('x-storefront-host') || 'localhost';
-  const config = await getStorefrontConfig(host);
+  const host = headersList.get('x-storefront-host') || '';
+  const config = host ? await getStorefrontConfig(host) : null;
 
   if (!config) {
     notFound();
@@ -21,13 +21,13 @@ export default async function ShippingPolicyPage() {
       <div className="space-y-3">
         <div className="inline-flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-[var(--brand-primary)]">
           <Truck className="h-4 w-4" />
-          <span>Fulfillment Guidelines</span>
+          <span>Delivery Information</span>
         </div>
         <h1 className="text-3xl font-black text-slate-950 font-[var(--brand-font-heading)] tracking-tight">
           Shipping & Delivery Policy
         </h1>
         <p className="text-sm text-slate-500">
-          Everything you need to know about parcel delivery, timelines, and courier partners at {store.name}.
+          How delivery works for orders placed with {store.name}.
         </p>
       </div>
 
@@ -37,42 +37,28 @@ export default async function ShippingPolicyPage() {
             <Clock className="h-4 w-4 text-[var(--brand-primary)]" />
             <span>Delivery Timelines</span>
           </h2>
-          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-600">
-            <li><strong>Inside Dhaka Metro:</strong> 24 to 48 hours from the time of order confirmation.</li>
-            <li><strong>Outside Dhaka / Nationwide:</strong> 48 to 72 hours via express delivery partners.</li>
-            <li>Express same-day dispatch is available for urgent orders placed before 12:00 PM on business days.</li>
-          </ul>
-        </div>
-
-        <div className="space-y-3 border-t border-slate-100 pt-6">
-          <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
-            <Truck className="h-4 w-4 text-[var(--brand-primary)]" />
-            <span>Authorized Courier Partners</span>
-          </h2>
           <p className="text-xs text-slate-600">
-            {store.name} integrates with Bangladesh's premier logistics automation networks including <strong>Steadfast Courier</strong>, <strong>Pathao Courier</strong>, and <strong>RedX Logistics</strong>. Every parcel receives an automated digital tracking reference upon dispatch.
+            Delivery times depend on your district. {store.name} support can confirm the expected delivery time for a specific order.
           </p>
         </div>
 
         <div className="space-y-3 border-t border-slate-100 pt-6">
           <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
             <MapPin className="h-4 w-4 text-[var(--brand-primary)]" />
-            <span>Shipping Charges & Free Delivery</span>
+            <span>Delivery Charges</span>
           </h2>
-          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-600">
-            <li>Standard delivery fee Inside Dhaka: ৳ 70</li>
-            <li>Standard delivery fee Outside Dhaka: ৳ 130</li>
-            <li><strong>Free Delivery:</strong> All orders over ৳ 3,000 qualify for 100% complimentary shipping.</li>
-          </ul>
+          <p className="text-xs text-slate-600">
+            The delivery charge for your district is shown at checkout before you place the order, and it is included in the order total you confirm.
+          </p>
         </div>
 
         <div className="space-y-3 border-t border-slate-100 pt-6">
           <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
             <ShieldCheck className="h-4 w-4 text-[var(--brand-primary)]" />
-            <span>Cash on Delivery (COD) Inquiries</span>
+            <span>Payment on Delivery</span>
           </h2>
           <p className="text-xs text-slate-600">
-            Cash on Delivery is available across all 64 districts in Bangladesh. Customers are requested to inspect the exterior condition of the parcel upon receiving before releasing payment to the delivery rider.
+            The payment methods available for your order are listed at checkout. Inspect the parcel before you accept it and release payment.
           </p>
         </div>
       </div>

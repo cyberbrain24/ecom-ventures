@@ -7,8 +7,8 @@ import { notFound } from 'next/navigation';
 
 export default async function ReturnsPolicyPage() {
   const headersList = headers();
-  const host = headersList.get('x-storefront-host') || 'localhost';
-  const config = await getStorefrontConfig(host);
+  const host = headersList.get('x-storefront-host') || '';
+  const config = host ? await getStorefrontConfig(host) : null;
 
   if (!config) {
     notFound();
@@ -21,13 +21,13 @@ export default async function ReturnsPolicyPage() {
       <div className="space-y-3">
         <div className="inline-flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-[var(--brand-primary)]">
           <RefreshCw className="h-4 w-4" />
-          <span>Customer Protection Guarantee</span>
+          <span>Returns & Exchanges</span>
         </div>
         <h1 className="text-3xl font-black text-slate-950 font-[var(--brand-font-heading)] tracking-tight">
           Return, Exchange & Refund Policy
         </h1>
         <p className="text-sm text-slate-500">
-          Straightforward replacement terms ensuring risk-free shopping at {store.name}.
+          How to request a return, exchange or refund for an order from {store.name}.
         </p>
       </div>
 
@@ -35,32 +35,20 @@ export default async function ReturnsPolicyPage() {
         <div className="space-y-3">
           <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
             <CheckCircle2 className="h-4 w-4 text-[var(--brand-primary)]" />
-            <span>7-Day Replacement Window</span>
+            <span>Return and Exchange Terms</span>
           </h2>
           <p className="text-xs text-slate-600">
-            You may request an exchange or return for any merchandise within <strong>7 calendar days</strong> of receiving your parcel. The item must be unused, unwashed, in its original packaging with all brand tags intact.
+            Return and exchange eligibility is confirmed by {store.name} support after the order is reviewed. Contact support before sending any item back.
           </p>
         </div>
 
         <div className="space-y-3 border-t border-slate-100 pt-6">
           <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
-            <ShieldCheck className="h-4 w-4 text-[var(--brand-primary)]" />
-            <span>Eligible Grounds for Return</span>
-          </h2>
-          <ul className="list-disc pl-5 space-y-1.5 text-xs text-slate-600">
-            <li>Item delivered in physically damaged or defective condition.</li>
-            <li>Received incorrect variant (wrong size, color, or model).</li>
-            <li>Incomplete order missing components or accessories.</li>
-          </ul>
-        </div>
-
-        <div className="space-y-3 border-t border-slate-100 pt-6">
-          <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
             <RefreshCw className="h-4 w-4 text-[var(--brand-primary)]" />
-            <span>Refund Processing Timelines</span>
+            <span>Refund Method and Timeline</span>
           </h2>
           <p className="text-xs text-slate-600">
-            Approved refunds for digital payments (bKash, Nagad, Credit/Debit cards) will be remitted to the original payment channel within 3 to 7 working days following receipt and inspection at our fulfillment facility. Cash on Delivery refunds will be settled via bKash or Nagad transfer.
+            The refund method and timeline for each order are confirmed by {store.name} support after the returned item is inspected.
           </p>
         </div>
 
@@ -70,7 +58,19 @@ export default async function ReturnsPolicyPage() {
             <span>How to Initiate a Return</span>
           </h2>
           <p className="text-xs text-slate-600">
-            Contact our concierge team at <strong className="font-mono text-slate-900">{store.contact_email}</strong> or call our support line at <strong className="font-mono text-slate-900">{store.contact_phone || '+880 1711 000000'}</strong> with your order reference number and photographic evidence of the item.
+            {store.contact_email ? (
+              <>
+                Contact support at <strong className="font-mono text-slate-900">{store.contact_email}</strong>
+                {store.contact_phone && (
+                  <>
+                    {' '}or call <strong className="font-mono text-slate-900">{store.contact_phone}</strong>
+                  </>
+                )}{' '}
+                with your order reference number and photographs of the item.
+              </>
+            ) : (
+              <>Use the order lookup page with your order reference to request help with a return.</>
+            )}
           </p>
         </div>
       </div>

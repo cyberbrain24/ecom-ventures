@@ -23,8 +23,14 @@ func TestDomainFormatValidation(t *testing.T) {
 
 func TestGenerateVerificationToken(t *testing.T) {
 	verifier := NewStandardDNSVerifier()
-	tok1 := verifier.GenerateVerificationToken()
-	tok2 := verifier.GenerateVerificationToken()
+	tok1, err := verifier.GenerateVerificationToken()
+	if err != nil {
+		t.Fatalf("token generation failed: %v", err)
+	}
+	tok2, err := verifier.GenerateVerificationToken()
+	if err != nil {
+		t.Fatalf("token generation failed: %v", err)
+	}
 
 	if len(tok1) < 20 || !strings.HasPrefix(tok1, "ecom-verify-") {
 		t.Errorf("invalid token format: %s", tok1)

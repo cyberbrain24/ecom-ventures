@@ -325,7 +325,7 @@ func (s *Service) GetReconciliationSummary(ctx context.Context) ([]PaymentReconc
 	query := `
 		SELECT 
 			o.order_number,
-			COALESCE(o.customer_name, 'Guest Customer'),
+			COALESCE(c.first_name || ' ' || c.last_name, o.customer_email, 'Guest Customer'),
 			COALESCE(t.gateway, o.payment_method, 'COD'),
 			COALESCE(t.status, 'PENDING') AS gateway_status,
 			o.status AS store_order_status,
@@ -338,6 +338,7 @@ func (s *Service) GetReconciliationSummary(ctx context.Context) ([]PaymentReconc
 			END AS reconciled,
 			o.created_at
 		FROM orders o
+		LEFT JOIN customers c ON c.id = o.customer_id
 		LEFT JOIN account_transactions t ON t.order_id = o.id
 		ORDER BY o.created_at DESC
 		LIMIT 50

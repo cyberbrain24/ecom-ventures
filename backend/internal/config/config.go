@@ -3,10 +3,28 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+)
+
+// Development-only defaults. These values are committed to source and must never be
+// used outside APP_ENV=development; Validate refuses to start in production when any
+// secret is missing or still equal to one of these values.
+const (
+	devDefaultJWTSecret         = "super_secure_jwt_secret_key_minimum_32_characters_long_2026"
+	devDefaultPlatformDBPass    = "platform_secure_password_2026"
+	devDefaultStoreTemplatePass = "store_secure_password_2026"
+	devDefaultRedisPass         = "redis_secure_password_2026"
+	devDefaultEncryptionKey     = "dev_only_encryption_key_32bytes!"
+
+	// EnvProduction is the APP_ENV value that enables strict secret requirements.
+	EnvProduction = "production"
+	// EnvDevelopment is the APP_ENV value that enables local-development defaults.
+	EnvDevelopment = "development"
 )
 
 // DatabaseConfig encapsulates connection parameters for PostgreSQL instances.
@@ -68,61 +86,73 @@ type Config struct {
 	Routing               RoutingConfig
 }
 
-// Load extracts configuration from the environment, applies fallbacks, and validates all parameters.
+// IsProduction reports whether the process runs with APP_ENV=production.
+func (c *Config) IsProduction() bool {
+	return c.AppEnv == EnvProduction
+}
+
+// IsDevelopment reports whether the process runs with APP_ENV=development.
+func (c *Config) IsDevelopment() bool {
+	return c.AppEnv == EnvDevelopment
+}
+
+// Load extracts configuration from the environment and validates all parameters.
+// Local-development defaults exist for every secret; in production Validate requires
+// the secrets to be set explicitly. Malformed numeric or duration variables are errors
+// that name the variable.
 func Load() (*Config, error) {
-	jwtSecret := getEnv("JWT_SECRET", "super_secure_jwt_secret_key_minimum_32_characters_long_2026")
-	dbEncKey := getEnv("DATABASE_ENCRYPTION_KEY", "")
-	if dbEncKey == "" {
-		if len(jwtSecret) >= 32 {
-			dbEncKey = jwtSecret[:32]
-		} else {
-			dbEncKey = "super_secure_jwt_secret_key_mini"
-		}
-	}
+	loadDotEnv()
+	p := &envParser{}
+
+	appEnv := p.getEnv("APP_ENV", EnvDevelopment)
 
 	cfg := &Config{
-		AppEnv:                getEnv("APP_ENV", "development"),
-		Port:                  getEnv("PORT", "8080"),
-		LogLevel:              getEnv("LOG_LEVEL", "debug"),
-		DatabaseEncryptionKey: dbEncKey,
+		AppEnv:                appEnv,
+		Port:                  p.getEnv("PORT", "8080"),
+		LogLevel:              p.getEnv("LOG_LEVEL", "debug"),
+		DatabaseEncryptionKey: p.getEnv("DATABASE_ENCRYPTION_KEY", devDefaultEncryptionKey),
 		PlatformDB: DatabaseConfig{
-			Host:            getEnv("PLATFORM_DB_HOST", "localhost"),
-			Port:            getEnvAsInt("PLATFORM_DB_PORT", 5432),
-			User:            getEnv("PLATFORM_DB_USER", "platform_user"),
-			Password:        getEnv("PLATFORM_DB_PASSWORD", "platform_secure_password_2026"),
-			DBName:          getEnv("PLATFORM_DB_NAME", "ecom_platform_main"),
-			SSLMode:         getEnv("PLATFORM_DB_SSLMODE", "disable"),
-			MaxOpenConns:    getEnvAsInt("PLATFORM_DB_MAX_OPEN_CONNS", 25),
-			MaxIdleConns:    getEnvAsInt("PLATFORM_DB_MAX_IDLE_CONNS", 10),
-			ConnMaxLifetime: getEnvAsDuration("PLATFORM_DB_CONN_MAX_LIFETIME", 5*time.Minute),
+			Host:            p.getEnv("PLATFORM_DB_HOST", "localhost"),
+			Port:            p.getEnvAsInt("PLATFORM_DB_PORT", 5432),
+			User:            p.getEnv("PLATFORM_DB_USER", "platform_user"),
+			Password:        p.getEnv("PLATFORM_DB_PASSWORD", devDefaultPlatformDBPass),
+			DBName:          p.getEnv("PLATFORM_DB_NAME", "ecom_platform_main"),
+			SSLMode:         p.getEnv("PLATFORM_DB_SSLMODE", "disable"),
+			MaxOpenConns:    p.getEnvAsInt("PLATFORM_DB_MAX_OPEN_CONNS", 25),
+			MaxIdleConns:    p.getEnvAsInt("PLATFORM_DB_MAX_IDLE_CONNS", 10),
+			ConnMaxLifetime: p.getEnvAsDuration("PLATFORM_DB_CONN_MAX_LIFETIME", 5*time.Minute),
 		},
 		StoreDBTemplate: DatabaseConfig{
-			Host:            getEnv("STORE_DB_TEMPLATE_HOST", "localhost"),
-			Port:            getEnvAsInt("STORE_DB_TEMPLATE_PORT", 5433),
-			User:            getEnv("STORE_DB_TEMPLATE_USER", "store_prototype_user"),
-			Password:        getEnv("STORE_DB_TEMPLATE_PASSWORD", "store_secure_password_2026"),
-			DBName:          getEnv("STORE_DB_TEMPLATE_NAME", "ecom_store_template"),
-			SSLMode:         getEnv("STORE_DB_TEMPLATE_SSLMODE", "disable"),
-			MaxOpenConns:    getEnvAsInt("STORE_DB_TEMPLATE_MAX_OPEN_CONNS", 25),
-			MaxIdleConns:    getEnvAsInt("STORE_DB_TEMPLATE_MAX_IDLE_CONNS", 10),
-			ConnMaxLifetime: getEnvAsDuration("STORE_DB_TEMPLATE_CONN_MAX_LIFETIME", 5*time.Minute),
+			Host:            p.getEnv("STORE_DB_TEMPLATE_HOST", "localhost"),
+			Port:            p.getEnvAsInt("STORE_DB_TEMPLATE_PORT", 5433),
+			User:            p.getEnv("STORE_DB_TEMPLATE_USER", "store_prototype_user"),
+			Password:        p.getEnv("STORE_DB_TEMPLATE_PASSWORD", devDefaultStoreTemplatePass),
+			DBName:          p.getEnv("STORE_DB_TEMPLATE_NAME", "ecom_store_template"),
+			SSLMode:         p.getEnv("STORE_DB_TEMPLATE_SSLMODE", "disable"),
+			MaxOpenConns:    p.getEnvAsInt("STORE_DB_TEMPLATE_MAX_OPEN_CONNS", 25),
+			MaxIdleConns:    p.getEnvAsInt("STORE_DB_TEMPLATE_MAX_IDLE_CONNS", 10),
+			ConnMaxLifetime: p.getEnvAsDuration("STORE_DB_TEMPLATE_CONN_MAX_LIFETIME", 5*time.Minute),
 		},
 		Redis: RedisConfig{
-			Host:     getEnv("REDIS_HOST", "localhost"),
-			Port:     getEnvAsInt("REDIS_PORT", 6379),
-			Password: getEnv("REDIS_PASSWORD", "redis_secure_password_2026"),
-			DB:       getEnvAsInt("REDIS_DB", 0),
+			Host:     p.getEnv("REDIS_HOST", "localhost"),
+			Port:     p.getEnvAsInt("REDIS_PORT", 6379),
+			Password: p.getEnv("REDIS_PASSWORD", devDefaultRedisPass),
+			DB:       p.getEnvAsInt("REDIS_DB", 0),
 		},
 		Security: SecurityConfig{
-			JWTSecret:                  getEnv("JWT_SECRET", "super_secure_jwt_secret_key_minimum_32_characters_long_2026"),
-			JWTExpirationHours:         getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
-			RefreshTokenExpirationDays: getEnvAsInt("REFRESH_TOKEN_EXPIRATION_DAYS", 7),
+			JWTSecret:                  p.getEnv("JWT_SECRET", devDefaultJWTSecret),
+			JWTExpirationHours:         p.getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
+			RefreshTokenExpirationDays: p.getEnvAsInt("REFRESH_TOKEN_EXPIRATION_DAYS", 7),
 		},
 		Routing: RoutingConfig{
-			MasterAdminDomain:  getEnv("MASTER_ADMIN_DOMAIN", "master.dropiobd.localhost"),
-			StoreAdminDomain:   getEnv("STORE_ADMIN_DOMAIN", "store.dropiobd.localhost"),
-			PlatformRootDomain: getEnv("PLATFORM_ROOT_DOMAIN", "dropiobd.localhost"),
+			MasterAdminDomain:  p.getEnv("MASTER_ADMIN_DOMAIN", "master.dropiobd.localhost"),
+			StoreAdminDomain:   p.getEnv("STORE_ADMIN_DOMAIN", "store.dropiobd.localhost"),
+			PlatformRootDomain: p.getEnv("PLATFORM_ROOT_DOMAIN", "dropiobd.localhost"),
 		},
+	}
+
+	if p.err != nil {
+		return nil, fmt.Errorf("configuration parse failure: %w", p.err)
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -132,7 +162,9 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// Validate executes assertions on critical configuration fields.
+// Validate executes assertions on critical configuration fields. When APP_ENV is
+// "production" it also requires every secret to come from the environment and rejects
+// known development defaults.
 func (c *Config) Validate() error {
 	if c.PlatformDB.Host == "" {
 		return fmt.Errorf("PLATFORM_DB_HOST is required")
@@ -146,31 +178,126 @@ func (c *Config) Validate() error {
 	if len(c.Security.JWTSecret) < 32 {
 		return fmt.Errorf("JWT_SECRET must be at least 32 characters for HMAC-SHA256 integrity")
 	}
+	if len(c.DatabaseEncryptionKey) != 32 {
+		return fmt.Errorf("DATABASE_ENCRYPTION_KEY must be exactly 32 bytes for AES-256")
+	}
 	if c.Routing.MasterAdminDomain == "" {
 		return fmt.Errorf("MASTER_ADMIN_DOMAIN must not be empty")
+	}
+	if c.IsProduction() {
+		return c.validateProduction()
 	}
 	return nil
 }
 
-func getEnv(key string, defaultVal string) string {
+// validateProduction enforces the production secret policy. It runs only when APP_ENV is "production".
+func (c *Config) validateProduction() error {
+	required := []struct {
+		name  string
+		value string
+		dev   string
+	}{
+		{"JWT_SECRET", c.Security.JWTSecret, devDefaultJWTSecret},
+		{"PLATFORM_DB_PASSWORD", c.PlatformDB.Password, devDefaultPlatformDBPass},
+		{"REDIS_PASSWORD", c.Redis.Password, devDefaultRedisPass},
+		{"DATABASE_ENCRYPTION_KEY", c.DatabaseEncryptionKey, devDefaultEncryptionKey},
+		{"STORE_DB_TEMPLATE_PASSWORD", c.StoreDBTemplate.Password, devDefaultStoreTemplatePass},
+	}
+	for _, r := range required {
+		if !envIsSet(r.name) {
+			return fmt.Errorf("%s must be set in the environment when APP_ENV=production", r.name)
+		}
+		if r.value == r.dev {
+			return fmt.Errorf("%s must not use the development default when APP_ENV=production", r.name)
+		}
+	}
+	if c.DatabaseEncryptionKey == c.Security.JWTSecret {
+		return errors.New("DATABASE_ENCRYPTION_KEY must not equal JWT_SECRET when APP_ENV=production")
+	}
+	if strings.Contains(c.Security.JWTSecret, c.DatabaseEncryptionKey) || strings.Contains(c.DatabaseEncryptionKey, c.Security.JWTSecret) {
+		return errors.New("DATABASE_ENCRYPTION_KEY must not overlap JWT_SECRET when APP_ENV=production")
+	}
+	return nil
+}
+
+// envIsSet reports whether the variable is present and non-empty in the process environment.
+func envIsSet(key string) bool {
+	val, ok := os.LookupEnv(key)
+	return ok && val != ""
+}
+
+// envParser collects the first parse error so Load can report malformed values by name.
+type envParser struct {
+	err error
+}
+
+// getEnv returns the environment value for key, or defaultVal when unset or empty.
+func (p *envParser) getEnv(key string, defaultVal string) string {
 	if val, exists := os.LookupEnv(key); exists && val != "" {
 		return val
 	}
 	return defaultVal
 }
 
-func getEnvAsInt(key string, defaultVal int) int {
-	valStr := getEnv(key, "")
-	if val, err := strconv.Atoi(valStr); err == nil {
-		return val
+// getEnvAsInt parses an integer environment variable; a malformed value records an error.
+func (p *envParser) getEnvAsInt(key string, defaultVal int) int {
+	raw, exists := os.LookupEnv(key)
+	if !exists || raw == "" {
+		return defaultVal
 	}
-	return defaultVal
+	val, err := strconv.Atoi(raw)
+	if err != nil {
+		p.setErr(fmt.Errorf("%s must be an integer, got %q: %w", key, raw, err))
+		return defaultVal
+	}
+	return val
 }
 
-func getEnvAsDuration(key string, defaultVal time.Duration) time.Duration {
-	valStr := getEnv(key, "")
-	if val, err := time.ParseDuration(valStr); err == nil {
-		return val
+// getEnvAsDuration parses a duration environment variable; a malformed value records an error.
+func (p *envParser) getEnvAsDuration(key string, defaultVal time.Duration) time.Duration {
+	raw, exists := os.LookupEnv(key)
+	if !exists || raw == "" {
+		return defaultVal
 	}
-	return defaultVal
+	val, err := time.ParseDuration(raw)
+	if err != nil {
+		p.setErr(fmt.Errorf("%s must be a duration such as 5m, got %q: %w", key, raw, err))
+		return defaultVal
+	}
+	return val
+}
+
+// setErr keeps only the first parse error encountered.
+func (p *envParser) setErr(err error) {
+	if p.err == nil {
+		p.err = err
+	}
+}
+
+// loadDotEnv loads environment variables from .env or ../.env if they are not already set in the environment.
+func loadDotEnv() {
+	paths := []string{".env", "../.env"}
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				k := strings.TrimSpace(parts[0])
+				v := strings.TrimSpace(parts[1])
+				v = strings.Trim(v, `"'`)
+				if os.Getenv(k) == "" {
+					_ = os.Setenv(k, v)
+				}
+			}
+		}
+		break
+	}
 }

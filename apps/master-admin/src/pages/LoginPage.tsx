@@ -6,11 +6,10 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, AlertCircle } from 'lucide-react';
-import { AxiosError } from 'axios';
-import { ProblemDetails } from '../types/auth';
+import { apiErrorMessage } from '../lib/api';
 
 export const LoginPage: React.FC = () => {
-  const { login } = useAuth();
+  const { login, sessionMessage } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -25,12 +24,7 @@ export const LoginPage: React.FC = () => {
       await login({ email, password });
       window.location.href = '/';
     } catch (err) {
-      const axiosErr = err as AxiosError<ProblemDetails>;
-      if (axiosErr.response?.data?.detail) {
-        setErrorMsg(axiosErr.response.data.detail);
-      } else {
-        setErrorMsg('Authentication failed. Please check credentials and server status.');
-      }
+      setErrorMsg(apiErrorMessage(err, 'Authentication failed. Please check credentials and server status.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -54,10 +48,10 @@ export const LoginPage: React.FC = () => {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4">
         <div className="bg-white py-8 px-6 shadow-xl rounded-2xl sm:px-10 border border-slate-100">
-          {errorMsg && (
+          {(errorMsg || sessionMessage) && (
             <div className="mb-6 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-lg text-sm flex items-start space-x-2">
               <AlertCircle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
-              <span>{errorMsg}</span>
+              <span>{errorMsg || sessionMessage}</span>
             </div>
           )}
 
@@ -72,7 +66,6 @@ export const LoginPage: React.FC = () => {
                 aria-label="Platform Email"
                 className="mt-1 block w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
               />
-              <span className="text-xs text-slate-400 mt-1 block">e.g. superadmin@dropiobd.com</span>
             </div>
 
             <div>
@@ -96,23 +89,6 @@ export const LoginPage: React.FC = () => {
                 {isSubmitting ? 'Authenticating...' : 'Sign in to Master Admin'}
               </button>
 
-              <button
-                type="button"
-                onClick={async () => {
-                  setEmail('superadmin@dropiobd.com');
-                  setPassword('admin123');
-                  setIsSubmitting(true);
-                  try {
-                    await login({ email: 'superadmin@dropiobd.com', password: 'admin123' });
-                    window.location.href = '/';
-                  } finally {
-                    setIsSubmitting(false);
-                  }
-                }}
-                className="w-full min-h-[44px] flex justify-center items-center py-2.5 px-4 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 transition"
-              >
-                ⚡ Quick Demo Super Admin Access
-              </button>
             </div>
           </form>
         </div>

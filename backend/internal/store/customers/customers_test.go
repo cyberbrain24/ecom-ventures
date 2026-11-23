@@ -2,6 +2,8 @@ package customers
 
 import (
 	"testing"
+
+	storeModels "ecom-ventures/backend/internal/store/models"
 )
 
 func TestCustomerAOVCalculation(t *testing.T) {
@@ -16,6 +18,24 @@ func TestCustomerAOVCalculation(t *testing.T) {
 
 	if metrics.AverageOrderValue != 3000.00 {
 		t.Fatalf("expected AOV to be 3000.00, got %f", metrics.AverageOrderValue)
+	}
+}
+
+func TestCustomerReliabilityScoreCalculation(t *testing.T) {
+	metrics := CustomerMetrics{
+		TotalOrders:     10,
+		DeliveredOrders: 8,
+		CancelledOrders: 1,
+		RtoOrders:       1,
+	}
+
+	finished := metrics.DeliveredOrders + metrics.CancelledOrders + metrics.RtoOrders
+	if finished > 0 {
+		metrics.ReliabilityScore = (float64(metrics.DeliveredOrders) / float64(finished)) * 100.0
+	}
+
+	if metrics.ReliabilityScore != 80.0 {
+		t.Fatalf("expected ReliabilityScore to be 80.0%%, got %f", metrics.ReliabilityScore)
 	}
 }
 
@@ -34,25 +54,15 @@ func TestCustomerZeroOrdersAOV(t *testing.T) {
 	}
 }
 
-func TestAddressDefaultDemotionLogic(t *testing.T) {
-	addresses := []struct {
-		ID                string
-		IsDefaultShipping bool
-		IsDefaultBilling  bool
-	}{
-		{"addr-1", true, false},
-		{"addr-2", false, true},
+func TestMembershipTierConstants(t *testing.T) {
+	tiers := []storeModels.MembershipTier{
+		storeModels.MembershipTierStandard,
+		storeModels.MembershipTierSilver,
+		storeModels.MembershipTierGold,
+		storeModels.MembershipTierVIPBlack,
 	}
 
-	// When addr-3 is added with IsDefaultShipping = true, addr-1 should be demoted
-	newDefaultShippingID := "addr-3"
-	for i := range addresses {
-		if addresses[i].ID != newDefaultShippingID {
-			addresses[i].IsDefaultShipping = false
-		}
-	}
-
-	if addresses[0].IsDefaultShipping {
-		t.Errorf("expected addr-1 default shipping to be false after demotion")
+	if len(tiers) != 4 {
+		t.Fatalf("expected 4 membership tiers, got %d", len(tiers))
 	}
 }

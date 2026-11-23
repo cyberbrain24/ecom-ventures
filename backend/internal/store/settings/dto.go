@@ -47,6 +47,15 @@ type StoreSettingsDTO struct {
 	PinterestVerification  string    `json:"pinterest_verification,omitempty"`
 	RobotsTxtCustom        string    `json:"robots_txt_custom,omitempty"`
 	SitemapEnabled         bool      `json:"sitemap_enabled"`
+	LogoURL                string    `json:"logo_url,omitempty"`
+	DesktopHeroBannerURL   string    `json:"desktop_hero_banner_url,omitempty"`
+	MobileHeroBannerURL    string    `json:"mobile_hero_banner_url,omitempty"`
+	SiteDescription        string    `json:"site_description,omitempty"`
+	FooterContent          string    `json:"footer_content,omitempty"`
+	PrimaryColor           string    `json:"primary_color,omitempty"`
+	SecondaryColor         string    `json:"secondary_color,omitempty"`
+	FontHeading            string    `json:"font_heading,omitempty"`
+	FontBody               string    `json:"font_body,omitempty"`
 	UpdatedAt              time.Time `json:"updated_at"`
 }
 
@@ -75,6 +84,15 @@ type UpdateSettingsRequest struct {
 	PinterestVerification  string  `json:"pinterest_verification,omitempty"`
 	RobotsTxtCustom        string  `json:"robots_txt_custom,omitempty"`
 	SitemapEnabled         *bool   `json:"sitemap_enabled,omitempty"`
+	LogoURL                string  `json:"logo_url,omitempty"`
+	DesktopHeroBannerURL   string  `json:"desktop_hero_banner_url,omitempty"`
+	MobileHeroBannerURL    string  `json:"mobile_hero_banner_url,omitempty"`
+	SiteDescription        string  `json:"site_description,omitempty"`
+	FooterContent          string  `json:"footer_content,omitempty"`
+	PrimaryColor           string  `json:"primary_color,omitempty"`
+	SecondaryColor         string  `json:"secondary_color,omitempty"`
+	FontHeading            string  `json:"font_heading,omitempty"`
+	FontBody               string  `json:"font_body,omitempty"`
 }
 
 // StaffMember represents an operational staff account in the store.

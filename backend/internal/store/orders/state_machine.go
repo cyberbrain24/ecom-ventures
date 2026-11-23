@@ -12,31 +12,88 @@ var (
 	ErrOrderAlreadyTerminal   = errors.New("order is in a terminal state and cannot be modified")
 )
 
-// ValidOrderTransitions defines the directed acyclic graph of permissible status jumps.
+// ValidOrderTransitions defines the directed acyclic graph of permissible status jumps across the 12-state machine.
 var ValidOrderTransitions = map[storeModels.OrderStatus][]storeModels.OrderStatus{
+	storeModels.OrderStatusPlaced: {
+		storeModels.OrderStatusReview,
+		storeModels.OrderStatusHold,
+		storeModels.OrderStatusPending,
+		storeModels.OrderStatusCancelled,
+		storeModels.OrderStatusManuallyCancelled,
+	},
+	storeModels.OrderStatusReview: {
+		storeModels.OrderStatusPending,
+		storeModels.OrderStatusHold,
+		storeModels.OrderStatusCancelled,
+		storeModels.OrderStatusManuallyCancelled,
+	},
+	storeModels.OrderStatusHold: {
+		storeModels.OrderStatusPending,
+		storeModels.OrderStatusReview,
+		storeModels.OrderStatusCancelled,
+		storeModels.OrderStatusManuallyCancelled,
+	},
 	storeModels.OrderStatusPending: {
+		storeModels.OrderStatusDelayed,
+		storeModels.OrderStatusApprovalPending,
 		storeModels.OrderStatusConfirmed,
 		storeModels.OrderStatusProcessing,
+		storeModels.OrderStatusShipped,
 		storeModels.OrderStatusCancelled,
+		storeModels.OrderStatusManuallyCancelled,
+	},
+	storeModels.OrderStatusDelayed: {
+		storeModels.OrderStatusPending,
+		storeModels.OrderStatusApprovalPending,
+		storeModels.OrderStatusCancelled,
+		storeModels.OrderStatusManuallyCancelled,
+	},
+	storeModels.OrderStatusApprovalPending: {
+		storeModels.OrderStatusShipped,
+		storeModels.OrderStatusDelivered,
+		storeModels.OrderStatusPartiallyDelivered,
+		storeModels.OrderStatusReturned,
+		storeModels.OrderStatusCancelled,
+		storeModels.OrderStatusManuallyCancelled,
 	},
 	storeModels.OrderStatusConfirmed: {
 		storeModels.OrderStatusProcessing,
-		storeModels.OrderStatusCancelled,
-	},
-	storeModels.OrderStatusProcessing: {
+		storeModels.OrderStatusApprovalPending,
 		storeModels.OrderStatusShipped,
 		storeModels.OrderStatusCancelled,
+		storeModels.OrderStatusManuallyCancelled,
+	},
+	storeModels.OrderStatusProcessing: {
+		storeModels.OrderStatusApprovalPending,
+		storeModels.OrderStatusShipped,
+		storeModels.OrderStatusCancelled,
+		storeModels.OrderStatusManuallyCancelled,
 	},
 	storeModels.OrderStatusShipped: {
 		storeModels.OrderStatusDelivered,
+		storeModels.OrderStatusPartiallyDelivered,
+		storeModels.OrderStatusReturned,
 		storeModels.OrderStatusCancelled,
+		storeModels.OrderStatusManuallyCancelled,
 		storeModels.OrderStatusRefunded,
 	},
 	storeModels.OrderStatusDelivered: {
+		storeModels.OrderStatusPartiallyDelivered,
+		storeModels.OrderStatusReturned,
 		storeModels.OrderStatusRefunded,
 	},
-	storeModels.OrderStatusCancelled: {}, // Terminal state
-	storeModels.OrderStatusRefunded:  {}, // Terminal state
+	storeModels.OrderStatusPartiallyDelivered: {
+		storeModels.OrderStatusDelivered,
+		storeModels.OrderStatusReturned,
+		storeModels.OrderStatusRefunded,
+	},
+	storeModels.OrderStatusReturned: {
+		storeModels.OrderStatusManuallyCancelled,
+		storeModels.OrderStatusRefunded,
+	},
+	storeModels.OrderStatusCancelled:         {}, // Terminal state
+	storeModels.OrderStatusManuallyCancelled: {}, // Terminal state
+	storeModels.OrderStatusRefunded:          {}, // Terminal state
 }
 
 // ValidateOrderTransition asserts whether moving from currentStatus to targetStatus is permitted.

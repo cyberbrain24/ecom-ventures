@@ -15,9 +15,14 @@ import (
 	storeModels "ecom-ventures/backend/internal/store/models"
 )
 
+// sslcommerzWebhookPath is the storefront route that receives SSLCommerz Instant Payment Notifications.
+const sslcommerzWebhookPath = "/api/v1/storefront/payments/SSLCOMMERZ/webhook"
+
 // SSLCommerzDriver implements PaymentGatewayDriver for SSLCommerz Hosted Checkout (v4).
 type SSLCommerzDriver struct {
 	httpClient *http.Client
+	// baseURL overrides the sandbox or production host; empty in production code paths.
+	baseURL string
 }
 
 // NewSSLCommerzDriver instantiates the SSLCommerz payment driver.
@@ -28,15 +33,33 @@ func NewSSLCommerzDriver() *SSLCommerzDriver {
 }
 
 func (d *SSLCommerzDriver) getBaseURL(isTest bool) string {
+	if d.baseURL != "" {
+		return d.baseURL
+	}
 	if isTest {
 		return "https://sandbox.sslcommerz.com"
 	}
 	return "https://securepay.sslcommerz.com"
 }
 
+// ipnURLFor derives the IPN endpoint on the same storefront origin as the return URL.
+// SSLCommerz posts IPNs to this URL, and the handler then verifies them with the validation API.
+func ipnURLFor(returnURL string) string {
+	parsed, err := url.Parse(returnURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host + sslcommerzWebhookPath
+}
+
 // InitiatePayment starts an SSLCommerz hosted session and returns the GatewayPageURL.
 func (d *SSLCommerzDriver) InitiatePayment(ctx context.Context, order *storeModels.Order, config *GatewayConfig, returnURL, cancelURL string) (*PaymentInitResponse, error) {
 	apiURL := fmt.Sprintf("%s/gwprocess/v4/api.php", d.getBaseURL(config.IsTestMode))
+
+	ipnURL := ipnURLFor(returnURL)
+	if ipnURL == "" {
+		return nil, errors.New("sslcommerz: return URL must be an absolute URL to derive the IPN endpoint")
+	}
 
 	formData := url.Values{}
 	formData.Set("store_id", config.AccountID)
@@ -47,7 +70,7 @@ func (d *SSLCommerzDriver) InitiatePayment(ctx context.Context, order *storeMode
 	formData.Set("success_url", returnURL)
 	formData.Set("fail_url", cancelURL)
 	formData.Set("cancel_url", cancelURL)
-	formData.Set("ipn_url", returnURL)
+	formData.Set("ipn_url", ipnURL)
 
 	// Customer parameters
 	formData.Set("cus_name", order.ShippingAddress.RecipientName)
@@ -98,15 +121,21 @@ func (d *SSLCommerzDriver) InitiatePayment(ctx context.Context, order *storeMode
 	}, nil
 }
 
-// VerifyPayment validates an SSLCommerz payment settlement against validation server API.
+// VerifyPayment validates an SSLCommerz payment settlement against the validation server API.
+// The returned amount, currency and transaction reference come from the validation response only.
 func (d *SSLCommerzDriver) VerifyPayment(ctx context.Context, payload map[string]string, config *GatewayConfig) (*PaymentVerifyResponse, error) {
 	valID := payload["val_id"]
 	if valID == "" {
 		return nil, errors.New("missing SSLCommerz val_id in validation payload")
 	}
 
-	validateURL := fmt.Sprintf("%s/validator/api/validationserverAPI.php?val_id=%s&store_id=%s&store_passwd=%s&v=1&format=json",
-		d.getBaseURL(config.IsTestMode), valID, config.AccountID, config.ClientSecret)
+	query := url.Values{}
+	query.Set("val_id", valID)
+	query.Set("store_id", config.AccountID)
+	query.Set("store_passwd", config.ClientSecret)
+	query.Set("v", "1")
+	query.Set("format", "json")
+	validateURL := fmt.Sprintf("%s/validator/api/validationserverAPI.php?%s", d.getBaseURL(config.IsTestMode), query.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, validateURL, nil)
 	if err != nil {
@@ -119,7 +148,10 @@ func (d *SSLCommerzDriver) VerifyPayment(ctx context.Context, payload map[string
 	}
 	defer resp.Body.Close()
 
-	rawBytes, _ := io.ReadAll(resp.Body)
+	rawBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading sslcommerz validation response: %w", err)
+	}
 	var result struct {
 		Status     string `json:"status"`
 		TranID     string `json:"tran_id"`
@@ -130,14 +162,20 @@ func (d *SSLCommerzDriver) VerifyPayment(ctx context.Context, payload map[string
 		CardType   string `json:"card_type"`
 	}
 	if err := json.Unmarshal(rawBytes, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decoding sslcommerz validation response: %w", err)
 	}
 
 	if result.Status != "VALID" && result.Status != "VALIDATED" {
 		return nil, fmt.Errorf("sslcommerz settlement invalid: %s", result.Status)
 	}
+	if result.ValID != valID {
+		return nil, fmt.Errorf("%w: validation response val_id does not match the request", ErrSettlementMismatch)
+	}
 
-	amt, _ := strconv.ParseFloat(result.Amount, 64)
+	amt, err := strconv.ParseFloat(result.Amount, 64)
+	if err != nil {
+		return nil, fmt.Errorf("sslcommerz validation amount %q is not a number: %w", result.Amount, err)
+	}
 
 	return &PaymentVerifyResponse{
 		TransactionID: result.BankTranID,
@@ -149,36 +187,60 @@ func (d *SSLCommerzDriver) VerifyPayment(ctx context.Context, payload map[string
 	}, nil
 }
 
-// HandleWebhook normalizes SSLCommerz Instant Payment Notifications (IPN).
+// HandleWebhook handles SSLCommerz Instant Payment Notifications (IPN). The IPN body is not trusted:
+// a VALID or VALIDATED notification is confirmed through the validation API with the store's
+// credentials, and the event returned is built from that validation response only.
 func (d *SSLCommerzDriver) HandleWebhook(ctx context.Context, rawBody []byte, headers map[string]string, config *GatewayConfig) (*WebhookEvent, error) {
+	if config == nil {
+		return nil, errors.New("sslcommerz webhook requires a gateway configuration")
+	}
 	vals, err := url.ParseQuery(string(rawBody))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing sslcommerz IPN body: %w", err)
 	}
 
 	status := vals.Get("status")
-	tranID := vals.Get("tran_id")
 	valID := vals.Get("val_id")
-	bankTranID := vals.Get("bank_tran_id")
-	currency := vals.Get("currency")
-	amt, _ := strconv.ParseFloat(vals.Get("amount"), 64)
 
-	payStatus := storeModels.PaymentStatusPending
-	if status == "VALID" || status == "VALIDATED" {
-		payStatus = storeModels.PaymentStatusPaid
-	} else if status == "FAILED" || status == "CANCELLED" {
-		payStatus = storeModels.PaymentStatusFailed
+	if status == "FAILED" || status == "CANCELLED" {
+		return &WebhookEvent{
+			Gateway:   GatewaySSLCommerz,
+			EventID:   valID,
+			EventType: "IPN_" + status,
+			OrderID:   vals.Get("tran_id"),
+			Status:    storeModels.PaymentStatusFailed,
+			RawBody:   string(rawBody),
+		}, nil
+	}
+	if status != "VALID" && status != "VALIDATED" {
+		return &WebhookEvent{
+			Gateway:   GatewaySSLCommerz,
+			EventID:   valID,
+			EventType: "IPN_" + status,
+			OrderID:   vals.Get("tran_id"),
+			Status:    storeModels.PaymentStatusPending,
+			RawBody:   string(rawBody),
+		}, nil
+	}
+
+	if valID == "" {
+		return nil, errors.New("sslcommerz IPN is missing val_id; cannot verify settlement")
+	}
+
+	verified, err := d.VerifyPayment(ctx, map[string]string{"val_id": valID}, config)
+	if err != nil {
+		return nil, fmt.Errorf("verifying sslcommerz IPN: %w", err)
 	}
 
 	return &WebhookEvent{
 		Gateway:       GatewaySSLCommerz,
 		EventID:       valID,
 		EventType:     "IPN_" + status,
-		TransactionID: bankTranID,
-		OrderID:       tranID,
-		Amount:        amt,
-		Currency:      currency,
-		Status:        payStatus,
-		RawBody:       string(rawBody),
+		TransactionID: verified.TransactionID,
+		OrderID:       verified.OrderID,
+		Amount:        verified.Amount,
+		Currency:      verified.Currency,
+		Status:        verified.Status,
+		RawBody:       verified.RawPayload,
 	}, nil
 }

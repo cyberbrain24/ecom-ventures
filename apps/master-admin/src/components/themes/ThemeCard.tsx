@@ -1,164 +1,252 @@
 import React from 'react';
-import { Palette, CheckCircle, Layers, Pencil, Trash2, Gem } from 'lucide-react';
+import { Palette, CheckCircle, Layers, Pencil, Power, PowerOff, Type, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { ThemeItem } from '../../types/theme';
+import {
+  radiusToCss,
+  readThemePreview,
+  themeColor,
+  variantLabel,
+  inferVariantFromSlug,
+} from '../../lib/theme-preview';
 
 interface ThemeCardProps {
   theme: ThemeItem;
   onAssignClick: (theme: ThemeItem) => void;
   onEditClick?: (theme: ThemeItem) => void;
-  onDeleteClick?: (theme: ThemeItem) => void;
+  /** Called when the admin activates or deactivates the theme. Themes are never deleted. */
+  onToggleActiveClick?: (theme: ThemeItem) => void;
+  /** True while a status change for this theme is being saved. */
+  isToggling?: boolean;
+  /** When set, Edit and the status toggle are disabled and this text is shown as their tooltip. */
+  controlsDisabledReason?: string;
 }
 
-/** Returns gradient + accent classes and accent dots for a theme based on its slug */
-function getThemeVisual(theme: ThemeItem): {
-  gradientClass: string;
-  accentClass: string;
-  badgeClass: string;
-  colorDots: string[];
-  Icon: React.FC<{ className?: string }>;
-} {
-  const slug = theme.slug ?? '';
-  const cfg = (theme.config_schema as Record<string, Record<string, string>> | null) ?? {};
-  const colors = cfg?.default_colors ?? {};
+const THEME_FALLBACK_IMAGES: Record<string, string> = {
+  'modern-minimal': 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&auto=format&fit=crop&q=80',
+  'artisan-boutique': 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?w=800&auto=format&fit=crop&q=80',
+  'urban-streetwear': 'https://images.unsplash.com/photo-1509631179647-0177331693ae?w=800&auto=format&fit=crop&q=80',
+  'jewelry-shop': 'https://images.unsplash.com/photo-1506630448388-4e683c67ddb0?w=600&auto=format&fit=crop&q=80',
+  'women-inner': 'https://images.unsplash.com/photo-1583496661160-fb5886a0aaaa?w=800&auto=format&fit=crop&q=80',
+  'gadget-store': 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=80',
+  'inner-fashion': 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=800&auto=format&fit=crop&q=80',
+  'traditional-fashion': 'https://images.unsplash.com/photo-1610030469983-98e550d6193c?w=800&auto=format&fit=crop&q=80',
+};
 
-  if (slug.includes('jewelry')) {
-    return {
-      gradientClass: 'bg-gradient-to-br from-[#2C1810] via-[#5C3D1E] to-[#8B6914]',
-      accentClass: 'text-[#F5D78E]',
-      badgeClass: 'bg-[#B8975A]/20 text-[#F5D78E] border-[#B8975A]/40',
-      colorDots: [
-        colors.primary ?? '#B8975A',
-        colors.secondary ?? '#7A5C2E',
-        colors.accent ?? '#F5ECD7',
-        colors.background ?? '#FDFAF5',
-      ],
-      Icon: Gem,
-    };
-  }
-  if (slug.includes('artisan')) {
-    return {
-      gradientClass: 'bg-gradient-to-br from-amber-900 to-amber-700',
-      accentClass: 'text-amber-300',
-      badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-      colorDots: ['#92400E', '#D97706', '#FEF3C7', '#FFFBEB'],
-      Icon: Palette,
-    };
-  }
-  if (slug.includes('urban') || slug.includes('streetwear')) {
-    return {
-      gradientClass: 'bg-gradient-to-br from-zinc-900 to-zinc-700',
-      accentClass: 'text-violet-300',
-      badgeClass: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
-      colorDots: ['#7C3AED', '#EC4899', '#1A1A2E', '#F8F8F8'],
-      Icon: Palette,
-    };
-  }
-  // Default / modern-minimal
-  return {
-    gradientClass: 'bg-gradient-to-br from-slate-800 to-slate-950',
-    accentClass: 'text-teal-300',
-    badgeClass: 'bg-teal-500/20 text-teal-300 border-teal-500/30',
-    colorDots: ['#0F766E', '#0284C7', '#F8FAFC', '#1E293B'],
-    Icon: Palette,
-  };
-}
-
+/**
+ * ThemeCard presents a theme blueprint in the Master Admin Theme Marketplace.
+ * Displays high-definition preview media, live design tokens, active deployment stats,
+ * and assignment / administrative controls.
+ */
 export const ThemeCard: React.FC<ThemeCardProps> = ({
   theme,
   onAssignClick,
   onEditClick,
-  onDeleteClick,
+  onToggleActiveClick,
+  isToggling = false,
+  controlsDisabledReason,
 }) => {
-  const { gradientClass, accentClass, badgeClass, colorDots, Icon } = getThemeVisual(theme);
+  const preview = readThemePreview(theme.config_schema);
+  const background = themeColor(preview, 'background') ?? '#0f172a';
+  const text = themeColor(preview, 'text') ?? '#ffffff';
+  const primary = themeColor(preview, 'primary') ?? '#059669';
+  const radius = radiusToCss(preview.radius);
+  const variant = variantLabel(preview.variant) ?? inferVariantFromSlug(theme.slug);
+  const storeCount = typeof theme.active_stores_count === 'number' ? theme.active_stores_count : null;
+  const previewImage = theme.preview_image_url || THEME_FALLBACK_IMAGES[theme.slug] || null;
+
+  const assignDisabledReason = !theme.is_active
+    ? 'This theme is inactive. Activate it before assigning it to a store.'
+    : undefined;
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition flex flex-col justify-between">
+    <div
+      className={`group bg-white rounded-2xl border overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between ${
+        theme.is_active ? 'border-slate-200/90' : 'border-slate-300 opacity-90'
+      }`}
+    >
       <div>
-        {/* Theme Visual Preview Banner */}
-        <div className={`h-32 ${gradientClass} p-3.5 flex flex-col justify-between relative overflow-hidden`}>
-          <div className="flex justify-between items-start z-10">
-            <span className={`text-[11px] font-mono uppercase tracking-wider ${badgeClass} px-2 py-0.5 rounded border`}>
-              v{theme.version}
+        {/* Visual Showcase Header (Cover Image or Curated Mockup) */}
+        <div className="relative h-44 overflow-hidden bg-slate-900 flex flex-col justify-between">
+          {previewImage ? (
+            <>
+              <img
+                src={previewImage}
+                alt={`${theme.name} preview`}
+                className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                loading="lazy"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/30 to-slate-950/40" />
+            </>
+          ) : (
+            <div
+              className="absolute inset-0 flex flex-col justify-between p-3.5"
+              style={{ backgroundColor: background, color: text }}
+            >
+              {/* Mini Browser Bar */}
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-rose-500/80" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
+                </div>
+                <span className="text-[10px] font-mono opacity-60">storefront/{theme.slug}</span>
+              </div>
+              <div className="py-2">
+                <div className="text-sm font-bold truncate">{theme.name}</div>
+                <div className="text-[11px] opacity-75 truncate">{theme.description}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Top Bar Badges */}
+          <div className="relative z-10 p-3 flex items-start justify-between gap-2">
+            <span className="backdrop-blur-md bg-slate-950/60 text-white border border-white/20 text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full shadow-sm">
+              {variant}
             </span>
-            {theme.is_active && (
-              <span className="text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30 flex items-center space-x-1">
-                <CheckCircle className="h-3 w-3 mr-0.5" />
-                Active
-              </span>
-            )}
+            <span
+              className={`backdrop-blur-md text-[10px] font-semibold px-2.5 py-1 rounded-full flex items-center gap-1 shadow-sm border ${
+                theme.is_active
+                  ? 'bg-emerald-500/90 text-white border-emerald-400/30'
+                  : 'bg-amber-500/90 text-white border-amber-400/30'
+              }`}
+            >
+              {theme.is_active ? <CheckCircle className="h-3 w-3" /> : <PowerOff className="h-3 w-3" />}
+              {theme.is_active ? 'Active' : 'Inactive'}
+            </span>
           </div>
 
-          <div className="z-10">
-            <div className="flex items-center space-x-1.5 mb-1">
-              <Icon className={`h-4 w-4 ${accentClass}`} />
-              <h3 className="text-base font-bold text-white tracking-tight leading-tight">{theme.name}</h3>
-            </div>
-            <span className="text-xs font-mono text-slate-400">slug: {theme.slug}</span>
-
-            {/* Color Palette Dots */}
-            <div className="flex items-center space-x-1.5 mt-2">
-              {colorDots.map((color, i) => (
-                <div
-                  key={i}
-                  className="w-4 h-4 rounded-full border-2 border-white/20 shadow-sm flex-shrink-0"
-                  style={{ backgroundColor: color }}
-                  title={color}
+          {/* Bottom Bar: Swatches & Slug Pill */}
+          <div className="relative z-10 p-3 flex items-end justify-between gap-2">
+            <div className="flex items-center -space-x-1.5 hover:space-x-1 transition-all" aria-label="Color palette">
+              {preview.colors.slice(0, 6).map((token) => (
+                <span
+                  key={token.key}
+                  className="w-5 h-5 rounded-full ring-2 ring-white/90 shadow-md flex-shrink-0 cursor-help transform hover:scale-125 transition-transform"
+                  style={{ backgroundColor: token.value }}
+                  title={`${token.key}: ${token.value}`}
                 />
               ))}
-              <span className="text-[10px] text-white/40 ml-1">color palette</span>
             </div>
+            <span className="backdrop-blur-md bg-black/50 text-white/90 text-[10.5px] font-mono px-2 py-0.5 rounded border border-white/20">
+              {theme.slug}
+            </span>
           </div>
-
-          {/* Decorative Background Graphics */}
-          <div className={`absolute -right-6 -bottom-6 w-24 h-24 opacity-20 rounded-full blur-xl`}
-            style={{ backgroundColor: colorDots[0] }} />
-          <div className={`absolute -left-4 -top-4 w-16 h-16 opacity-10 rounded-full blur-lg`}
-            style={{ backgroundColor: colorDots[1] }} />
         </div>
 
         {/* Content Body */}
-        <div className="p-3.5 space-y-2">
-          <p className="text-xs text-slate-600 leading-normal line-clamp-2 min-h-[32px]">
-            {theme.description || 'Modern reusable presentation theme blueprint for retail brands.'}
-          </p>
+        <div className="p-4 space-y-3">
+          {/* Title & Version Header */}
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-bold text-slate-900 group-hover:text-teal-600 transition-colors leading-snug truncate">
+                {theme.name}
+              </h3>
+              <span className="text-[11px] font-mono bg-slate-100 text-slate-600 font-semibold px-2 py-0.5 rounded flex-shrink-0">
+                v{theme.version}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed line-clamp-2 min-h-[34px] mt-1.5">
+              {theme.description || 'Modern, responsive ecommerce storefront blueprint optimized for conversion.'}
+            </p>
+          </div>
 
+          {/* 2x2 Design Specifications Grid */}
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center gap-2">
+              <Type className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider">Heading Font</div>
+                <div className="font-semibold text-slate-700 truncate" style={{ fontFamily: preview.headingFont ?? undefined }}>
+                  {preview.headingFont || 'Inter'}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center gap-2">
+              <Type className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider">Body Font</div>
+                <div className="font-semibold text-slate-700 truncate" style={{ fontFamily: preview.bodyFont ?? undefined }}>
+                  {preview.bodyFont || 'Inter'}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center gap-2">
+              <SlidersHorizontal className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider">Corner Radius</div>
+                <div className="font-semibold text-slate-700 truncate">
+                  {preview.radius ? `${preview.radius.toUpperCase()} (${radius})` : 'Medium (8px)'}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center gap-2">
+              <Sparkles className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider">Hero Layout</div>
+                <div className="font-semibold text-slate-700 truncate capitalize">
+                  {preview.hero ? preview.hero.replace(/-/g, ' ') : preview.density || 'Modern Split'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Store Usage Counter */}
           <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
             <div className="flex items-center space-x-1.5">
-              <Layers className="h-4 w-4 text-slate-400" />
-              <span>Adoption:</span>
+              <Layers className="h-3.5 w-3.5 text-slate-400" />
+              <span>Assigned Stores:</span>
             </div>
-            <span className="font-semibold text-slate-800">
-              {theme.active_stores_count} {theme.active_stores_count === 1 ? 'Store' : 'Stores'}
+            <span className="font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded-full text-[11px]">
+              {storeCount === null
+                ? '0 Stores'
+                : `${storeCount} ${storeCount === 1 ? 'Store' : 'Stores'}`}
             </span>
           </div>
         </div>
       </div>
 
       {/* Card Action Footer */}
-      <div className="p-2.5 bg-slate-50 border-t border-slate-100 flex items-center space-x-2">
+      <div className="p-3 bg-slate-50/90 border-t border-slate-100 flex items-center gap-2">
         <button
+          type="button"
           onClick={() => onAssignClick(theme)}
-          className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-xs font-semibold shadow-sm transition flex items-center justify-center space-x-1.5"
+          disabled={!!assignDisabledReason}
+          title={assignDisabledReason ?? 'Assign this theme to a store'}
+          className="flex-1 py-2 px-3 bg-slate-900 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold shadow-sm transition-all flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:hover:bg-slate-900"
         >
           <Palette className="h-3.5 w-3.5 text-teal-400" />
           <span>Assign Theme</span>
         </button>
         {onEditClick && (
           <button
+            type="button"
             onClick={() => onEditClick(theme)}
-            className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 rounded-md transition"
-            title="Edit Theme"
+            disabled={!!controlsDisabledReason || isToggling}
+            className="p-2 text-slate-600 hover:text-teal-600 hover:bg-white border border-slate-200/90 rounded-lg transition shadow-sm disabled:opacity-40"
+            title={controlsDisabledReason ?? 'Edit Theme Blueprint'}
+            aria-label={`Edit ${theme.name}`}
           >
             <Pencil className="h-4 w-4" />
           </button>
         )}
-        {onDeleteClick && (
+        {onToggleActiveClick && (
           <button
-            onClick={() => onDeleteClick(theme)}
-            className="p-2 text-slate-600 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 rounded-md transition"
-            title="Delete Theme"
+            type="button"
+            onClick={() => onToggleActiveClick(theme)}
+            disabled={!!controlsDisabledReason || isToggling}
+            className={`inline-flex items-center gap-1 px-2.5 py-2 border rounded-lg text-xs font-semibold transition disabled:opacity-40 ${
+              theme.is_active
+                ? 'text-rose-700 bg-rose-50/60 border-rose-200 hover:bg-rose-100/70'
+                : 'text-emerald-700 bg-emerald-50/60 border-emerald-200 hover:bg-emerald-100/70'
+            }`}
+            title={controlsDisabledReason ?? (theme.is_active ? 'Deactivate this theme' : 'Activate this theme')}
+            aria-label={`${theme.is_active ? 'Deactivate' : 'Activate'} ${theme.name}`}
           >
-            <Trash2 className="h-4 w-4" />
+            {theme.is_active ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />}
+            <span>{isToggling ? 'Saving...' : theme.is_active ? 'Deactivate' : 'Activate'}</span>
           </button>
         )}
       </div>

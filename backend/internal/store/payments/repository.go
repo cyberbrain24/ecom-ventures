@@ -19,6 +19,8 @@ type Repository interface {
 	GetGatewayConfig(ctx context.Context, db *sql.DB, gw GatewayType) (*GatewayConfig, error)
 	ListGatewayConfigs(ctx context.Context, db *sql.DB) ([]GatewayConfig, error)
 	SaveGatewayConfig(ctx context.Context, db *sql.DB, c *GatewayConfig) error
+	SetDefaultGateway(ctx context.Context, db *sql.DB, gw GatewayType) error
+	ToggleGatewayActive(ctx context.Context, db *sql.DB, gw GatewayType, isEnabled bool) error
 
 	// Idempotency and Transaction Ledger
 	LockIdempotencyKeyTx(ctx context.Context, tx *sql.Tx, key, gateway string) error
@@ -42,6 +44,7 @@ func (r *SQLRepository) EnsureSchema(ctx context.Context, db *sql.DB) error {
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			gateway VARCHAR(30) NOT NULL UNIQUE,
 			is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+			is_default BOOLEAN NOT NULL DEFAULT FALSE,
 			is_test_mode BOOLEAN NOT NULL DEFAULT TRUE,
 			account_id TEXT NOT NULL DEFAULT '',
 			client_id TEXT NOT NULL DEFAULT '',
@@ -51,6 +54,8 @@ func (r *SQLRepository) EnsureSchema(ctx context.Context, db *sql.DB) error {
 			updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 
+		ALTER TABLE store_payment_gateways ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE;
+
 		CREATE TABLE IF NOT EXISTS payment_idempotency_keys (
 			idempotency_key VARCHAR(255) PRIMARY KEY,
 			gateway VARCHAR(30) NOT NULL,
@@ -59,6 +64,11 @@ func (r *SQLRepository) EnsureSchema(ctx context.Context, db *sql.DB) error {
 
 		ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS transaction_id VARCHAR(150);
 		ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS raw_response TEXT;
+
+		-- Seed COD as enabled and default payment method if no gateway exists yet
+		INSERT INTO store_payment_gateways (gateway, is_enabled, is_default, is_test_mode)
+		VALUES ('COD', TRUE, TRUE, FALSE)
+		ON CONFLICT (gateway) DO NOTHING;
 	`
 	_, err := db.ExecContext(ctx, query)
 	return err
@@ -67,13 +77,13 @@ func (r *SQLRepository) EnsureSchema(ctx context.Context, db *sql.DB) error {
 // GetGatewayConfig retrieves provider credentials for a given gateway channel.
 func (r *SQLRepository) GetGatewayConfig(ctx context.Context, db *sql.DB, gw GatewayType) (*GatewayConfig, error) {
 	query := `
-		SELECT id, gateway, is_enabled, is_test_mode, account_id, client_id, client_secret, webhook_key, created_at, updated_at
+		SELECT id, gateway, is_enabled, is_default, is_test_mode, account_id, client_id, client_secret, webhook_key, created_at, updated_at
 		FROM store_payment_gateways
 		WHERE gateway = $1;
 	`
 	c := &GatewayConfig{}
 	err := db.QueryRowContext(ctx, query, gw).Scan(
-		&c.ID, &c.Gateway, &c.IsEnabled, &c.IsTestMode,
+		&c.ID, &c.Gateway, &c.IsEnabled, &c.IsDefault, &c.IsTestMode,
 		&c.AccountID, &c.ClientID, &c.ClientSecret, &c.WebhookKey,
 		&c.CreatedAt, &c.UpdatedAt,
 	)
@@ -89,7 +99,7 @@ func (r *SQLRepository) GetGatewayConfig(ctx context.Context, db *sql.DB, gw Gat
 // ListGatewayConfigs returns all configured payment channels for the store.
 func (r *SQLRepository) ListGatewayConfigs(ctx context.Context, db *sql.DB) ([]GatewayConfig, error) {
 	query := `
-		SELECT id, gateway, is_enabled, is_test_mode, account_id, client_id, client_secret, webhook_key, created_at, updated_at
+		SELECT id, gateway, is_enabled, is_default, is_test_mode, account_id, client_id, client_secret, webhook_key, created_at, updated_at
 		FROM store_payment_gateways
 		ORDER BY gateway ASC;
 	`
@@ -103,7 +113,7 @@ func (r *SQLRepository) ListGatewayConfigs(ctx context.Context, db *sql.DB) ([]G
 	for rows.Next() {
 		var c GatewayConfig
 		if err := rows.Scan(
-			&c.ID, &c.Gateway, &c.IsEnabled, &c.IsTestMode,
+			&c.ID, &c.Gateway, &c.IsEnabled, &c.IsDefault, &c.IsTestMode,
 			&c.AccountID, &c.ClientID, &c.ClientSecret, &c.WebhookKey,
 			&c.CreatedAt, &c.UpdatedAt,
 		); err == nil {
@@ -115,14 +125,25 @@ func (r *SQLRepository) ListGatewayConfigs(ctx context.Context, db *sql.DB) ([]G
 
 // SaveGatewayConfig creates or updates credentials for a store payment channel.
 func (r *SQLRepository) SaveGatewayConfig(ctx context.Context, db *sql.DB, c *GatewayConfig) error {
+	// If marking as default, ensure it is enabled and unmark all others
+	if c.IsDefault {
+		c.IsEnabled = true
+		if _, err := db.ExecContext(ctx, `UPDATE store_payment_gateways SET is_default = FALSE WHERE gateway != $1;`, c.Gateway); err != nil {
+			return err
+		}
+	} else if !c.IsEnabled {
+		c.IsDefault = false
+	}
+
 	query := `
 		INSERT INTO store_payment_gateways (
-			gateway, is_enabled, is_test_mode, account_id, client_id, client_secret, webhook_key, updated_at
+			gateway, is_enabled, is_default, is_test_mode, account_id, client_id, client_secret, webhook_key, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, NOW()
 		)
 		ON CONFLICT (gateway) DO UPDATE SET
 			is_enabled = EXCLUDED.is_enabled,
+			is_default = EXCLUDED.is_default,
 			is_test_mode = EXCLUDED.is_test_mode,
 			account_id = EXCLUDED.account_id,
 			client_id = EXCLUDED.client_id,
@@ -131,8 +152,44 @@ func (r *SQLRepository) SaveGatewayConfig(ctx context.Context, db *sql.DB, c *Ga
 			updated_at = NOW();
 	`
 	_, err := db.ExecContext(ctx, query,
-		c.Gateway, c.IsEnabled, c.IsTestMode, c.AccountID, c.ClientID, c.ClientSecret, c.WebhookKey,
+		c.Gateway, c.IsEnabled, c.IsDefault, c.IsTestMode, c.AccountID, c.ClientID, c.ClientSecret, c.WebhookKey,
 	)
+	return err
+}
+
+// SetDefaultGateway designates one gateway as active and default, clearing other defaults.
+func (r *SQLRepository) SetDefaultGateway(ctx context.Context, db *sql.DB, gw GatewayType) error {
+	if _, err := db.ExecContext(ctx, `UPDATE store_payment_gateways SET is_default = FALSE;`); err != nil {
+		return err
+	}
+	query := `
+		INSERT INTO store_payment_gateways (gateway, is_enabled, is_default, is_test_mode, updated_at)
+		VALUES ($1, TRUE, TRUE, FALSE, NOW())
+		ON CONFLICT (gateway) DO UPDATE SET is_enabled = TRUE, is_default = TRUE, updated_at = NOW();
+	`
+	_, err := db.ExecContext(ctx, query, gw)
+	return err
+}
+
+// ToggleGatewayActive activates or deactivates a payment gateway.
+func (r *SQLRepository) ToggleGatewayActive(ctx context.Context, db *sql.DB, gw GatewayType, isEnabled bool) error {
+	if !isEnabled {
+		// Deactivating: also unmark default
+		query := `
+			INSERT INTO store_payment_gateways (gateway, is_enabled, is_default, is_test_mode, updated_at)
+			VALUES ($1, FALSE, FALSE, FALSE, NOW())
+			ON CONFLICT (gateway) DO UPDATE SET is_enabled = FALSE, is_default = FALSE, updated_at = NOW();
+		`
+		_, err := db.ExecContext(ctx, query, gw)
+		return err
+	}
+
+	query := `
+		INSERT INTO store_payment_gateways (gateway, is_enabled, is_default, is_test_mode, updated_at)
+		VALUES ($1, TRUE, FALSE, FALSE, NOW())
+		ON CONFLICT (gateway) DO UPDATE SET is_enabled = TRUE, updated_at = NOW();
+	`
+	_, err := db.ExecContext(ctx, query, gw)
 	return err
 }
 

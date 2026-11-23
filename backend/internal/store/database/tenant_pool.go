@@ -187,3 +187,14 @@ func (m *TenantPoolManager) ActivePoolsCount() int {
 	defer m.mu.RUnlock()
 	return len(m.pools)
 }
+
+// PoolStats returns the live connection statistics for an open store pool.
+func (m *TenantPoolManager) PoolStats(storeID string) (sql.DBStats, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	db, exists := m.pools[storeID]
+	if !exists {
+		return sql.DBStats{}, false
+	}
+	return db.Stats(), true
+}

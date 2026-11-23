@@ -100,6 +100,30 @@ func (s *Service) UpdateSettings(ctx context.Context, req *UpdateSettingsRequest
 		current.SitemapEnabled = *req.SitemapEnabled
 	}
 
+	if req.LogoURL != "" {
+		current.LogoURL = strings.TrimSpace(req.LogoURL)
+	}
+	if req.DesktopHeroBannerURL != "" {
+		current.DesktopHeroBannerURL = strings.TrimSpace(req.DesktopHeroBannerURL)
+	}
+	if req.MobileHeroBannerURL != "" {
+		current.MobileHeroBannerURL = strings.TrimSpace(req.MobileHeroBannerURL)
+	}
+	current.SiteDescription = strings.TrimSpace(req.SiteDescription)
+	current.FooterContent = strings.TrimSpace(req.FooterContent)
+	if req.PrimaryColor != "" {
+		current.PrimaryColor = strings.TrimSpace(req.PrimaryColor)
+	}
+	if req.SecondaryColor != "" {
+		current.SecondaryColor = strings.TrimSpace(req.SecondaryColor)
+	}
+	if req.FontHeading != "" {
+		current.FontHeading = strings.TrimSpace(req.FontHeading)
+	}
+	if req.FontBody != "" {
+		current.FontBody = strings.TrimSpace(req.FontBody)
+	}
+
 	if err := s.repo.UpdateSettings(ctx, stCtx.TenantDB, current); err != nil {
 		return nil, fmt.Errorf("failed to persist store settings: %w", err)
 	}

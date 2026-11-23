@@ -54,6 +54,71 @@ func (h *VariantsHandler) ListAttributes(w http.ResponseWriter, r *http.Request)
 	response.WriteJSON(w, http.StatusOK, list)
 }
 
+// ReorderAttributes handles PUT /api/v1/store/{store_slug}/catalog/attributes/reorder
+func (h *VariantsHandler) ReorderAttributes(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeReorder(w, r)
+	if !ok {
+		return
+	}
+	if err := h.service.ReorderAttributes(r.Context(), req.IDs); err != nil {
+		writeReorderError(w, r, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, map[string]string{"message": "Attribute order saved."})
+}
+
+// UpdateAttribute handles PUT /api/v1/store/{store_slug}/catalog/attributes/{id}
+func (h *VariantsHandler) UpdateAttribute(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req struct {
+		Name        string                        `json:"name"`
+		DataType    string                        `json:"data_type"`
+		DisplayType string                        `json:"display_type"`
+		Values      []CreateAttributeValueRequest `json:"values"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.WriteBadRequest(w, r, "Invalid request payload: "+err.Error())
+		return
+	}
+	if req.Name == "" {
+		response.WriteValidationError(w, r, []response.InvalidParam{
+			{Name: "name", Reason: "Attribute name is required"},
+		})
+		return
+	}
+	if err := h.service.UpdateAttribute(r.Context(), id, req.Name, req.DataType, req.DisplayType); err != nil {
+		response.WriteInternalError(w, r, "Failed to update attribute: "+err.Error())
+		return
+	}
+
+	// Add any new values provided in the request
+	for _, val := range req.Values {
+		_, _ = h.service.AddAttributeValue(r.Context(), id, &val)
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]string{"message": "Attribute updated successfully."})
+}
+
+// DeleteAttribute handles DELETE /api/v1/store/{store_slug}/catalog/attributes/{id}
+func (h *VariantsHandler) DeleteAttribute(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := h.service.DeleteAttribute(r.Context(), id); err != nil {
+		response.WriteInternalError(w, r, "Failed to delete attribute: "+err.Error())
+		return
+	}
+	response.WriteNoContent(w)
+}
+
+// DeleteAttributeValue handles DELETE /api/v1/store/{store_slug}/catalog/attributes/values/{value_id}
+func (h *VariantsHandler) DeleteAttributeValue(w http.ResponseWriter, r *http.Request) {
+	valueID := chi.URLParam(r, "value_id")
+	if err := h.service.DeleteAttributeValue(r.Context(), valueID); err != nil {
+		response.WriteInternalError(w, r, "Failed to delete attribute value: "+err.Error())
+		return
+	}
+	response.WriteNoContent(w)
+}
+
 // AddAttributeValue handles POST /api/v1/store/{store_slug}/catalog/attributes/{attribute_id}/values
 func (h *VariantsHandler) AddAttributeValue(w http.ResponseWriter, r *http.Request) {
 	attrID := chi.URLParam(r, "attribute_id")

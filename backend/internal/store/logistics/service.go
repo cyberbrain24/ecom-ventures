@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	storeCtx "ecom-ventures/backend/internal/store/context"
@@ -20,7 +21,7 @@ type Service struct {
 	encryptionKey []byte
 }
 
-// NewService instantiates the logistics domain service.
+// NewService instantiates the logistics domain service. encKey must be the 32-byte platform encryption key.
 func NewService(repo Repository, ordersSvc *orders.Service, reg *DriverRegistry, encKey []byte) *Service {
 	return &Service{
 		repo:          repo,
@@ -30,9 +31,41 @@ func NewService(repo Repository, ordersSvc *orders.Service, reg *DriverRegistry,
 	}
 }
 
-func (s *Service) get32ByteKey() []byte {
-	if len(s.encryptionKey) >= 32 {
-		return s.encryptionKey[:32]
+// secretKey returns the 32-byte encryption key. A missing or wrong-sized key is an error so that
+// carrier secrets are never read or stored without encryption.
+func (s *Service) secretKey() ([]byte, error) {
+	if len(s.encryptionKey) != 32 {
+		return nil, fmt.Errorf("logistics: encryption key must be exactly 32 bytes, got %d", len(s.encryptionKey))
+	}
+	return s.encryptionKey, nil
+}
+
+// decryptCarrierSecrets replaces stored ciphertext in config with plaintext. A decryption failure is
+// returned; the ciphertext is never used as a credential.
+func (s *Service) decryptCarrierSecrets(config *CourierConfig) error {
+	if config == nil {
+		return nil
+	}
+	if config.SecretKey == "" && config.ApiKey == "" {
+		return nil
+	}
+	key, err := s.secretKey()
+	if err != nil {
+		return err
+	}
+	if config.SecretKey != "" {
+		dec, err := crypto.DecryptAESGCM(config.SecretKey, key)
+		if err != nil {
+			return fmt.Errorf("decrypting %s secret key: %w", config.Carrier, err)
+		}
+		config.SecretKey = dec
+	}
+	if config.ApiKey != "" {
+		dec, err := crypto.DecryptAESGCM(config.ApiKey, key)
+		if err != nil {
+			return fmt.Errorf("decrypting %s api key: %w", config.Carrier, err)
+		}
+		config.ApiKey = dec
 	}
 	return nil
 }
@@ -61,22 +94,14 @@ func (s *Service) DispatchOrder(ctx context.Context, orderID string, req *Dispat
 	var config *CourierConfig
 	if req.Carrier != CarrierManual {
 		config, err = s.repo.GetCourierConfig(ctx, stCtx.TenantDB, req.Carrier)
-		if err != nil || !config.IsEnabled {
+		if err != nil {
+			return nil, fmt.Errorf("loading %s courier configuration: %w", req.Carrier, err)
+		}
+		if !config.IsEnabled {
 			return nil, ErrCarrierDisabled
 		}
-		// Decrypt sensitive keys
-		key := s.get32ByteKey()
-		if key != nil {
-			if config.SecretKey != "" {
-				if dec, err := crypto.DecryptAESGCM(config.SecretKey, key); err == nil {
-					config.SecretKey = dec
-				}
-			}
-			if config.ApiKey != "" {
-				if dec, err := crypto.DecryptAESGCM(config.ApiKey, key); err == nil {
-					config.ApiKey = dec
-				}
-			}
+		if err := s.decryptCarrierSecrets(config); err != nil {
+			return nil, err
 		}
 	}
 
@@ -96,10 +121,14 @@ func (s *Service) DispatchOrder(ctx context.Context, orderID string, req *Dispat
 
 	shipment, err := s.ordersSvc.CreateShipment(ctx, orderID, shipmentReq)
 	if err != nil {
-		return nil, fmt.Errorf("consignment booked but failed to record shipment: %w", err)
+		return nil, fmt.Errorf("consignment booked but failed to record shipment (consignment %s, tracking %s): %w",
+			consignment.ConsignmentID, consignment.TrackingNumber, err)
 	}
 
-	_ = s.ordersSvc.UpdateCourierConsignment(ctx, orderID, consignment.ConsignmentID, consignment.TrackingNumber)
+	if err := s.ordersSvc.UpdateCourierConsignment(ctx, orderID, consignment.ConsignmentID, consignment.TrackingNumber); err != nil {
+		return nil, fmt.Errorf("consignment booked and shipment recorded but linking consignment %s to the order failed: %w",
+			consignment.ConsignmentID, err)
+	}
 
 	return shipment, nil
 }
@@ -123,12 +152,12 @@ func (s *Service) TrackShipment(ctx context.Context, trackingNumber string) (*Tr
 
 	var config *CourierConfig
 	if shipment.Carrier != string(CarrierManual) {
-		config, _ = s.repo.GetCourierConfig(ctx, stCtx.TenantDB, CarrierType(shipment.Carrier))
-		key := s.get32ByteKey()
-		if config != nil && config.ApiKey != "" && key != nil {
-			if dec, err := crypto.DecryptAESGCM(config.ApiKey, key); err == nil {
-				config.ApiKey = dec
-			}
+		config, err = s.repo.GetCourierConfig(ctx, stCtx.TenantDB, CarrierType(shipment.Carrier))
+		if err != nil {
+			return nil, fmt.Errorf("loading %s courier configuration: %w", shipment.Carrier, err)
+		}
+		if err := s.decryptCarrierSecrets(config); err != nil {
+			return nil, err
 		}
 	}
 
@@ -136,6 +165,8 @@ func (s *Service) TrackShipment(ctx context.Context, trackingNumber string) (*Tr
 }
 
 // ProcessCourierWebhook processes automated milestone updates from shipping carriers.
+// Carrier webhook authentication is not yet implemented (see the open decision on carrier webhook
+// verification); configuration errors are returned rather than ignored.
 func (s *Service) ProcessCourierWebhook(ctx context.Context, carrier CarrierType, rawBody []byte, headers map[string]string) error {
 	stCtx, err := storeCtx.FromContext(ctx)
 	if err != nil {
@@ -147,7 +178,10 @@ func (s *Service) ProcessCourierWebhook(ctx context.Context, carrier CarrierType
 		return err
 	}
 
-	config, _ := s.repo.GetCourierConfig(ctx, stCtx.TenantDB, carrier)
+	config, err := s.repo.GetCourierConfig(ctx, stCtx.TenantDB, carrier)
+	if err != nil {
+		return fmt.Errorf("loading %s courier configuration for webhook: %w", carrier, err)
+	}
 	event, err := driver.HandleStatusWebhook(ctx, rawBody, headers, config)
 	if err != nil {
 		return err
@@ -156,14 +190,14 @@ func (s *Service) ProcessCourierWebhook(ctx context.Context, carrier CarrierType
 	// 1. Locate shipment record
 	shipment, err := s.repo.GetShipmentByTrackingNumber(ctx, stCtx.TenantDB, event.TrackingNumber)
 	if err != nil {
-		return fmt.Errorf("shipment not found for tracking: %s", event.TrackingNumber)
+		return fmt.Errorf("shipment not found for tracking %s: %w", event.TrackingNumber, err)
 	}
 
 	tx, err := stCtx.TenantDB.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin carrier webhook transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// 2. Update shipment milestone
 	if err := s.repo.UpdateShipmentMilestoneTx(ctx, tx, shipment.ID, event.Milestone); err != nil {
@@ -171,26 +205,42 @@ func (s *Service) ProcessCourierWebhook(ctx context.Context, carrier CarrierType
 	}
 
 	if err := tx.Commit(); err != nil {
-		return err
+		return fmt.Errorf("commit carrier webhook transaction: %w", err)
 	}
 
 	// 3. Reconcile order state machine if delivered or returned
-	if event.Milestone == storeModels.ShipmentDelivered {
-		_, _ = s.ordersSvc.TransitionOrderStatus(ctx, shipment.OrderID, &orders.UpdateOrderStatusRequest{
+	var transition *orders.UpdateOrderStatusRequest
+	switch event.Milestone {
+	case storeModels.ShipmentDelivered:
+		transition = &orders.UpdateOrderStatusRequest{
 			Status: storeModels.OrderStatusDelivered,
 			Notes:  "Automated carrier webhook: parcel confirmed delivered",
-		})
-	} else if event.Milestone == storeModels.ShipmentReturned {
-		_, _ = s.ordersSvc.TransitionOrderStatus(ctx, shipment.OrderID, &orders.UpdateOrderStatusRequest{
+		}
+	case storeModels.ShipmentReturned:
+		transition = &orders.UpdateOrderStatusRequest{
 			Status: storeModels.OrderStatusCancelled,
 			Notes:  "Automated carrier webhook: parcel returned/cancelled by courier",
-		})
+		}
+	}
+	if transition != nil {
+		if _, err := s.ordersSvc.TransitionOrderStatus(ctx, shipment.OrderID, transition); err != nil {
+			// The order is already past this state; the milestone update above is kept.
+			if !errors.Is(err, orders.ErrInvalidOrderTransition) {
+				return fmt.Errorf("reconciling order %s after carrier milestone %s: %w", shipment.OrderID, event.Milestone, err)
+			}
+			slog.Default().Warn("Carrier milestone did not change order state",
+				slog.String("order_id", shipment.OrderID),
+				slog.String("milestone", string(event.Milestone)),
+				slog.String("reason", err.Error()),
+			)
+		}
 	}
 
 	return nil
 }
 
 // SaveCourierConfig persists store-level carrier keys with AES encryption.
+// Encryption failure is returned; a carrier secret is never stored in plaintext.
 func (s *Service) SaveCourierConfig(ctx context.Context, req *UpdateCourierConfigRequest) error {
 	stCtx, err := storeCtx.FromContext(ctx)
 	if err != nil {
@@ -204,17 +254,24 @@ func (s *Service) SaveCourierConfig(ctx context.Context, req *UpdateCourierConfi
 	encryptedKey := strings.TrimSpace(req.ApiKey)
 	encryptedSecret := strings.TrimSpace(req.SecretKey)
 
-	key := s.get32ByteKey()
-	if key != nil {
+	if encryptedKey != "" || encryptedSecret != "" {
+		key, err := s.secretKey()
+		if err != nil {
+			return err
+		}
 		if encryptedKey != "" {
-			if enc, err := crypto.EncryptAESGCM(encryptedKey, key); err == nil {
-				encryptedKey = enc
+			enc, err := crypto.EncryptAESGCM(encryptedKey, key)
+			if err != nil {
+				return fmt.Errorf("encrypting carrier api key: %w", err)
 			}
+			encryptedKey = enc
 		}
 		if encryptedSecret != "" {
-			if enc, err := crypto.EncryptAESGCM(encryptedSecret, key); err == nil {
-				encryptedSecret = enc
+			enc, err := crypto.EncryptAESGCM(encryptedSecret, key)
+			if err != nil {
+				return fmt.Errorf("encrypting carrier secret key: %w", err)
 			}
+			encryptedSecret = enc
 		}
 	}
 

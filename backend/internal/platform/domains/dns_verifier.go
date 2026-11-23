@@ -15,7 +15,7 @@ import (
 // DNSVerifier executes DNS queries to verify domain ownership.
 type DNSVerifier interface {
 	VerifyTXTRecord(ctx context.Context, domain, expectedToken string) (bool, error)
-	GenerateVerificationToken() string
+	GenerateVerificationToken() (string, error)
 }
 
 // StandardDNSVerifier implements DNS verification using Go's net.Resolver.
@@ -33,10 +33,13 @@ func NewStandardDNSVerifier() *StandardDNSVerifier {
 }
 
 // GenerateVerificationToken creates a cryptographically secure 16-byte hex token.
-func (v *StandardDNSVerifier) GenerateVerificationToken() string {
+// It returns an error when the system random source fails; no predictable fallback is used.
+func (v *StandardDNSVerifier) GenerateVerificationToken() (string, error) {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return fmt.Sprintf("ecom-verify-%s", hex.EncodeToString(b))
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate verification token from crypto/rand: %w", err)
+	}
+	return fmt.Sprintf("ecom-verify-%s", hex.EncodeToString(b)), nil
 }
 
 // VerifyTXTRecord queries DNS TXT records for _ecom-challenge.<domain> and <domain>.

@@ -12,13 +12,24 @@ interface DNSInstructionsModalProps {
   onClose: () => void;
   onVerify: () => void;
   isVerifying: boolean;
+  /** Verification error from the last attempt, shown inside the modal. */
+  errorMessage?: string | null;
 }
 
+/**
+ * DNSInstructionsModal shows the TXT ownership record for a domain and the CNAME routing record.
+ * The platform does not expose an edge CNAME target yet, so that value is shown as not available
+ * instead of a hard-coded hostname.
+ *
+ * @param props - Domain, close and verify handlers, busy flag, and inline error text
+ * @returns The DNS instructions modal
+ */
 export const DNSInstructionsModal: React.FC<DNSInstructionsModalProps> = ({
   domain,
   onClose,
   onVerify,
   isVerifying,
+  errorMessage = null,
 }) => {
   const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
 
@@ -112,21 +123,22 @@ export const DNSInstructionsModal: React.FC<DNSInstructionsModalProps> = ({
                 <span className="text-[10px] text-slate-400 block font-sans">Name</span>
                 <span className="font-bold text-slate-800">@ or shop</span>
               </div>
-              <div className="bg-white p-2.5 rounded border border-slate-200 flex justify-between items-center">
-                <div className="truncate mr-1">
-                  <span className="text-[10px] text-slate-400 block font-sans">Target</span>
-                  <span className="font-bold text-slate-800">edge.dropiobd.com</span>
-                </div>
-                <button
-                  onClick={() => copyToClipboard('edge.dropiobd.com', 'target')}
-                  className="p-1 hover:bg-slate-100 rounded text-slate-500"
-                >
-                  {copiedKey === 'target' ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-                </button>
+              <div className="bg-white p-2.5 rounded border border-slate-200">
+                <span className="text-[10px] text-slate-400 block font-sans">Target</span>
+                <span className="font-semibold text-slate-500 font-sans">Not configured</span>
               </div>
             </div>
+            <p className="text-[11px] text-slate-500 font-sans">
+              The server does not report an edge CNAME target yet. Get the target from the platform owner before adding this record.
+            </p>
           </div>
         </div>
+
+        {errorMessage && (
+          <div role="alert" className="mx-6 mb-0 mt-0 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 whitespace-pre-line">
+            {errorMessage}
+          </div>
+        )}
 
         {/* Modal Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">

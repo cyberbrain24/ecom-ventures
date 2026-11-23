@@ -140,7 +140,7 @@ func (d *RedXDriver) TrackConsignment(ctx context.Context, trackingNumber string
 
 // CancelConsignment handles cancellation for RedX parcels.
 func (d *RedXDriver) CancelConsignment(ctx context.Context, trackingNumber string, config *CourierConfig) error {
-	return nil
+	return fmt.Errorf("redx: %w", ErrCancellationNotImplemented)
 }
 
 // HandleStatusWebhook processes RedX webhook delivery notifications.

@@ -25,7 +25,7 @@ interface BlogPostPageProps {
 
 export async function generateMetadata({ params }: BlogPostPageProps): Promise<Metadata> {
   const headersList = headers();
-  const host = headersList.get('x-storefront-host') || 'localhost';
+  const host = headersList.get('x-storefront-host') || '';
   const post = await getStorefrontBlogPostBySlug(host, params.slug);
 
   if (!post) {
@@ -80,7 +80,7 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
 
 export default async function BlogPostDetailPage({ params }: BlogPostPageProps) {
   const headersList = headers();
-  const host = headersList.get('x-storefront-host') || 'localhost';
+  const host = headersList.get('x-storefront-host') || '';
 
   const [config, post] = await Promise.all([
     getStorefrontConfig(host),

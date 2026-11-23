@@ -22,6 +22,7 @@ type PublicCategoryNode struct {
 	FocusKeyword    string               `json:"focus_keyword,omitempty"`
 	CanonicalURL    string               `json:"canonical_url,omitempty"`
 	MetaRobots      string               `json:"meta_robots,omitempty"`
+	OGImageURL      string               `json:"og_image_url,omitempty"`
 	Children        []PublicCategoryNode `json:"children,omitempty"`
 }
 
@@ -37,9 +38,11 @@ type PublicProductCard struct {
 	HasDiscount      bool      `json:"has_discount"`
 	DiscountPercent  int       `json:"discount_percent,omitempty"`
 	InStock          bool      `json:"in_stock"`
+	IsFeatured       bool      `json:"is_featured"`
 	TotalVariants    int       `json:"total_variants"`
 	CategorySlug     *string   `json:"category_slug,omitempty"`
 	CategoryName     *string   `json:"category_name,omitempty"`
+	BrandName        *string   `json:"brand_name,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 }
 
@@ -50,7 +53,8 @@ type StorefrontFilterParams struct {
 	MinPrice     *float64
 	MaxPrice     *float64
 	InStockOnly  bool
-	Sort         string // "featured", "price_asc", "price_desc", "newest"
+	FeaturedOnly bool   // only products the merchant marked as featured, in the merchant's featured order
+	Sort         string // "featured", "price_asc", "price_desc", "newest"; empty follows the merchant's product order
 	Page         int
 	Limit        int
 }
@@ -91,25 +95,31 @@ type PublicAttributeOption struct {
 
 // PublicProductDetail represents the complete aggregate payload for the PDP.
 type PublicProductDetail struct {
-	ID               string                     `json:"id"`
-	Title            string                     `json:"title"`
-	Slug             string                     `json:"slug"`
-	SKU              string                     `json:"sku,omitempty"`
-	Summary          string                     `json:"summary,omitempty"`
-	Description      string                     `json:"description,omitempty"`
-	BasePrice        float64                    `json:"base_price"`
-	CompareAtPrice   *float64                   `json:"compare_at_price,omitempty"`
-	FeaturedImageURL string                     `json:"featured_image_url"`
-	CategorySlug     *string                    `json:"category_slug,omitempty"`
-	CategoryName     *string                    `json:"category_name,omitempty"`
-	MetaTitle        string                     `json:"meta_title,omitempty"`
-	MetaDescription  string                     `json:"meta_description,omitempty"`
-	FocusKeyword     string                     `json:"focus_keyword,omitempty"`
-	CanonicalURL     string                     `json:"canonical_url,omitempty"`
-	MetaRobots       string                     `json:"meta_robots,omitempty"`
-	OGImageURL       string                     `json:"og_image_url,omitempty"`
-	Images           []storeModels.ProductImage `json:"images"`
-	Attributes       []PublicAttributeOption    `json:"attributes"`
-	Variants         []PublicVariantDetail      `json:"variants"`
-	CreatedAt        time.Time                  `json:"created_at"`
+	ID               string   `json:"id"`
+	Title            string   `json:"title"`
+	Slug             string   `json:"slug"`
+	SKU              string   `json:"sku,omitempty"`
+	Summary          string   `json:"summary,omitempty"`
+	Description      string   `json:"description,omitempty"`
+	BasePrice        float64  `json:"base_price"`
+	CompareAtPrice   *float64 `json:"compare_at_price,omitempty"`
+	FeaturedImageURL string   `json:"featured_image_url"`
+	CategorySlug     *string  `json:"category_slug,omitempty"`
+	CategoryName     *string  `json:"category_name,omitempty"`
+	MetaTitle        string   `json:"meta_title,omitempty"`
+	MetaDescription  string   `json:"meta_description,omitempty"`
+	FocusKeyword     string   `json:"focus_keyword,omitempty"`
+	CanonicalURL     string   `json:"canonical_url,omitempty"`
+	MetaRobots       string   `json:"meta_robots,omitempty"`
+	OGImageURL       string   `json:"og_image_url,omitempty"`
+	// Brand and care instruction shown on the product page. Empty when the product has none or it is inactive.
+	BrandName            string                     `json:"brand_name,omitempty"`
+	BrandLogoURL         string                     `json:"brand_logo_url,omitempty"`
+	BrandOrigin          string                     `json:"brand_origin,omitempty"`
+	CareInstructionTitle string                     `json:"care_instruction_title,omitempty"`
+	CareInstructions     []string                   `json:"care_instructions"`
+	Images               []storeModels.ProductImage `json:"images"`
+	Attributes           []PublicAttributeOption    `json:"attributes"`
+	Variants             []PublicVariantDetail      `json:"variants"`
+	CreatedAt            time.Time                  `json:"created_at"`
 }

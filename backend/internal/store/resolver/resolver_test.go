@@ -27,24 +27,6 @@ func TestCleanHostString(t *testing.T) {
 	}
 }
 
-func TestExtractSubdomain(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"mior.localhost", "mior"},
-		{"branda.dropiobd.com", "branda"},
-		{"localhost", ""},
-	}
-
-	for _, tt := range tests {
-		got := extractSubdomain(tt.input)
-		if got != tt.expected {
-			t.Errorf("extractSubdomain(%q) = %q, expected %q", tt.input, got, tt.expected)
-		}
-	}
-}
-
 func TestSuspendedStoreRejection(t *testing.T) {
 	r := &StoreResolver{
 		encryptionKey: make([]byte, 32),

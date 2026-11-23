@@ -227,13 +227,10 @@ func (h *Handler) SubmitCustomerReview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if customerID == "" {
-		// If unauthenticated, allow customer ID from request or fallback
-		if fallbackID := r.Header.Get("X-Customer-ID"); fallbackID != "" {
-			customerID = fallbackID
-		} else {
-			response.Unauthorized(w, r, "Authentication or verified customer identity required to submit a review.")
-			return
-		}
+		// No customer authentication exists yet, so the X-Customer-ID header is not an identity.
+		// Anonymous review submission is rejected rather than attributed to a caller-supplied ID.
+		response.Unauthorized(w, r, "Customer authentication is required to submit a review.")
+		return
 	}
 
 	review, err := h.service.CreateCustomerReview(r.Context(), customerID, &req)

@@ -17,21 +17,21 @@ type PortfolioFinancialSummary struct {
 
 // BrandRevenueLeaderboardItem compares sales, AOV, order volume, and profitability margins across brands.
 type BrandRevenueLeaderboardItem struct {
-	Rank               int     `json:"rank"`
-	StoreID            string  `json:"store_id"`
-	StoreName          string  `json:"store_name"`
-	StoreSlug          string  `json:"store_slug"`
-	GrossSales         float64 `json:"gross_sales"`
-	NetRevenue         float64 `json:"net_revenue"`
-	OrderCount         int     `json:"order_count"`
-	AOV                float64 `json:"aov"`
-	COGS               float64 `json:"cogs"`
-	TotalExpenses      float64 `json:"total_expenses"`
-	NetProfit          float64 `json:"net_profit"`
-	OperatingMarginPct float64 `json:"operating_margin_pct"`
-	PlatformFeePaid    float64 `json:"platform_fee_paid"`
-	GrowthPct          float64 `json:"growth_pct"`
-	Status             string  `json:"status"` // ACTIVE, PROVISIONING, etc.
+	Rank               int      `json:"rank"`
+	StoreID            string   `json:"store_id"`
+	StoreName          string   `json:"store_name"`
+	StoreSlug          string   `json:"store_slug"`
+	GrossSales         float64  `json:"gross_sales"`
+	NetRevenue         float64  `json:"net_revenue"`
+	OrderCount         int      `json:"order_count"`
+	AOV                float64  `json:"aov"`
+	COGS               float64  `json:"cogs"`
+	TotalExpenses      float64  `json:"total_expenses"`
+	NetProfit          float64  `json:"net_profit"`
+	OperatingMarginPct float64  `json:"operating_margin_pct"`
+	PlatformFeePaid    float64  `json:"platform_fee_paid"`
+	GrowthPct          *float64 `json:"growth_pct"`
+	Status             string   `json:"status"` // ACTIVE, PROVISIONING, etc.
 }
 
 // BrandBillingRecord tracks platform usage fees, hosting cost allocations, and revenue sharing per brand.

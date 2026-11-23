@@ -122,3 +122,56 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+/**
+ * Converts any thrown value into text that is safe to show a person.
+ * For an API error it returns the RFC 7807 `detail`, followed by one line per field error from
+ * `invalid_params` when the server sent them. With no response at all (offline, DNS, timeout,
+ * CORS) it returns a clear network message. It never returns axios' generic
+ * "Request failed with status code N" text.
+ *
+ * @param error - The value caught from a failed request
+ * @param fallback - Text used when nothing more specific is known
+ * @returns Human-readable error text
+ */
+export function apiErrorMessage(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  if (axios.isAxiosError<Partial<ProblemDetails>>(error)) {
+    const response = error.response;
+    if (!response) {
+      if (error.code === 'ECONNABORTED') {
+        return 'The server took too long to answer. Check your connection and try again.';
+      }
+      return 'Cannot reach the server. Check your network connection and try again.';
+    }
+    const data = response.data;
+    const parts: string[] = [];
+    if (data && typeof data.detail === 'string' && data.detail.trim() !== '') {
+      parts.push(data.detail.trim());
+    }
+    if (data && Array.isArray(data.invalid_params)) {
+      for (const param of data.invalid_params) {
+        parts.push(`${param.field}: ${param.message}`);
+      }
+    }
+    if (parts.length > 0) return parts.join('\n');
+    return `The server rejected the request (HTTP ${response.status}).`;
+  }
+  if (error instanceof Error && error.message && !error.message.startsWith('Request failed with status code')) {
+    return error.message;
+  }
+  return fallback;
+}
+
+/**
+ * Returns the machine-readable RFC 7807 `code` of an API error (for example THEME_IN_USE),
+ * or undefined when the error carries none.
+ *
+ * @param error - The value caught from a failed request
+ * @returns The problem code, if any
+ */
+export function apiErrorCode(error: unknown): string | undefined {
+  if (axios.isAxiosError<Partial<ProblemDetails>>(error)) {
+    return error.response?.data?.code;
+  }
+  return undefined;
+}

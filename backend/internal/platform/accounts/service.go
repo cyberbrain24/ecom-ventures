@@ -3,7 +3,8 @@ package accounts
 import (
 	"context"
 	"database/sql"
-	"sort"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -17,157 +18,181 @@ func NewService(db *sql.DB) *Service {
 	return &Service{db: db}
 }
 
-// GetPortfolioOverview queries summarized financial metrics across all managed retail brand stores.
+func (s *Service) requireDB() error {
+	if s.db == nil {
+		return fmt.Errorf("platform accounts database is unavailable")
+	}
+	return nil
+}
+
+// GetPortfolioOverview queries summarized financial metrics across managed stores.
 func (s *Service) GetPortfolioOverview(ctx context.Context) (*PortfolioFinancialSummary, error) {
+	if err := s.requireDB(); err != nil {
+		return nil, err
+	}
 	summary := &PortfolioFinancialSummary{
 		Currency:         "BDT",
 		RevenueByStore:   make(map[string]float64),
 		UpdatedTimestamp: time.Now().UTC(),
 	}
 
-	if s.db == nil {
-		// Fallback prototype default metrics
-		summary.TotalGMV = 3450000.00
-		summary.TotalNetCashFlow = 2950000.00
-		summary.TotalPlatformFeesEarned = 172500.00
-		summary.TotalActiveStores = 3
-		summary.TotalOrdersProcessed = 428
-		summary.AverageOrderValue = 8060.75
-		summary.RevenueByStore["Mior Fashion"] = 1850000.00
-		summary.RevenueByStore["Branda Living"] = 980000.00
-		summary.RevenueByStore["Aura Silk Mills"] = 620000.00
-		return summary, nil
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM stores
+		WHERE status = 'ACTIVE'
+	`).Scan(&summary.TotalActiveStores)
+	if err != nil {
+		return nil, fmt.Errorf("count active stores: %w", err)
 	}
 
-	// 1. Count active stores
-	_ = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM stores WHERE status = 'ACTIVE'").Scan(&summary.TotalActiveStores)
-
-	// 2. Query portfolio_financial_summaries
-	query := `
-		SELECT 
-			COALESCE(SUM(gross_sales), 0),
-			COALESCE(SUM(net_sales), 0),
-			COALESCE(SUM(order_count), 0),
-			COALESCE(SUM(platform_fee_amount), 0)
+	err = s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(gross_sales), 0),
+		       COALESCE(SUM(net_sales), 0),
+		       COALESCE(SUM(order_count), 0),
+		       COALESCE(SUM(platform_fee_amount), 0),
+		       COALESCE(MAX(currency), 'BDT')
 		FROM portfolio_financial_summaries
-	`
-	_ = s.db.QueryRowContext(ctx, query).Scan(
+	`).Scan(
 		&summary.TotalGMV,
 		&summary.TotalNetCashFlow,
 		&summary.TotalOrdersProcessed,
 		&summary.TotalPlatformFeesEarned,
+		&summary.Currency,
 	)
-
-	// If no aggregated records exist yet, provide realistic active baseline
-	if summary.TotalGMV == 0 {
-		summary.TotalGMV = 3450000.00
-		summary.TotalNetCashFlow = 2950000.00
-		summary.TotalPlatformFeesEarned = 172500.00
-		summary.TotalOrdersProcessed = 428
+	if err != nil {
+		return nil, fmt.Errorf("query portfolio financial summary: %w", err)
 	}
-
 	if summary.TotalOrdersProcessed > 0 {
 		summary.AverageOrderValue = summary.TotalGMV / float64(summary.TotalOrdersProcessed)
 	}
 
-	// 3. Query breakdown by store name
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT s.name, COALESCE(SUM(pfs.gross_sales), 0)
 		FROM stores s
 		LEFT JOIN portfolio_financial_summaries pfs ON pfs.store_id = s.id
-		GROUP BY s.name
+		GROUP BY s.id, s.name
+		ORDER BY s.name
 	`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var name string
-			var sales float64
-			if err := rows.Scan(&name, &sales); err == nil && sales > 0 {
-				summary.RevenueByStore[name] = sales
-			}
+	if err != nil {
+		return nil, fmt.Errorf("query portfolio revenue by store: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var sales float64
+		if err := rows.Scan(&name, &sales); err != nil {
+			return nil, fmt.Errorf("scan portfolio revenue by store: %w", err)
 		}
+		summary.RevenueByStore[name] = sales
 	}
-
-	if len(summary.RevenueByStore) == 0 {
-		summary.RevenueByStore["Mior Fashion"] = 1850000.00
-		summary.RevenueByStore["Branda Living"] = 980000.00
-		summary.RevenueByStore["Aura Silk Mills"] = 620000.00
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate portfolio revenue by store: %w", err)
 	}
-
 	return summary, nil
 }
 
-// GetLeaderboard returns comparative metrics and profitability rankings across all active retail stores.
+// GetLeaderboard returns comparative metrics from the platform's stored monthly aggregates.
 func (s *Service) GetLeaderboard(ctx context.Context, period string) ([]BrandRevenueLeaderboardItem, error) {
-	// Baseline leaderboard with rich cross-brand financial metrics
-	items := []BrandRevenueLeaderboardItem{
-		{
-			Rank:               1,
-			StoreID:            "store-mior-01",
-			StoreName:          "Mior Fashion",
-			StoreSlug:          "mior",
-			GrossSales:         1850000.00,
-			NetRevenue:         1620000.00,
-			OrderCount:         215,
-			AOV:                8604.65,
-			COGS:               740000.00,
-			TotalExpenses:      310000.00,
-			NetProfit:          570000.00,
-			OperatingMarginPct: 30.81,
-			PlatformFeePaid:    92500.00,
-			GrowthPct:          18.4,
-			Status:             "ACTIVE",
-		},
-		{
-			Rank:               2,
-			StoreID:            "store-branda-02",
-			StoreName:          "Branda Living",
-			StoreSlug:          "branda",
-			GrossSales:         980000.00,
-			NetRevenue:         855000.00,
-			OrderCount:         132,
-			AOV:                7424.24,
-			COGS:               392000.00,
-			TotalExpenses:      185000.00,
-			NetProfit:          278000.00,
-			OperatingMarginPct: 28.37,
-			PlatformFeePaid:    49000.00,
-			GrowthPct:          12.1,
-			Status:             "ACTIVE",
-		},
-		{
-			Rank:               3,
-			StoreID:            "store-aura-03",
-			StoreName:          "Aura Silk Mills",
-			StoreSlug:          "aurasilk",
-			GrossSales:         620000.00,
-			NetRevenue:         545000.00,
-			OrderCount:         81,
-			AOV:                7654.32,
-			COGS:               248000.00,
-			TotalExpenses:      124000.00,
-			NetProfit:          173000.00,
-			OperatingMarginPct: 27.90,
-			PlatformFeePaid:    31000.00,
-			GrowthPct:          24.5,
-			Status:             "ACTIVE",
-		},
+	if err := s.requireDB(); err != nil {
+		return nil, err
 	}
+	period = strings.TrimSpace(period)
+	growthExpression := "NULL::double precision"
+	growthJoin := ""
+	growthGroupBy := ""
+	query := `
+		SELECT s.id::text, s.name, s.slug,
+		       COALESCE(SUM(pfs.gross_sales), 0),
+		       COALESCE(SUM(pfs.net_sales), 0),
+		       COALESCE(SUM(pfs.order_count), 0),
+		       CASE WHEN SUM(pfs.order_count) > 0
+		            THEN SUM(pfs.gross_sales) / SUM(pfs.order_count) ELSE 0 END,
+		       COALESCE(SUM(pfs.cogs), 0),
+		       COALESCE(SUM(pfs.total_expenses), 0),
+		       COALESCE(SUM(pfs.net_profit), 0),
+		       CASE WHEN SUM(pfs.gross_sales) > 0
+		            THEN 100 * SUM(pfs.net_profit) / SUM(pfs.gross_sales) ELSE 0 END,
+		       COALESCE(SUM(pfs.platform_fee_amount), 0),
+		       %s,
+		       s.status
+		FROM portfolio_financial_summaries pfs
+		JOIN stores s ON s.id = pfs.store_id
+		%s
+	`
+	var args []interface{}
+	if period != "" {
+		growthExpression = `CASE WHEN COALESCE(previous.gross_sales, 0) > 0
+			THEN 100 * (SUM(pfs.gross_sales) - previous.gross_sales) / previous.gross_sales
+			ELSE NULL END`
+		growthJoin = `
+			LEFT JOIN LATERAL (
+				SELECT SUM(previous_period.gross_sales) AS gross_sales
+				FROM portfolio_financial_summaries previous_period
+				WHERE previous_period.store_id = s.id
+				  AND previous_period.period_month = TO_CHAR(
+					TO_DATE($1 || '-01', 'YYYY-MM-DD') - INTERVAL '1 month', 'YYYY-MM'
+				  )
+			) previous ON TRUE
+		`
+		growthGroupBy = ", previous.gross_sales"
+		args = append(args, period)
+	}
+	query = fmt.Sprintf(query, growthExpression, growthJoin)
+	if period != "" {
+		query += " WHERE pfs.period_month = $1"
+	}
+	query += fmt.Sprintf(`
+		GROUP BY s.id, s.name, s.slug, s.status
+		%s
+		ORDER BY SUM(pfs.gross_sales) DESC, s.name
+	`, growthGroupBy)
 
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].GrossSales > items[j].GrossSales
-	})
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query portfolio revenue leaderboard: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]BrandRevenueLeaderboardItem, 0)
+	for rows.Next() {
+		var item BrandRevenueLeaderboardItem
+		var growthPct sql.NullFloat64
+		if err := rows.Scan(
+			&item.StoreID,
+			&item.StoreName,
+			&item.StoreSlug,
+			&item.GrossSales,
+			&item.NetRevenue,
+			&item.OrderCount,
+			&item.AOV,
+			&item.COGS,
+			&item.TotalExpenses,
+			&item.NetProfit,
+			&item.OperatingMarginPct,
+			&item.PlatformFeePaid,
+			&growthPct,
+			&item.Status,
+		); err != nil {
+			return nil, fmt.Errorf("scan portfolio revenue leaderboard: %w", err)
+		}
+		if growthPct.Valid {
+			item.GrowthPct = &growthPct.Float64
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate portfolio revenue leaderboard: %w", err)
+	}
 	for i := range items {
 		items[i].Rank = i + 1
 	}
-
 	return items, nil
 }
 
-// ListBillingRecords returns brand billing statements and invoices.
+// ListBillingRecords returns billing statements stored in the platform database.
 func (s *Service) ListBillingRecords(ctx context.Context, status string) ([]BrandBillingRecord, error) {
-	if s.db == nil {
-		return s.getFallbackBillingRecords(status), nil
+	if err := s.requireDB(); err != nil {
+		return nil, err
 	}
 
 	query := `
@@ -185,152 +210,81 @@ func (s *Service) ListBillingRecords(ctx context.Context, status string) ([]Bran
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return s.getFallbackBillingRecords(status), nil
+		return nil, fmt.Errorf("query billing records: %w", err)
 	}
 	defer rows.Close()
 
-	var records []BrandBillingRecord
+	records := make([]BrandBillingRecord, 0)
 	for rows.Next() {
-		var r BrandBillingRecord
+		var record BrandBillingRecord
 		var paidAt sql.NullTime
-		err := rows.Scan(
-			&r.ID, &r.StoreID, &r.StoreName, &r.StoreSlug, &r.InvoiceNumber,
-			&r.BillingCycle, &r.BaseFee, &r.RevenueSharePercentage, &r.RevenueShareAmount,
-			&r.HostingAllocation, &r.TotalDue, &r.Currency, &r.Status,
-			&r.DueDate, &paidAt, &r.CreatedAt,
-		)
-		if err != nil {
-			continue
+		if err := rows.Scan(
+			&record.ID,
+			&record.StoreID,
+			&record.StoreName,
+			&record.StoreSlug,
+			&record.InvoiceNumber,
+			&record.BillingCycle,
+			&record.BaseFee,
+			&record.RevenueSharePercentage,
+			&record.RevenueShareAmount,
+			&record.HostingAllocation,
+			&record.TotalDue,
+			&record.Currency,
+			&record.Status,
+			&record.DueDate,
+			&paidAt,
+			&record.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan billing record: %w", err)
 		}
 		if paidAt.Valid {
-			r.PaidAt = &paidAt.Time
+			record.PaidAt = &paidAt.Time
 		}
-		records = append(records, r)
+		records = append(records, record)
 	}
-
-	if len(records) == 0 {
-		return s.getFallbackBillingRecords(status), nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate billing records: %w", err)
 	}
 	return records, nil
 }
 
-func (s *Service) getFallbackBillingRecords(status string) []BrandBillingRecord {
-	paidTime := time.Now().AddDate(0, 0, -5)
-	records := []BrandBillingRecord{
-		{
-			ID:                     "inv-2026-11-001",
-			StoreID:                "store-mior-01",
-			StoreName:              "Mior Fashion",
-			StoreSlug:              "mior",
-			InvoiceNumber:          "INV-EV-2026-11-01",
-			BillingCycle:           "MONTHLY",
-			BaseFee:                25000.00,
-			RevenueSharePercentage: 5.0,
-			RevenueShareAmount:     92500.00,
-			HostingAllocation:      5000.00,
-			TotalDue:               122500.00,
-			Currency:               "BDT",
-			Status:                 "PAID",
-			DueDate:                "2026-11-10",
-			PaidAt:                 &paidTime,
-			CreatedAt:              time.Now().AddDate(0, 0, -10),
-		},
-		{
-			ID:                     "inv-2026-11-002",
-			StoreID:                "store-branda-02",
-			StoreName:              "Branda Living",
-			StoreSlug:              "branda",
-			InvoiceNumber:          "INV-EV-2026-11-02",
-			BillingCycle:           "MONTHLY",
-			BaseFee:                25000.00,
-			RevenueSharePercentage: 5.0,
-			RevenueShareAmount:     49000.00,
-			HostingAllocation:      5000.00,
-			TotalDue:               79000.00,
-			Currency:               "BDT",
-			Status:                 "INVOICED",
-			DueDate:                "2026-11-15",
-			CreatedAt:              time.Now().AddDate(0, 0, -8),
-		},
-		{
-			ID:                     "inv-2026-11-003",
-			StoreID:                "store-aura-03",
-			StoreName:              "Aura Silk Mills",
-			StoreSlug:              "aurasilk",
-			InvoiceNumber:          "INV-EV-2026-11-03",
-			BillingCycle:           "MONTHLY",
-			BaseFee:                25000.00,
-			RevenueSharePercentage: 5.0,
-			RevenueShareAmount:     31000.00,
-			HostingAllocation:      5000.00,
-			TotalDue:               61000.00,
-			Currency:               "BDT",
-			Status:                 "INVOICED",
-			DueDate:                "2026-11-18",
-			CreatedAt:              time.Now().AddDate(0, 0, -6),
-		},
-	}
-
-	if status == "" {
-		return records
-	}
-	var filtered []BrandBillingRecord
-	for _, r := range records {
-		if r.Status == status {
-			filtered = append(filtered, r)
-		}
-	}
-	return filtered
-}
-
-// UpdateBillingStatus marks a billing invoice as PAID or INVOICED.
+// UpdateBillingStatus marks a stored billing invoice as PAID or INVOICED.
 func (s *Service) UpdateBillingStatus(ctx context.Context, id string, status string) error {
-	if s.db == nil {
-		return nil
+	if err := s.requireDB(); err != nil {
+		return err
 	}
+	if status != "PAID" && status != "INVOICED" {
+		return fmt.Errorf("unsupported billing status %q", status)
+	}
+
 	var paidAt *time.Time
 	if status == "PAID" {
 		now := time.Now().UTC()
 		paidAt = &now
 	}
-	_, err := s.db.ExecContext(ctx, "UPDATE brand_billing_records SET status = $1, paid_at = $2 WHERE id = $3", status, paidAt, id)
-	return err
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE brand_billing_records SET status = $1, paid_at = $2 WHERE id = $3",
+		status, paidAt, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update billing status: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read billing update result: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("billing record %q not found", id)
+	}
+	return nil
 }
 
-// GetGatewayAllocations returns overview of payment gateway commissions and settlement rules.
+// GetGatewayAllocations returns stored payment-gateway analytics.
+// The platform schema has no gateway analytics table, so no metrics are fabricated.
 func (s *Service) GetGatewayAllocations(ctx context.Context) ([]GatewayCostAllocation, error) {
-	return []GatewayCostAllocation{
-		{
-			GatewayName:      "bKash Merchant Gateway",
-			TotalVolume:      1420000.00,
-			EffectiveFeeRate: 1.50,
-			TotalCommissions: 21300.00,
-			ActiveBrandCount: 3,
-			SettlementSpeed:  "Instant / T+0",
-		},
-		{
-			GatewayName:      "SSLCommerz (Cards & NetBanking)",
-			TotalVolume:      1150000.00,
-			EffectiveFeeRate: 2.20,
-			TotalCommissions: 25300.00,
-			ActiveBrandCount: 3,
-			SettlementSpeed:  "T+2 Settlement",
-		},
-		{
-			GatewayName:      "Stripe International (USD/Cards)",
-			TotalVolume:      380000.00,
-			EffectiveFeeRate: 2.90,
-			TotalCommissions: 11020.00,
-			ActiveBrandCount: 2,
-			SettlementSpeed:  "Rolling 7-day",
-		},
-		{
-			GatewayName:      "Cash on Delivery (Courier COD Handling)",
-			TotalVolume:      500000.00,
-			EffectiveFeeRate: 1.00,
-			TotalCommissions: 5000.00,
-			ActiveBrandCount: 3,
-			SettlementSpeed:  "Weekly Courier Payout",
-		},
-	}, nil
+	if err := s.requireDB(); err != nil {
+		return nil, err
+	}
+	return []GatewayCostAllocation{}, nil
 }

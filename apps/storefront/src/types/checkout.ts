@@ -51,3 +51,11 @@ export interface OrderReceipt {
   items: OrderReceiptItem[];
   created_at: string;
 }
+
+export interface StorePaymentGateway {
+  id: string;
+  name: string;
+  description: string;
+  is_default: boolean;
+  is_active: boolean;
+}

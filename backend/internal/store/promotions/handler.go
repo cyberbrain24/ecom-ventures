@@ -107,8 +107,7 @@ func (h *Handler) UpdateCoupon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	coupon, err := h.service.UpdateCoupon(r.Context(), couponID, &req)
-	if err != nil {
+	if err := h.service.UpdateCoupon(r.Context(), couponID, &req); err != nil {
 		if errors.Is(err, ErrCouponNotFound) {
 			response.WriteNotFound(w, r, "Coupon not found")
 			return
@@ -117,7 +116,39 @@ func (h *Handler) UpdateCoupon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	coupon, err := h.service.GetCoupon(r.Context(), couponID)
+	if err != nil {
+		response.WriteInternalError(w, r, "Failed to retrieve updated coupon: "+err.Error())
+		return
+	}
+
 	response.WriteJSON(w, http.StatusOK, coupon)
+}
+
+// ToggleCouponStatus handles PATCH /api/v1/store/{store_slug}/promotions/coupons/{coupon_id}/status
+func (h *Handler) ToggleCouponStatus(w http.ResponseWriter, r *http.Request) {
+	couponID := chi.URLParam(r, "coupon_id")
+	var req struct {
+		IsActive bool `json:"is_active"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.WriteBadRequest(w, r, "Invalid request payload: "+err.Error())
+		return
+	}
+
+	if err := h.service.ToggleCouponStatus(r.Context(), couponID, req.IsActive); err != nil {
+		if errors.Is(err, ErrCouponNotFound) {
+			response.WriteNotFound(w, r, "Coupon not found")
+			return
+		}
+		response.WriteInternalError(w, r, "Failed to toggle coupon status: "+err.Error())
+		return
+	}
+
+	response.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"is_active": req.IsActive,
+	})
 }
 
 // DeleteCoupon handles DELETE /api/v1/store/{store_slug}/promotions/coupons/{coupon_id}

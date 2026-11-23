@@ -68,10 +68,11 @@ type cachedStoreRecord struct {
 
 // ResolveByDomain resolves a store using an incoming Host or custom domain (e.g. mior.com, mior.localhost).
 func (r *StoreResolver) ResolveByDomain(ctx context.Context, rawHost string) (*storeCtx.StoreContext, error) {
+	// Only hosts bound to a store in the platform registry resolve. There is no localhost default
+	// and no fallback from a host's first label to a store slug.
 	cleanHost := cleanHostString(rawHost)
-	if cleanHost == "localhost" || cleanHost == "127.0.0.1" {
-		// When directly probing localhost without subdomain, default to pilot brand mior
-		return r.ResolveBySlug(ctx, "mior")
+	if cleanHost == "" {
+		return nil, ErrStoreNotFound
 	}
 
 	cacheKey := cachePrefixDomain + cleanHost
@@ -114,11 +115,6 @@ func (r *StoreResolver) ResolveByDomain(ctx context.Context, rawHost string) (*s
 	)
 
 	if err == sql.ErrNoRows {
-		// Fallback: check if cleanHost matches a store slug subdomain directly (e.g., mior.localhost)
-		subdomain := extractSubdomain(cleanHost)
-		if subdomain != "" {
-			return r.ResolveBySlug(ctx, subdomain)
-		}
 		return nil, ErrStoreNotFound
 	} else if err != nil {
 		return nil, fmt.Errorf("resolver: database error resolving domain %s: %w", cleanHost, err)
@@ -200,6 +196,66 @@ func (r *StoreResolver) InvalidateCache(ctx context.Context, domain, slug string
 	}
 }
 
+// PurgeStoreCache removes every Redis entry that belongs to one store: domain and slug
+// routing records, the cached theme, per-store data caches and per-domain rate-limit
+// counters. It is called when a store is permanently deleted so that no request can be
+// served from a stale entry and a later store reusing the slug starts clean.
+//
+// Inputs: the store ID, its slug and all of its domains. Output: the number of keys
+// removed. Side effects: Redis only. Tenant isolation: every pattern is anchored on this
+// store's own ID, slug or domains, so no other store's keys can match.
+func (r *StoreResolver) PurgeStoreCache(ctx context.Context, storeID, slug string, domains []string) (int, error) {
+	if r.redisClient == nil {
+		return 0, nil
+	}
+
+	cleanSlug := strings.ToLower(strings.TrimSpace(slug))
+	var keys []string
+	var patterns []string
+
+	if cleanSlug != "" {
+		keys = append(keys, cachePrefixSlug+cleanSlug)
+		patterns = append(patterns, "store:"+escapeRedisGlob(cleanSlug)+":*")
+	}
+	if storeID != "" {
+		keys = append(keys, "theme:store:"+storeID)
+	}
+	for _, d := range domains {
+		host := cleanHostString(d)
+		if host == "" {
+			continue
+		}
+		keys = append(keys, cachePrefixDomain+host)
+		// Matches "ratelimit:<host>:<tier>:<ip>" and "ratelimit:<host>:<port>:<tier>:<ip>".
+		patterns = append(patterns, "ratelimit:"+escapeRedisGlob(host)+":*")
+	}
+
+	for _, pattern := range patterns {
+		iter := r.redisClient.Scan(ctx, 0, pattern, 200).Iterator()
+		for iter.Next(ctx) {
+			keys = append(keys, iter.Val())
+		}
+		if err := iter.Err(); err != nil {
+			return 0, fmt.Errorf("resolver: scanning redis keys %q: %w", pattern, err)
+		}
+	}
+
+	if len(keys) == 0 {
+		return 0, nil
+	}
+	removed, err := r.redisClient.Del(ctx, keys...).Result()
+	if err != nil {
+		return 0, fmt.Errorf("resolver: deleting store cache keys: %w", err)
+	}
+	return int(removed), nil
+}
+
+// escapeRedisGlob escapes the characters that have a special meaning in a Redis MATCH pattern.
+func escapeRedisGlob(s string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`)
+	return replacer.Replace(s)
+}
+
 // buildStoreContext decrypts DB credentials, verifies status, and secures the tenant pool handle.
 func (r *StoreResolver) buildStoreContext(ctx context.Context, store *models.Store, domain string, isCustom bool) (*storeCtx.StoreContext, error) {
 	// Guard against inactive or suspended stores
@@ -256,13 +312,4 @@ func cleanHostString(host string) string {
 		h = h[:idx] // Strip port if present
 	}
 	return h
-}
-
-func extractSubdomain(host string) string {
-	parts := strings.Split(host, ".")
-	if len(parts) >= 2 {
-		// e.g. "mior.localhost" -> "mior"
-		return parts[0]
-	}
-	return ""
 }

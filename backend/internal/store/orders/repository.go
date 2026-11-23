@@ -21,6 +21,10 @@ type Repository interface {
 	CreateOrderTx(ctx context.Context, tx *sql.Tx, order *storeModels.Order, items []storeModels.OrderItem) error
 	GetOrderByID(ctx context.Context, db *sql.DB, id string) (*OrderDetailResponse, error)
 	ListOrders(ctx context.Context, db *sql.DB, filter *OrderFilterParams) ([]storeModels.Order, int, error)
+	GetOrderStatusCounts(ctx context.Context, db *sql.DB) (map[string]int, error)
+	GetOrderPulseDiagnostics(ctx context.Context, db *sql.DB) (*OrderPulseDiagnosticsResponse, error)
+	UpdateOrderPulseTags(ctx context.Context, db *sql.DB, orderID string, req *UpdateOrderPulseTagRequest) error
+	ExecutePartialSplit(ctx context.Context, db *sql.DB, orderID string, req *PartialSplitRequest, performedBy string) error
 	UpdateOrderStatusTx(ctx context.Context, tx *sql.Tx, orderID string, newStatus storeModels.OrderStatus) error
 	UpdatePaymentStatusTx(ctx context.Context, tx *sql.Tx, orderID string, newStatus storeModels.PaymentStatus) error
 	RecordStatusHistoryTx(ctx context.Context, tx *sql.Tx, history *storeModels.OrderStatusHistory) error
@@ -32,6 +36,14 @@ type Repository interface {
 	UpdateOrder(ctx context.Context, db *sql.DB, orderID string, req *UpdateOrderRequest) error
 	DeleteOrder(ctx context.Context, db *sql.DB, orderID string) error
 	UpdateCourierConsignment(ctx context.Context, db *sql.DB, orderID string, consignmentID, trackingCode string) error
+	UpdateFulfillmentFlags(ctx context.Context, db *sql.DB, orderID string, req *UpdateFulfillmentFlagsRequest) error
+	GetFulfillmentQueue(ctx context.Context, db *sql.DB, page, limit int, urgentOnly bool) (*FulfillmentQueueResponse, error)
+	HasRecentOrderPlaced(ctx context.Context, db *sql.DB, phone string, minutes int) (bool, error)
+	UpsertAbandonedCheckout(ctx context.Context, db *sql.DB, drop *storeModels.AbandonedCheckout) error
+	PurgeAbandonedCheckout(ctx context.Context, db *sql.DB, sessionToken, phone string) error
+	ListAbandonedCheckouts(ctx context.Context, db *sql.DB, status string, page, limit int) (*PaginatedAbandonedResponse, error)
+	UpdateAbandonedStatus(ctx context.Context, db *sql.DB, id, status, callNotes string, callbackAt *time.Time, agentID *string) error
+	ConvertAbandonedToOrder(ctx context.Context, db *sql.DB, dropID string, req *ConvertAbandonedToOrderRequest, agentID string) (*storeModels.Order, error)
 }
 
 // SQLRepository implements Repository for tenant PostgreSQL databases.
@@ -71,17 +83,19 @@ func (r *SQLRepository) CreateOrderTx(ctx context.Context, tx *sql.Tx, o *storeM
 		INSERT INTO orders (
 			order_number, customer_id, customer_email, customer_phone,
 			status, payment_status, currency, subtotal, shipping_fee, discount_amount, total_amount,
-			paid_amount, due_amount, risk_score_flags, special_note, shipping_district, shipping_thana,
+			paid_amount, due_amount, is_urgent, is_ready, is_print_ready, courier_risk_level, courier_delivery_ratio,
+			risk_score_flags, special_note, shipping_district, shipping_thana,
 			shipping_address, billing_address, payment_method, notes, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW(), NOW()
 		)
 		RETURNING id, created_at, updated_at
 	`
 	err = tx.QueryRowContext(ctx, queryOrder,
 		o.OrderNumber, o.CustomerID, o.CustomerEmail, o.CustomerPhone,
 		o.Status, o.PaymentStatus, o.Currency, o.Subtotal, o.ShippingFee, o.DiscountAmount, o.TotalAmount,
-		o.PaidAmount, o.DueAmount, string(riskJSON), o.SpecialNote, o.ShippingDistrict, o.ShippingThana,
+		o.PaidAmount, o.DueAmount, o.IsUrgent, o.IsReady, o.IsPrintReady, o.CourierRiskLevel, o.CourierDeliveryRatio,
+		string(riskJSON), o.SpecialNote, o.ShippingDistrict, o.ShippingThana,
 		string(shippingJSON), string(billingJSON), o.PaymentMethod, o.Notes,
 	).Scan(&o.ID, &o.CreatedAt, &o.UpdatedAt)
 	if err != nil {
@@ -113,7 +127,9 @@ func (r *SQLRepository) GetOrderByID(ctx context.Context, db *sql.DB, id string)
 	queryOrder := `
 		SELECT id, order_number, customer_id, customer_email, customer_phone,
 		       status, payment_status, currency, subtotal, shipping_fee, discount_amount, total_amount,
-		       paid_amount, due_amount, risk_score_flags, courier_consignment_id, courier_tracking_code,
+		       paid_amount, due_amount, is_urgent, is_ready, is_print_ready,
+		       COALESCE(courier_risk_level, 'LOW'), COALESCE(courier_delivery_ratio, 0.00),
+		       risk_score_flags, courier_consignment_id, courier_tracking_code,
 		       courier_status_sync_at, special_note, shipping_district, shipping_thana,
 		       shipping_address, billing_address, payment_method, notes, created_at, updated_at
 		FROM orders
@@ -132,7 +148,9 @@ func (r *SQLRepository) GetOrderByID(ctx context.Context, db *sql.DB, id string)
 	err := db.QueryRowContext(ctx, queryOrder, id).Scan(
 		&o.ID, &o.OrderNumber, &customerID, &customerEmail, &customerPhone,
 		&o.Status, &o.PaymentStatus, &o.Currency, &o.Subtotal, &o.ShippingFee, &o.DiscountAmount, &o.TotalAmount,
-		&o.PaidAmount, &o.DueAmount, &riskFlagsStr, &courierConsignmentID, &courierTrackingCode,
+		&o.PaidAmount, &o.DueAmount, &o.IsUrgent, &o.IsReady, &o.IsPrintReady,
+		&o.CourierRiskLevel, &o.CourierDeliveryRatio,
+		&riskFlagsStr, &courierConsignmentID, &courierTrackingCode,
 		&courierStatusSyncAt, &specialNote, &shippingDistrict, &shippingThana,
 		&shippingStr, &billingStr, &paymentMethod, &notes, &o.CreatedAt, &o.UpdatedAt,
 	)
@@ -311,10 +329,18 @@ func (r *SQLRepository) GetOrderByID(ctx context.Context, db *sql.DB, id string)
 
 func (r *SQLRepository) GetOrderItems(ctx context.Context, db *sql.DB, orderID string) ([]storeModels.OrderItem, error) {
 	queryItems := `
-		SELECT id, order_id, variant_id, product_title, variant_title, sku, unit_price, quantity, total_price, created_at
-		FROM order_items
-		WHERE order_id = $1
-		ORDER BY created_at ASC
+		SELECT oi.id, oi.order_id, oi.variant_id, oi.product_title, oi.variant_title, oi.sku, oi.unit_price, oi.quantity, oi.total_price,
+		       COALESCE(
+		           (SELECT pi.url FROM product_images pi JOIN variant_images vi ON vi.image_id = pi.id WHERE vi.variant_id = oi.variant_id LIMIT 1),
+		           p.featured_image_url
+		       ) AS image_url,
+		       COALESCE(oi.item_status, 'DELIVERED'), oi.return_reason,
+		       oi.created_at
+		FROM order_items oi
+		LEFT JOIN product_variants pv ON pv.id = oi.variant_id
+		LEFT JOIN products p ON p.id = pv.product_id OR p.id = oi.product_id
+		WHERE oi.order_id = $1
+		ORDER BY oi.created_at ASC
 	`
 	rows, err := db.QueryContext(ctx, queryItems, orderID)
 	if err != nil {
@@ -325,10 +351,12 @@ func (r *SQLRepository) GetOrderItems(ctx context.Context, db *sql.DB, orderID s
 	var items []storeModels.OrderItem
 	for rows.Next() {
 		var it storeModels.OrderItem
-		var prodTitle, varTitle, sku sql.NullString
+		var prodTitle, varTitle, sku, imgURL, itemStatus, returnReason sql.NullString
 		if err := rows.Scan(
 			&it.ID, &it.OrderID, &it.VariantID, &prodTitle, &varTitle,
-			&sku, &it.UnitPrice, &it.Quantity, &it.TotalPrice, &it.CreatedAt,
+			&sku, &it.UnitPrice, &it.Quantity, &it.TotalPrice, &imgURL,
+			&itemStatus, &returnReason,
+			&it.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -340,6 +368,15 @@ func (r *SQLRepository) GetOrderItems(ctx context.Context, db *sql.DB, orderID s
 		}
 		if sku.Valid {
 			it.SKU = sku.String
+		}
+		if imgURL.Valid && imgURL.String != "" {
+			it.ImageURL = &imgURL.String
+		}
+		if itemStatus.Valid {
+			it.ItemStatus = itemStatus.String
+		}
+		if returnReason.Valid {
+			it.ReturnReason = &returnReason.String
 		}
 		items = append(items, it)
 	}
@@ -401,9 +438,13 @@ func (r *SQLRepository) ListOrders(ctx context.Context, db *sql.DB, filter *Orde
 	query := fmt.Sprintf(`
 		SELECT id, order_number, customer_id, customer_email, customer_phone,
 		       status, payment_status, currency, subtotal, shipping_fee, discount_amount, total_amount,
-		       paid_amount, due_amount, risk_score_flags, courier_consignment_id, courier_tracking_code,
+		       paid_amount, due_amount, is_urgent, is_ready, is_print_ready,
+		       COALESCE(courier_risk_level, 'LOW'), COALESCE(courier_delivery_ratio, 0.00),
+		       risk_score_flags, courier_consignment_id, courier_tracking_code,
 		       courier_status_sync_at, special_note, shipping_district, shipping_thana,
-		       shipping_address, payment_method, notes, created_at, updated_at
+		       shipping_address, payment_method, notes,
+		       delay_blocker_reason, cancellation_root_cause, return_root_cause, is_partial_split, parent_order_id,
+		       created_at, updated_at
 		FROM orders
 		WHERE %s
 		ORDER BY created_at DESC
@@ -426,14 +467,19 @@ func (r *SQLRepository) ListOrders(ctx context.Context, db *sql.DB, filter *Orde
 		var paymentMethod, notes sql.NullString
 		var riskFlagsStr sql.NullString
 		var courierConsignmentID, courierTrackingCode, specialNote, shippingDistrict, shippingThana sql.NullString
+		var delayBlockerReason, cancellationRootCause, returnRootCause, parentOrderID sql.NullString
 		var courierStatusSyncAt *time.Time
 
 		if err := rows.Scan(
 			&o.ID, &o.OrderNumber, &customerID, &customerEmail, &customerPhone,
 			&o.Status, &o.PaymentStatus, &o.Currency, &o.Subtotal, &o.ShippingFee, &o.DiscountAmount, &o.TotalAmount,
-			&o.PaidAmount, &o.DueAmount, &riskFlagsStr, &courierConsignmentID, &courierTrackingCode,
+			&o.PaidAmount, &o.DueAmount, &o.IsUrgent, &o.IsReady, &o.IsPrintReady,
+			&o.CourierRiskLevel, &o.CourierDeliveryRatio,
+			&riskFlagsStr, &courierConsignmentID, &courierTrackingCode,
 			&courierStatusSyncAt, &specialNote, &shippingDistrict, &shippingThana,
-			&shippingStr, &paymentMethod, &notes, &o.CreatedAt, &o.UpdatedAt,
+			&shippingStr, &paymentMethod, &notes,
+			&delayBlockerReason, &cancellationRootCause, &returnRootCause, &o.IsPartialSplit, &parentOrderID,
+			&o.CreatedAt, &o.UpdatedAt,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -467,6 +513,18 @@ func (r *SQLRepository) ListOrders(ctx context.Context, db *sql.DB, filter *Orde
 		if courierTrackingCode.Valid {
 			o.CourierTrackingCode = &courierTrackingCode.String
 		}
+		if delayBlockerReason.Valid {
+			o.DelayBlockerReason = &delayBlockerReason.String
+		}
+		if cancellationRootCause.Valid {
+			o.CancellationRootCause = &cancellationRootCause.String
+		}
+		if returnRootCause.Valid {
+			o.ReturnRootCause = &returnRootCause.String
+		}
+		if parentOrderID.Valid {
+			o.ParentOrderID = &parentOrderID.String
+		}
 		o.CourierStatusSyncAt = courierStatusSyncAt
 
 		if riskFlagsStr.Valid && riskFlagsStr.String != "" {
@@ -490,6 +548,45 @@ func (r *SQLRepository) ListOrders(ctx context.Context, db *sql.DB, filter *Orde
 	}
 
 	return ordersList, total, rows.Err()
+}
+
+func (r *SQLRepository) GetOrderStatusCounts(ctx context.Context, db *sql.DB) (map[string]int, error) {
+	counts := map[string]int{
+		"ALL":                 0,
+		"PLACED":              0,
+		"REVIEW":              0,
+		"PENDING":             0,
+		"DELAYED":             0,
+		"HOLD":                0,
+		"APPROVAL_PENDING":    0,
+		"CONFIRMED":           0,
+		"PROCESSING":          0,
+		"SHIPPED":             0,
+		"DELIVERED":           0,
+		"PARTIALLY_DELIVERED": 0,
+		"RETURNED":            0,
+		"CANCELLED":           0,
+		"MANUALLY_CANCELLED":  0,
+	}
+
+	query := `SELECT status, COUNT(*) FROM orders GROUP BY status`
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return counts, err
+	}
+	defer rows.Close()
+
+	total := 0
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err == nil {
+			counts[status] = count
+			total += count
+		}
+	}
+	counts["ALL"] = total
+	return counts, nil
 }
 
 func (r *SQLRepository) UpdateOrderStatusTx(ctx context.Context, tx *sql.Tx, orderID string, newStatus storeModels.OrderStatus) error {
@@ -666,6 +763,261 @@ func (r *SQLRepository) DeleteOrder(ctx context.Context, db *sql.DB, orderID str
 		return ErrOrderNotFound
 	}
 	return nil
+}
+
+// UpdateOrderPulseTags updates delay_blocker_reason, cancellation_root_cause, or return_root_cause.
+func (r *SQLRepository) UpdateOrderPulseTags(ctx context.Context, db *sql.DB, orderID string, req *UpdateOrderPulseTagRequest) error {
+	sets := []string{}
+	args := []interface{}{}
+	argIdx := 1
+
+	if req.DelayBlockerReason != nil {
+		sets = append(sets, fmt.Sprintf("delay_blocker_reason = $%d", argIdx))
+		args = append(args, *req.DelayBlockerReason)
+		argIdx++
+	}
+	if req.CancellationRootCause != nil {
+		sets = append(sets, fmt.Sprintf("cancellation_root_cause = $%d", argIdx))
+		args = append(args, *req.CancellationRootCause)
+		argIdx++
+	}
+	if req.ReturnRootCause != nil {
+		sets = append(sets, fmt.Sprintf("return_root_cause = $%d", argIdx))
+		args = append(args, *req.ReturnRootCause)
+		argIdx++
+	}
+
+	if len(sets) == 0 {
+		return nil
+	}
+
+	sets = append(sets, "updated_at = NOW()")
+	query := fmt.Sprintf("UPDATE orders SET %s WHERE id = $%d", strings.Join(sets, ", "), argIdx)
+	args = append(args, orderID)
+
+	res, err := db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to update orderpulse tags: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrOrderNotFound
+	}
+	return nil
+}
+
+// GetOrderPulseDiagnostics aggregates Pillar 1 (Hub Aging), Pillar 2 (Cancellations), and Pillar 3 (Catalog R&D Matrix).
+func (r *SQLRepository) GetOrderPulseDiagnostics(ctx context.Context, db *sql.DB) (*OrderPulseDiagnosticsResponse, error) {
+	resp := &OrderPulseDiagnosticsResponse{
+		AgingSummary: OrderPulseAgingSummary{
+			BlockerCounts: make(map[string]int),
+		},
+		CancellationSummary: OrderPulseCancellationSummary{
+			PreDispatchCauses:  make(map[string]int),
+			PostDispatchCauses: make(map[string]int),
+		},
+		CatalogRDMatrix: make([]CatalogRDMatrixItem, 0),
+	}
+
+	// 1. Pillar 1: Hub Aging for unshipped orders ('PLACED', 'REVIEW', 'PENDING', 'DELAYED', 'HOLD')
+	agingQuery := `
+		SELECT 
+			EXTRACT(EPOCH FROM (NOW() - created_at))/3600.0 AS aging_hours,
+			COALESCE(delay_blocker_reason, 'Untagged Blocker') AS blocker
+		FROM orders
+		WHERE status IN ('PLACED', 'REVIEW', 'PENDING', 'DELAYED', 'HOLD')
+	`
+	rows, err := db.QueryContext(ctx, agingQuery)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var hours float64
+			var blocker string
+			if err := rows.Scan(&hours, &blocker); err == nil {
+				if hours >= 24 {
+					resp.AgingSummary.TotalDelayedCount++
+					resp.AgingSummary.BlockerCounts[blocker]++
+
+					if hours >= 24 && hours < 48 {
+						resp.AgingSummary.Aging24to48hCount++
+					} else if hours >= 48 && hours < 72 {
+						resp.AgingSummary.Aging48to72hCount++
+					} else if hours >= 72 {
+						resp.AgingSummary.CriticalOver72h++
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Pillar 2: Pre-Dispatch (MANUALLY_CANCELLED) vs Post-Dispatch (CANCELLED, RETURNED)
+	cancelsQuery := `
+		SELECT status, COALESCE(cancellation_root_cause, COALESCE(return_root_cause, 'Untagged')) AS cause
+		FROM orders
+		WHERE status IN ('CANCELLED', 'MANUALLY_CANCELLED', 'RETURNED')
+	`
+	cRows, err := db.QueryContext(ctx, cancelsQuery)
+	if err == nil {
+		defer cRows.Close()
+		totalPre := 0
+		totalPost := 0
+		for cRows.Next() {
+			var st, cause string
+			if err := cRows.Scan(&st, &cause); err == nil {
+				if st == "MANUALLY_CANCELLED" {
+					totalPre++
+					resp.CancellationSummary.PreDispatchCauses[cause]++
+				} else {
+					totalPost++
+					resp.CancellationSummary.PostDispatchCauses[cause]++
+				}
+			}
+		}
+		resp.CancellationSummary.PreDispatchCount = totalPre
+		resp.CancellationSummary.PostDispatchCount = totalPost
+
+		// Compute top pre reason
+		maxCount := 0
+		for cause, cnt := range resp.CancellationSummary.PreDispatchCauses {
+			if cnt > maxCount && cause != "Untagged" {
+				maxCount = cnt
+				resp.CancellationSummary.TopPreReason = cause
+			}
+		}
+
+		// Compute friction rate against all orders
+		var totalOrders int
+		_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM orders`).Scan(&totalOrders)
+		if totalOrders > 0 {
+			resp.CancellationSummary.FrictionRate = float64(totalPre) / float64(totalOrders) * 100.0
+		}
+	}
+
+	// 3. Partial Deliveries Summary
+	_ = db.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(paid_amount), 0.0)
+		FROM orders
+		WHERE is_partial_split = TRUE OR status = 'PARTIALLY_DELIVERED'
+	`).Scan(&resp.PartialCount, &resp.PartialRecoveredBDT)
+
+	resp.TopPartialReason = "Sizing Mismatch"
+
+	// 4. Pillar 3: Catalog R&D Matrix (Top returned SKUs and root causes)
+	rdQuery := `
+		SELECT 
+			oi.variant_id,
+			oi.sku,
+			oi.product_title,
+			oi.variant_title,
+			COALESCE(
+				(SELECT pi.url FROM product_images pi JOIN variant_images vi ON vi.image_id = pi.id WHERE vi.variant_id = oi.variant_id LIMIT 1),
+				p.featured_image_url
+			) AS image_url,
+			COUNT(oi.id) AS ret_qty,
+			COALESCE(oi.return_reason, COALESCE(o.return_root_cause, 'Sizing Mismatch')) AS reason
+		FROM order_items oi
+		JOIN orders o ON o.id = oi.order_id
+		LEFT JOIN product_variants pv ON pv.id = oi.variant_id
+		LEFT JOIN products p ON p.id = pv.product_id OR p.id = oi.product_id
+		WHERE oi.item_status = 'RETURNED' OR o.status IN ('RETURNED', 'PARTIALLY_DELIVERED')
+		GROUP BY oi.variant_id, oi.sku, oi.product_title, oi.variant_title, image_url, reason
+		ORDER BY ret_qty DESC
+		LIMIT 20
+	`
+	rdRows, err := db.QueryContext(ctx, rdQuery)
+	if err == nil {
+		defer rdRows.Close()
+		skuMap := make(map[string]*CatalogRDMatrixItem)
+		for rdRows.Next() {
+			var varID, sku, prodTitle, varTitle, reason string
+			var imgURL sql.NullString
+			var qty int
+			if err := rdRows.Scan(&varID, &sku, &prodTitle, &varTitle, &imgURL, &qty, &reason); err == nil {
+				item, exists := skuMap[sku]
+				if !exists {
+					var imgPtr *string
+					if imgURL.Valid && imgURL.String != "" {
+						imgPtr = &imgURL.String
+					}
+					item = &CatalogRDMatrixItem{
+						VariantID:        varID,
+						SKU:              sku,
+						ProductTitle:     prodTitle,
+						VariantTitle:     varTitle,
+						ImageURL:         imgPtr,
+						ReturnedQuantity: 0,
+						PrimaryRootCause: reason,
+						ReasonBreakdown:  make(map[string]int),
+					}
+					skuMap[sku] = item
+				}
+				item.ReturnedQuantity += qty
+				item.ReasonBreakdown[reason] += qty
+			}
+		}
+
+		for _, item := range skuMap {
+			maxR := 0
+			for rName, rCnt := range item.ReasonBreakdown {
+				if rCnt > maxR {
+					maxR = rCnt
+					item.PrimaryRootCause = rName
+				}
+			}
+			resp.CatalogRDMatrix = append(resp.CatalogRDMatrix, *item)
+		}
+	}
+
+	return resp, nil
+}
+
+// ExecutePartialSplit handles 1-click partial delivery order segregation.
+func (r *SQLRepository) ExecutePartialSplit(ctx context.Context, db *sql.DB, orderID string, req *PartialSplitRequest, performedBy string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Mark original order as is_partial_split = true and status = 'PARTIALLY_DELIVERED'
+	_, err = tx.ExecContext(ctx, `
+		UPDATE orders 
+		SET is_partial_split = TRUE,
+		    status = 'PARTIALLY_DELIVERED',
+		    updated_at = NOW()
+		WHERE id = $1
+	`, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to update order partial split flag: %w", err)
+	}
+
+	// 2. Update individual order items status and return reason
+	for _, it := range req.Items {
+		itemStatus := "DELIVERED"
+		if it.Action == "RETURN" {
+			itemStatus = "RETURNED"
+		}
+		_, err = tx.ExecContext(ctx, `
+			UPDATE order_items
+			SET item_status = $1,
+			    return_reason = $2
+			WHERE id = $3 AND order_id = $4
+		`, itemStatus, it.ReturnReason, it.ItemID, orderID)
+		if err != nil {
+			return fmt.Errorf("failed to update order item status: %w", err)
+		}
+	}
+
+	// 3. Record status history
+	_, _ = tx.ExecContext(ctx, `
+		INSERT INTO order_status_history (order_id, old_status, new_status, performed_by, notes, created_at)
+		VALUES ($1, 'SHIPPED', 'PARTIALLY_DELIVERED', $2, $3, NOW())
+	`, orderID, performedBy, "Partial Split executed via OrderPulse Analytics: "+req.Notes)
+
+	return tx.Commit()
 }
 
 func (r *SQLRepository) UpdateCourierConsignment(ctx context.Context, db *sql.DB, orderID string, consignmentID, trackingCode string) error {

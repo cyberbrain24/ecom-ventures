@@ -49,10 +49,14 @@ func (s *VariantsService) CreateAttribute(ctx context.Context, req *CreateAttrib
 	attr := &storeModels.Attribute{
 		Name:        strings.TrimSpace(req.Name),
 		Code:        cleanCode,
-		DisplayType: strings.ToUpper(strings.TrimSpace(req.DisplayType)),
+		DataType:    strings.ToLower(strings.TrimSpace(req.DataType)),
+		DisplayType: strings.ToLower(strings.TrimSpace(req.DisplayType)),
+	}
+	if attr.DataType == "" {
+		attr.DataType = "select"
 	}
 	if attr.DisplayType == "" {
-		attr.DisplayType = "SELECT"
+		attr.DisplayType = "text"
 	}
 
 	if err := s.repo.CreateAttribute(ctx, stCtx.TenantDB, attr); err != nil {
@@ -66,6 +70,7 @@ func (s *VariantsService) CreateAttribute(ctx context.Context, req *CreateAttrib
 			Value:        strings.TrimSpace(valReq.Value),
 			DisplayValue: strings.TrimSpace(valReq.DisplayValue),
 			ColorHex:     valReq.ColorHex,
+			ImageURL:     strings.TrimSpace(valReq.ImageURL),
 			SortOrder:    idx,
 		}
 		if val.DisplayValue == "" {
@@ -92,6 +97,18 @@ func (s *VariantsService) ListAttributes(ctx context.Context) ([]AttributeDetail
 	return s.repo.ListAttributes(ctx, stCtx.TenantDB)
 }
 
+// ReorderAttributes saves the order of the attribute list.
+func (s *VariantsService) ReorderAttributes(ctx context.Context, ids []string) error {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return err
+	}
+	if err := ValidateOrderedIDs(ids); err != nil {
+		return err
+	}
+	return s.repo.ReorderAttributes(ctx, stCtx.TenantDB, ids)
+}
+
 // AddAttributeValue adds an option value to an existing attribute.
 func (s *VariantsService) AddAttributeValue(ctx context.Context, attributeID string, req *CreateAttributeValueRequest) (*storeModels.AttributeValue, error) {
 	stCtx, err := storeCtx.FromContext(ctx)
@@ -104,6 +121,7 @@ func (s *VariantsService) AddAttributeValue(ctx context.Context, attributeID str
 		Value:        strings.TrimSpace(req.Value),
 		DisplayValue: strings.TrimSpace(req.DisplayValue),
 		ColorHex:     req.ColorHex,
+		ImageURL:     strings.TrimSpace(req.ImageURL),
 		SortOrder:    req.SortOrder,
 	}
 	if val.DisplayValue == "" {
@@ -114,6 +132,41 @@ func (s *VariantsService) AddAttributeValue(ctx context.Context, attributeID str
 		return nil, fmt.Errorf("failed to insert attribute value: %w", err)
 	}
 	return val, nil
+}
+
+// UpdateAttribute modifies an attribute's name, data type, and display type.
+func (s *VariantsService) UpdateAttribute(ctx context.Context, id string, name, dataType, displayType string) error {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return err
+	}
+	cleanData := strings.ToLower(strings.TrimSpace(dataType))
+	if cleanData == "" {
+		cleanData = "select"
+	}
+	cleanDisplay := strings.ToLower(strings.TrimSpace(displayType))
+	if cleanDisplay == "" {
+		cleanDisplay = "text"
+	}
+	return s.repo.UpdateAttribute(ctx, stCtx.TenantDB, id, strings.TrimSpace(name), cleanData, cleanDisplay)
+}
+
+// DeleteAttribute removes an attribute from the store database.
+func (s *VariantsService) DeleteAttribute(ctx context.Context, id string) error {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.repo.DeleteAttribute(ctx, stCtx.TenantDB, id)
+}
+
+// DeleteAttributeValue removes a single attribute option value.
+func (s *VariantsService) DeleteAttributeValue(ctx context.Context, id string) error {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return err
+	}
+	return s.repo.DeleteAttributeValue(ctx, stCtx.TenantDB, id)
 }
 
 // PreviewMatrix computes the Cartesian product proposal without writing to the database.

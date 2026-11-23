@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	storeModels "ecom-ventures/backend/internal/store/models"
@@ -74,6 +75,97 @@ func (d *PathaoDriver) issueAccessToken(ctx context.Context, config *CourierConf
 	return result.AccessToken, nil
 }
 
+// pathaoLocation is one entry of a Pathao city or zone listing.
+type pathaoLocation struct {
+	ID   int
+	Name string
+}
+
+// fetchLocations reads a Pathao location listing. idKey and nameKey select the id and name fields
+// of each entry (city_id/city_name or zone_id/zone_name).
+func (d *PathaoDriver) fetchLocations(ctx context.Context, token, url, idKey, nameKey string) ([]pathaoLocation, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("building pathao location request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("pathao location lookup network error: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("pathao location lookup returned HTTP %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Data struct {
+			Data []map[string]interface{} `json:"data"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding pathao location listing: %w", err)
+	}
+	out := make([]pathaoLocation, 0, len(result.Data.Data))
+	for _, row := range result.Data.Data {
+		idVal, ok := row[idKey].(float64)
+		if !ok {
+			continue
+		}
+		name, _ := row[nameKey].(string)
+		out = append(out, pathaoLocation{ID: int(idVal), Name: name})
+	}
+	return out, nil
+}
+
+// matchLocation finds the entry whose name equals want, ignoring case and surrounding space.
+func matchLocation(locs []pathaoLocation, want string) (int, bool) {
+	want = strings.ToLower(strings.TrimSpace(want))
+	if want == "" {
+		return 0, false
+	}
+	for _, l := range locs {
+		if strings.ToLower(strings.TrimSpace(l.Name)) == want {
+			return l.ID, true
+		}
+	}
+	return 0, false
+}
+
+// resolveLocation maps the order's city and state/province (zone) names to Pathao city and zone IDs
+// through the Pathao location API. An address that does not match is an error; no default city or
+// zone is ever substituted.
+func (d *PathaoDriver) resolveLocation(ctx context.Context, token string, config *CourierConfig, city string, zone *string) (int, int, error) {
+	if strings.TrimSpace(city) == "" {
+		return 0, 0, errors.New("pathao: the shipping address has no city")
+	}
+	if zone == nil || strings.TrimSpace(*zone) == "" {
+		return 0, 0, errors.New("pathao: the shipping address has no zone; set the state/province field to the Pathao zone name")
+	}
+	base := d.getBaseURL(config.IsTestMode)
+
+	cities, err := d.fetchLocations(ctx, token, base+"/aladdin/api/v1/countries/1/city-list", "city_id", "city_name")
+	if err != nil {
+		return 0, 0, err
+	}
+	cityID, ok := matchLocation(cities, city)
+	if !ok {
+		return 0, 0, fmt.Errorf("pathao: city %q is not a Pathao city", city)
+	}
+
+	zones, err := d.fetchLocations(ctx, token, fmt.Sprintf("%s/aladdin/api/v1/cities/%d/zone-list", base, cityID), "zone_id", "zone_name")
+	if err != nil {
+		return 0, 0, err
+	}
+	zoneID, ok := matchLocation(zones, *zone)
+	if !ok {
+		return 0, 0, fmt.Errorf("pathao: zone %q is not a Pathao zone in city %q", *zone, city)
+	}
+	return cityID, zoneID, nil
+}
+
 // CreateConsignment dispatches an order through Pathao Courier API.
 func (d *PathaoDriver) CreateConsignment(ctx context.Context, order *storeModels.Order, config *CourierConfig, req *DispatchOrderRequest) (*ConsignmentResponse, error) {
 	token, err := d.issueAccessToken(ctx, config)
@@ -91,7 +183,15 @@ func (d *PathaoDriver) CreateConsignment(ctx context.Context, order *storeModels
 		codAmount = req.CollectableAmount
 	}
 
-	storeID, _ := strconv.Atoi(config.ClientID)
+	storeID, err := strconv.Atoi(config.ClientID)
+	if err != nil {
+		return nil, fmt.Errorf("pathao store id (stored in the client id field) must be numeric, got %q: %w", config.ClientID, err)
+	}
+
+	cityID, zoneID, err := d.resolveLocation(ctx, token, config, order.ShippingAddress.City, order.ShippingAddress.StateProvince)
+	if err != nil {
+		return nil, err
+	}
 
 	payload := map[string]interface{}{
 		"store_id":            storeID,
@@ -99,8 +199,8 @@ func (d *PathaoDriver) CreateConsignment(ctx context.Context, order *storeModels
 		"recipient_name":      order.ShippingAddress.RecipientName,
 		"recipient_phone":     order.CustomerPhone,
 		"recipient_address":   order.ShippingAddress.StreetAddress,
-		"recipient_city":      1, // Default City ID for Dhaka Metro
-		"recipient_zone":      1,
+		"recipient_city":      cityID,
+		"recipient_zone":      zoneID,
 		"amount_to_collect":   int(codAmount),
 		"item_type":           1, // Parcel
 		"item_quantity":       1,
@@ -159,22 +259,16 @@ func (d *PathaoDriver) CreateConsignment(ctx context.Context, order *storeModels
 	}, nil
 }
 
-// TrackConsignment returns transit checkpoint timeline for Pathao parcels.
+// TrackConsignment is not integrated for Pathao yet. It returns ErrTrackingNotImplemented rather than
+// a fixed status, so no shipment is ever shown as in transit without the carrier confirming it.
 func (d *PathaoDriver) TrackConsignment(ctx context.Context, trackingNumber string, config *CourierConfig) (*TrackingTimeline, error) {
-	return &TrackingTimeline{
-		Carrier:        CarrierPathao,
-		TrackingNumber: trackingNumber,
-		CurrentStatus:  "IN_TRANSIT",
-		Checkpoints: []TrackingCheckpoint{
-			{Status: "IN_TRANSIT", Description: "Parcel in transit with Pathao Courier", Timestamp: time.Now()},
-		},
-		LastUpdated: time.Now(),
-	}, nil
+	return nil, fmt.Errorf("pathao: %w", ErrTrackingNotImplemented)
 }
 
-// CancelConsignment handles cancellation of Pathao parcels.
+// CancelConsignment is not integrated for Pathao yet. It returns an explicit error instead of
+// reporting a cancellation that never reached the carrier.
 func (d *PathaoDriver) CancelConsignment(ctx context.Context, trackingNumber string, config *CourierConfig) error {
-	return nil
+	return fmt.Errorf("pathao: %w", ErrCancellationNotImplemented)
 }
 
 // HandleStatusWebhook processes status updates delivered by Pathao webhooks.

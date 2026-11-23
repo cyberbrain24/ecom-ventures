@@ -1,86 +1,27 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldAlert, Search, Filter, Eye, RefreshCw, X, ArrowRight, Code, Activity, Database, Globe, ShieldCheck, UserCheck, KeyRound } from 'lucide-react';
+import { ShieldAlert, Search, Filter, Eye, RefreshCw, X, Code, Activity, Database, Globe, ShieldCheck, UserCheck } from 'lucide-react';
 import { MetricCard } from '../components/ui/MetricCard';
 import { AuditLogItem } from '../types/system';
-import { api } from '../lib/api';
+import { api, apiErrorMessage } from '../lib/api';
 
 export const AuditLogsPage: React.FC = () => {
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionFilter, setActionFilter] = useState('ALL');
   const [search, setSearch] = useState('');
   const [inspectedLog, setInspectedLog] = useState<AuditLogItem | null>(null);
 
   const fetchLogs = async () => {
     setIsLoading(true);
+    setErrorMessage(null);
     try {
       const param = actionFilter !== 'ALL' ? `?action=${actionFilter}` : '';
       const res = await api.get<{ data: AuditLogItem[] }>(`/platform/audit-logs${param}`);
-      const data = (res.data as any).data || res.data;
-      if (Array.isArray(data) && data.length > 0) {
-        setLogs(data);
-      } else {
-        // Provide verified initial platform security events if fresh install
-        setLogs([
-          {
-            id: 'audit-001',
-            user_email: 'admin@dropiobd.com',
-            action: 'STORE_PROVISIONED',
-            resource_type: 'stores',
-            resource_id: 'ecom_store_mior',
-            payload_after: { slug: 'mior', brand: 'Mior Silk & Cotton', db_name: 'ecom_store_mior', status: 'ACTIVE' },
-            client_ip: '127.0.0.1',
-            user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/156.0.0.0',
-            created_at: new Date(Date.now() - 3600000 * 3).toISOString(),
-          },
-          {
-            id: 'audit-002',
-            user_email: 'admin@dropiobd.com',
-            action: 'STORE_PROVISIONED',
-            resource_type: 'stores',
-            resource_id: 'ecom_store_artisan',
-            payload_after: { slug: 'artisan', brand: 'Artisan Roasters', db_name: 'ecom_store_artisan', status: 'ACTIVE' },
-            client_ip: '127.0.0.1',
-            user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/156.0.0.0',
-            created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-          },
-          {
-            id: 'audit-003',
-            user_email: 'admin@dropiobd.com',
-            action: 'DOMAIN_ATTACHED',
-            resource_type: 'domains',
-            resource_id: 'miorsilk.com',
-            payload_after: { domain: 'miorsilk.com', is_primary: true, ssl_status: 'ACTIVE' },
-            client_ip: '127.0.0.1',
-            user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/156.0.0.0',
-            created_at: new Date(Date.now() - 3600000 * 1.5).toISOString(),
-          },
-          {
-            id: 'audit-004',
-            user_email: 'admin@dropiobd.com',
-            action: 'THEME_ASSIGNED',
-            resource_type: 'store_themes',
-            resource_id: 'theme_elegance',
-            payload_after: { theme_id: 'elegance', store_slug: 'mior' },
-            client_ip: '127.0.0.1',
-            user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/156.0.0.0',
-            created_at: new Date(Date.now() - 3600000 * 0.8).toISOString(),
-          },
-          {
-            id: 'audit-005',
-            user_email: 'admin@dropiobd.com',
-            action: 'SECURITY_AUDIT_RUN',
-            resource_type: 'platform_security',
-            resource_id: 'iso_suite_v1',
-            payload_after: { verdict: 'PASS', checks_passed: 4, checks_failed: 0 },
-            client_ip: '127.0.0.1',
-            user_agent: 'Automated Platform Security Engine',
-            created_at: new Date(Date.now() - 3600000 * 0.2).toISOString(),
-          },
-        ]);
-      }
+      setLogs(res.data.data || []);
     } catch (err) {
-      console.warn('Failed to load audit logs, using default events', err);
+      setLogs([]);
+      setErrorMessage(apiErrorMessage(err, 'Could not load audit logs.'));
     } finally {
       setIsLoading(false);
     }
@@ -118,50 +59,49 @@ export const AuditLogsPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Metrics Row - 7 Columns in One Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+      {errorMessage && (
+        <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 whitespace-pre-line">
+          {errorMessage}
+        </div>
+      )}
+
+      {/* Counts below cover only the events returned by the server for the current filter */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
         <MetricCard
-          title="Total Events"
-          value={logs.length}
-          subtitle="System ledger"
+          title="Events Loaded"
+          value={isLoading ? 'Loading' : logs.length}
+          subtitle="Returned by the server"
           icon={Activity}
         />
         <MetricCard
-          title="DB Provisions"
-          value={logs.filter((l) => l.action.includes('STORE')).length}
-          subtitle="Isolated builds"
+          title="Store Events"
+          value={isLoading ? 'Loading' : logs.filter((l) => l.action.includes('STORE')).length}
+          subtitle="Action names with STORE"
           icon={Database}
         />
         <MetricCard
-          title="Security Checks"
-          value={logs.filter((l) => l.action.includes('SECURITY')).length}
-          subtitle="Boundary audits"
+          title="Security Events"
+          value={isLoading ? 'Loading' : logs.filter((l) => l.action.includes('SECURITY')).length}
+          subtitle="Action names with SECURITY"
           icon={ShieldAlert}
         />
         <MetricCard
-          title="Operator IPs"
-          value={new Set(logs.map((l) => l.client_ip)).size}
-          subtitle="Origin locations"
+          title="Source IPs"
+          value={isLoading ? 'Loading' : new Set(logs.map((l) => l.client_ip)).size}
+          subtitle="Distinct client IPs"
           icon={Globe}
         />
         <MetricCard
-          title="Domain Changes"
-          value={logs.filter((l) => l.action.includes('DOMAIN')).length}
-          subtitle="DNS & SSL records"
+          title="Domain Events"
+          value={isLoading ? 'Loading' : logs.filter((l) => l.action.includes('DOMAIN')).length}
+          subtitle="Action names with DOMAIN"
           icon={ShieldCheck}
         />
         <MetricCard
-          title="Staff Audits"
-          value={logs.filter((l) => l.action.includes('STAFF') || l.action.includes('USER')).length}
-          subtitle="RBAC modifications"
+          title="Staff Events"
+          value={isLoading ? 'Loading' : logs.filter((l) => l.action.includes('STAFF') || l.action.includes('USER')).length}
+          subtitle="Action names with STAFF or USER"
           icon={UserCheck}
-        />
-        <MetricCard
-          title="Ledger Hash"
-          value="SHA-256"
-          subtitle="Tamper-proof log"
-          icon={KeyRound}
-          trendPositive={true}
         />
       </div>
 
@@ -202,10 +142,12 @@ export const AuditLogsPage: React.FC = () => {
         {isLoading ? (
           <div className="p-8 text-center text-slate-500 text-xs">Loading audit records...</div>
         ) : filteredLogs.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 text-xs">No matching audit events found.</div>
+          <div className="p-8 text-center text-slate-500 text-xs">
+            {errorMessage ? 'Audit events could not be loaded.' : 'No matching audit events found.'}
+          </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto -mx-3.5 sm:mx-0">
+            <table className="w-full text-left text-xs min-w-[640px]">
               <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 uppercase text-[10px] font-semibold tracking-wider">
                 <tr>
                   <th className="px-3.5 py-2">Timestamp (UTC)</th>
@@ -305,9 +247,13 @@ export const AuditLogsPage: React.FC = () => {
                 <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
                   Mutation State (After Change)
                 </h4>
-                <pre className="bg-slate-950 text-emerald-400 p-4 rounded-lg text-xs font-mono overflow-x-auto leading-relaxed border border-slate-800">
-                  {JSON.stringify(inspectedLog.payload_after || inspectedLog.payload_before || { status: 'Recorded with zero payload changes' }, null, 2)}
-                </pre>
+                {inspectedLog.payload_after || inspectedLog.payload_before ? (
+                  <pre className="bg-slate-950 text-emerald-400 p-4 rounded-lg text-xs font-mono overflow-x-auto leading-relaxed border border-slate-800">
+                    {JSON.stringify(inspectedLog.payload_after || inspectedLog.payload_before, null, 2)}
+                  </pre>
+                ) : (
+                  <p className="text-xs text-slate-500">No payload recorded for this event.</p>
+                )}
               </div>
 
               {inspectedLog.user_agent && (

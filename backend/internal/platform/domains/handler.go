@@ -5,6 +5,7 @@ package domains
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 
 	"ecom-ventures/backend/pkg/response"
@@ -25,6 +26,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) ListAll(w http.ResponseWriter, r *http.Request) {
 	domainsList, err := h.service.ListAllDomains(r.Context())
 	if err != nil {
+		log.Printf("domains: listing domains failed: %v", err)
 		response.InternalServerError(w, r)
 		return
 	}
@@ -100,6 +102,10 @@ func (h *Handler) SetPrimary(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.SetPrimaryDomain(r.Context(), domainID); err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
 			response.NotFound(w, r, "Domain record not found.")
+			return
+		}
+		if errors.Is(err, ErrPrimaryDomainConflict) {
+			response.Problem(w, r, http.StatusConflict, "PRIMARY_DOMAIN_CONFLICT", "Conflict", "The store's primary domain was changed by another request at the same time. Reload and try again.")
 			return
 		}
 		response.BadRequest(w, r, err.Error())

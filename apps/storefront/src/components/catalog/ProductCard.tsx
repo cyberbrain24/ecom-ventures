@@ -3,14 +3,27 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { PublicProductCard } from '../../types/catalog';
 import { ShoppingBag, Award, Star } from 'lucide-react';
+import { WishlistButton } from './WishlistButton';
 
 interface ProductCardProps {
   product: PublicProductCard;
   currency: string;
+  /**
+   * Shape of the image area. "default" is square. "hero" fills the height of a tile that spans two rows,
+   * and "wide" is a landscape image for a tile that spans two columns; both only change from the square
+   * shape on medium screens and wider.
+   */
+  variant?: 'default' | 'hero' | 'wide';
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({ product, currency }) => {
+export const ProductCard: React.FC<ProductCardProps> = ({ product, currency, variant = 'default' }) => {
   const isSoldOut = product.is_sold_out || !product.in_stock;
+  const imageShape =
+    variant === 'hero'
+      ? 'aspect-[4/3] md:aspect-auto md:flex-1 md:min-h-[320px]'
+      : variant === 'wide'
+        ? 'aspect-square md:aspect-[2/1]'
+        : 'aspect-square';
 
   const formattedPrice = `${currency} ${product.base_price.toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -25,16 +38,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, currency }) =
     : null;
 
   return (
-    <div className="group relative flex flex-col bg-white border border-slate-100 rounded-[var(--brand-radius)] overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+    <div className="sf-card group relative flex h-full flex-col overflow-hidden">
       {/* Product Image & Badges */}
-      <div className="relative aspect-square w-full overflow-hidden bg-slate-50">
+      <div className={`sf-card-media relative w-full overflow-hidden ${imageShape}`}>
         <Link href={`/product/${product.slug}`} className="block h-full w-full">
           {product.featured_image_url ? (
             <Image
               src={product.featured_image_url}
               alt={product.title}
               fill
-              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              sizes={variant === 'default' ? '(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw' : '(max-width: 768px) 100vw, 50vw'}
               className={`object-cover object-center group-hover:scale-105 transition-transform duration-300 ${
                 isSoldOut ? 'grayscale-[30%] opacity-90' : ''
               }`}
@@ -67,10 +80,24 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, currency }) =
             </span>
           )}
         </div>
+
+        {/* Wishlist Action Button */}
+        <WishlistButton
+          item={{
+            id: product.id,
+            title: product.title,
+            slug: product.slug,
+            price: product.base_price,
+            featured_image_url: product.featured_image_url,
+            category_name: product.category_name,
+            brand_name: product.brand_name,
+          }}
+          className="absolute top-2 right-2 sm:top-2.5 sm:right-2.5 z-10"
+        />
       </div>
 
       {/* Product Metadata */}
-      <div className="p-2.5 sm:p-4 flex flex-col flex-grow justify-between space-y-1.5">
+      <div className="sf-card-body flex flex-col flex-grow justify-between space-y-1.5">
         <div>
           <div className="flex items-center justify-between gap-1 mb-1 flex-wrap">
             {product.category_name && (
@@ -86,7 +113,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, currency }) =
             )}
           </div>
 
-          <h3 className="text-xs sm:text-sm font-semibold text-slate-900 line-clamp-2 hover:text-[var(--brand-primary)] transition leading-snug">
+          <h3 className="sf-card-title text-xs sm:text-sm font-semibold line-clamp-2 transition leading-snug">
             <Link href={`/product/${product.slug}`}>{product.title}</Link>
           </h3>
 
@@ -106,15 +133,22 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, currency }) =
           )}
         </div>
 
-        <div className="pt-1.5 flex items-baseline space-x-1.5 sm:space-x-2">
-          <span className="text-sm sm:text-base font-bold text-slate-950 font-mono">
+        <div className="pt-1.5 flex items-baseline flex-wrap gap-x-1.5 gap-y-0.5 sm:space-x-2">
+          <span className="sf-card-price text-sm sm:text-base font-bold font-mono">
             {formattedPrice}
           </span>
           {formattedComparePrice && (
-            <span className="text-[11px] sm:text-xs text-slate-400 line-through font-mono">
+            <span className="sf-card-compare text-[11px] sm:text-xs line-through font-mono">
               {formattedComparePrice}
             </span>
           )}
+        </div>
+
+        {/* Quick view: a link to the product page, where the shopper chooses options and adds to cart */}
+        <div className="sf-card-actions">
+          <Link href={`/product/${product.slug}`} className="sf-quick">
+            <span>Quick view</span>
+          </Link>
         </div>
       </div>
     </div>

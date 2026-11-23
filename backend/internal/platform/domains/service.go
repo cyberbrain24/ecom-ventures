@@ -25,6 +25,9 @@ var (
 
 var domainFormatRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
 
+// localhostSuffix marks local development hostnames. It is honoured only in development mode.
+const localhostSuffix = ".localhost"
+
 // DomainDetail represents a domain record with store association and DNS setup data.
 type DomainDetail struct {
 	models.Domain
@@ -42,36 +45,50 @@ type AddDomainRequest struct {
 
 // Service manages domain registrations, DNS verifications, and edge SSL provisioning.
 type Service struct {
-	db          *sql.DB
-	dnsVerifier DNSVerifier
-	cfClient    CloudflareClient
-	resolver    *resolver.StoreResolver
+	db            *sql.DB
+	dnsVerifier   DNSVerifier
+	cfClient      CloudflareClient
+	resolver      *resolver.StoreResolver
+	isDevelopment bool
 }
 
 // NewService instantiates the domain management service.
+// isDevelopment must be true only when APP_ENV is "development"; it gates the
+// .localhost auto-verification shortcut. In every other environment .localhost
+// domains go through the same DNS and Cloudflare checks as any other domain.
 func NewService(
 	db *sql.DB,
 	dnsVerifier DNSVerifier,
 	cfClient CloudflareClient,
 	resolver *resolver.StoreResolver,
+	isDevelopment bool,
 ) *Service {
 	return &Service{
-		db:          db,
-		dnsVerifier: dnsVerifier,
-		cfClient:    cfClient,
-		resolver:    resolver,
+		db:            db,
+		dnsVerifier:   dnsVerifier,
+		cfClient:      cfClient,
+		resolver:      resolver,
+		isDevelopment: isDevelopment,
 	}
+}
+
+// isLocalDevDomain reports whether the domain gets the development-only localhost shortcut.
+func (s *Service) isLocalDevDomain(domain string) bool {
+	return s.isDevelopment && strings.HasSuffix(domain, localhostSuffix)
 }
 
 // AddDomain registers a new domain for a store and generates verification tokens.
 func (s *Service) AddDomain(ctx context.Context, req AddDomainRequest) (*models.Domain, error) {
 	cleanDomain := strings.ToLower(strings.TrimSpace(req.Domain))
-	if !domainFormatRegex.MatchString(cleanDomain) && !strings.HasSuffix(cleanDomain, ".localhost") {
+	if !domainFormatRegex.MatchString(cleanDomain) {
 		return nil, ErrInvalidDomainFormat
 	}
 
 	if s.db == nil {
 		return nil, fmt.Errorf("domains: database connection is nil")
+	}
+	if s.dnsVerifier == nil {
+		return nil, fmt.Errorf("domains: DNS verifier is not configured; cannot issue a verification token")
 	}
 
 	// Verify store exists
@@ -85,22 +102,23 @@ func (s *Service) AddDomain(ctx context.Context, req AddDomainRequest) (*models.
 
 	// Check domain conflict across platform
 	var exists bool
-	_ = s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM domains WHERE domain = $1);", cleanDomain).Scan(&exists)
+	if err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM domains WHERE domain = $1);", cleanDomain).Scan(&exists); err != nil {
+		return nil, fmt.Errorf("failed to check domain conflicts: %w", err)
+	}
 	if exists {
 		return nil, ErrDomainConflict
 	}
 
-	verificationToken := ""
-	if s.dnsVerifier != nil {
-		verificationToken = s.dnsVerifier.GenerateVerificationToken()
-	} else {
-		verificationToken = fmt.Sprintf("ecom-verify-%d", time.Now().UnixNano())
+	verificationToken, err := s.dnsVerifier.GenerateVerificationToken()
+	if err != nil {
+		return nil, fmt.Errorf("domains: issuing verification token: %w", err)
 	}
+
 	sslStatus := models.SSLStatusPending
 
-	// If localhost subdomain, auto-verify immediately for development
+	// Development-only shortcut: localhost subdomains are verified immediately when APP_ENV=development.
 	var verifiedAt *time.Time
-	if strings.HasSuffix(cleanDomain, ".localhost") {
+	if s.isLocalDevDomain(cleanDomain) {
 		sslStatus = models.SSLStatusActive
 		now := time.Now().UTC()
 		verifiedAt = &now
@@ -129,9 +147,11 @@ func (s *Service) AddDomain(ctx context.Context, req AddDomainRequest) (*models.
 
 	// If set to primary, demote any other existing primary domains for this store
 	if d.IsPrimary {
-		_, _ = s.db.ExecContext(ctx, `
+		if _, err := s.db.ExecContext(ctx, `
 			UPDATE domains SET is_primary = FALSE WHERE store_id = $1 AND id <> $2;`,
-			d.StoreID, d.ID)
+			d.StoreID, d.ID); err != nil {
+			return nil, fmt.Errorf("failed to demote previous primary domains: %w", err)
+		}
 	}
 
 	// Invalidate routing cache
@@ -150,7 +170,8 @@ func (s *Service) VerifyDomain(ctx context.Context, domainID string) (*models.Do
 
 	query := `
 		SELECT d.id, d.store_id, d.domain, d.is_primary, d.is_custom, d.ssl_status,
-		       COALESCE(d.verification_token, ''), d.verified_at, d.created_at, d.updated_at, s.slug
+		       COALESCE(d.verification_token, ''), COALESCE(d.provider_hostname_id, ''),
+		       d.verified_at, d.created_at, d.updated_at, s.slug
 		FROM domains d
 		JOIN stores s ON s.id = d.store_id
 		WHERE d.id = $1;`
@@ -159,7 +180,7 @@ func (s *Service) VerifyDomain(ctx context.Context, domainID string) (*models.Do
 	var storeSlug string
 	err := s.db.QueryRowContext(ctx, query, domainID).Scan(
 		&d.ID, &d.StoreID, &d.Domain, &d.IsPrimary, &d.IsCustom, &d.SSLStatus,
-		&d.VerificationToken, &d.VerifiedAt, &d.CreatedAt, &d.UpdatedAt, &storeSlug,
+		&d.VerificationToken, &d.ProviderHostnameID, &d.VerifiedAt, &d.CreatedAt, &d.UpdatedAt, &storeSlug,
 	)
 	if err == sql.ErrNoRows {
 		return nil, ErrDomainNotFound
@@ -167,43 +188,63 @@ func (s *Service) VerifyDomain(ctx context.Context, domainID string) (*models.Do
 		return nil, fmt.Errorf("failed to query domain: %w", err)
 	}
 
-	// Skip DNS lookup for local subdomains
-	if strings.HasSuffix(d.Domain, ".localhost") {
+	// Development-only: skip the DNS lookup for local subdomains.
+	if s.isLocalDevDomain(d.Domain) {
 		return &d, nil
 	}
 
 	// Perform live DNS TXT lookup
-	if s.dnsVerifier != nil {
-		matched, err := s.dnsVerifier.VerifyTXTRecord(ctx, d.Domain, d.VerificationToken)
-		if err != nil || !matched {
-			_, _ = s.db.ExecContext(ctx, "UPDATE domains SET ssl_status = 'FAILED' WHERE id = $1;", d.ID)
-			return nil, ErrVerificationFailed
-		}
+	if s.dnsVerifier == nil {
+		return nil, fmt.Errorf("domain DNS verifier is unavailable")
+	}
+	matched, err := s.dnsVerifier.VerifyTXTRecord(ctx, d.Domain, d.VerificationToken)
+	if err != nil {
+		return nil, fmt.Errorf("verify domain DNS record: %w", err)
+	}
+	if !matched {
+		return nil, ErrVerificationFailed
 	}
 
-	// Request Edge Custom Hostname & SSL via Cloudflare
-	sslStatus := models.SSLStatusActive
-	if s.cfClient != nil {
+	if s.cfClient == nil {
+		return nil, fmt.Errorf("Cloudflare custom hostname client is unavailable")
+	}
+	sslStatus := models.SSLStatusPending
+	if d.ProviderHostnameID != "" {
+		providerStatus, err := s.cfClient.GetCustomHostnameStatus(ctx, d.ProviderHostnameID)
+		if err != nil {
+			return nil, fmt.Errorf("query Cloudflare hostname status: %w", err)
+		}
+		sslStatus = mapCloudflareSSLStatus(providerStatus)
+	} else {
 		cfResp, err := s.cfClient.CreateCustomHostname(ctx, d.Domain)
 		if err != nil {
-			_, _ = s.db.ExecContext(ctx, "UPDATE domains SET ssl_status = 'FAILED' WHERE id = $1;", d.ID)
-			return nil, fmt.Errorf("edge SSL provisioning failure: %w", err)
+			return nil, fmt.Errorf("provision Cloudflare hostname: %w", err)
 		}
-		if cfResp != nil && cfResp.SSLStatus != "" {
-			sslStatus = models.DomainSSLStatus(cfResp.SSLStatus)
+		if cfResp == nil || cfResp.ID == "" {
+			return nil, fmt.Errorf("Cloudflare response did not include a hostname ID")
 		}
+		d.ProviderHostnameID = cfResp.ID
+		sslStatus = mapCloudflareSSLStatus(cfResp.SSLStatus)
 	}
 
-	now := time.Now().UTC()
+	// A domain counts as verified only once DNS and the edge hostname status both confirm it.
+	var verifiedAt *time.Time
+	if sslStatus == models.SSLStatusActive {
+		now := time.Now().UTC()
+		verifiedAt = &now
+	}
+
 	updateSQL := `
 		UPDATE domains
-		SET ssl_status = $1, verified_at = $2, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $3
+		SET provider_hostname_id = $1, ssl_status = $2, verified_at = $3, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $4
 		RETURNING updated_at;`
 
-	_ = s.db.QueryRowContext(ctx, updateSQL, sslStatus, now, d.ID).Scan(&d.UpdatedAt)
+	if err := s.db.QueryRowContext(ctx, updateSQL, d.ProviderHostnameID, sslStatus, verifiedAt, d.ID).Scan(&d.UpdatedAt); err != nil {
+		return nil, fmt.Errorf("save Cloudflare hostname status: %w", err)
+	}
 	d.SSLStatus = sslStatus
-	d.VerifiedAt = &now
+	d.VerifiedAt = verifiedAt
 
 	// Prime Redis routing cache immediately
 	if s.resolver != nil {
@@ -211,6 +252,19 @@ func (s *Service) VerifyDomain(ctx context.Context, domainID string) (*models.Do
 	}
 
 	return &d, nil
+}
+
+func mapCloudflareSSLStatus(status string) models.DomainSSLStatus {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "ACTIVE":
+		return models.SSLStatusActive
+	case "FAILED":
+		return models.SSLStatusFailed
+	case "REVOKED":
+		return models.SSLStatusRevoked
+	default:
+		return models.SSLStatusPending
+	}
 }
 
 // SetPrimaryDomain designates a domain as the primary storefront URL for a brand.
@@ -240,23 +294,36 @@ func (s *Service) SetPrimaryDomain(ctx context.Context, domainID string) error {
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("begin primary domain transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Lock order: store row first, then the domain rows.
+	if err := lockStoreRow(ctx, tx, storeID); err != nil {
 		return err
 	}
 
 	// Demote existing primary domains for this store
 	if _, err := tx.ExecContext(ctx, "UPDATE domains SET is_primary = FALSE WHERE store_id = $1;", storeID); err != nil {
-		_ = tx.Rollback()
-		return err
+		if mapped := classifyDomainWriteError(err); mapped != nil {
+			return mapped
+		}
+		return fmt.Errorf("demote primary domains: %w", err)
 	}
 
 	// Promote target domain
 	if _, err := tx.ExecContext(ctx, "UPDATE domains SET is_primary = TRUE WHERE id = $1;", domainID); err != nil {
-		_ = tx.Rollback()
-		return err
+		if mapped := classifyDomainWriteError(err); mapped != nil {
+			return mapped
+		}
+		return fmt.Errorf("promote primary domain: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return err
+		if mapped := classifyDomainWriteError(err); mapped != nil {
+			return mapped
+		}
+		return fmt.Errorf("commit primary domain change: %w", err)
 	}
 
 	if s.resolver != nil {
@@ -271,15 +338,15 @@ func (s *Service) DeleteDomain(ctx context.Context, domainID string) error {
 		return fmt.Errorf("domains: database connection is nil")
 	}
 
-	var storeID, domain, slug string
+	var storeID, domain, slug, providerHostnameID string
 	var isPrimary bool
 	query := `
-		SELECT d.store_id, d.domain, d.is_primary, s.slug
+		SELECT d.store_id, d.domain, d.is_primary, s.slug, COALESCE(d.provider_hostname_id, '')
 		FROM domains d
 		JOIN stores s ON s.id = d.store_id
 		WHERE d.id = $1;`
 
-	err := s.db.QueryRowContext(ctx, query, domainID).Scan(&storeID, &domain, &isPrimary, &slug)
+	err := s.db.QueryRowContext(ctx, query, domainID).Scan(&storeID, &domain, &isPrimary, &slug, &providerHostnameID)
 	if err == sql.ErrNoRows {
 		return ErrDomainNotFound
 	} else if err != nil {
@@ -290,14 +357,21 @@ func (s *Service) DeleteDomain(ctx context.Context, domainID string) error {
 		return ErrCannotDeletePrimary
 	}
 
+	if !s.isLocalDevDomain(domain) {
+		if providerHostnameID == "" {
+			return fmt.Errorf("domain %q has no stored Cloudflare hostname ID; refusing to remove its registry record", domain)
+		}
+		if s.cfClient == nil {
+			return fmt.Errorf("Cloudflare custom hostname client is unavailable")
+		}
+		if err := s.cfClient.DeleteCustomHostname(ctx, providerHostnameID); err != nil {
+			return fmt.Errorf("delete Cloudflare hostname: %w", err)
+		}
+	}
+
 	// Delete from platform database
 	if _, err := s.db.ExecContext(ctx, "DELETE FROM domains WHERE id = $1;", domainID); err != nil {
 		return fmt.Errorf("failed to delete domain record: %w", err)
-	}
-
-	// Teardown edge route
-	if s.cfClient != nil {
-		_ = s.cfClient.DeleteCustomHostname(ctx, fmt.Sprintf("cf-%s", domain))
 	}
 
 	// Invalidate routing cache
@@ -332,12 +406,16 @@ func (s *Service) ListAllDomains(ctx context.Context) ([]DomainDetail, error) {
 	for rows.Next() {
 		var item DomainDetail
 		if err := rows.Scan(
-			&item.ID, &item.StoreID, &item.Domain, &item.IsPrimary, &item.IsCustom, &item.SSLStatus,
+			&item.ID, &item.StoreID, &item.Domain.Domain, &item.IsPrimary, &item.IsCustom, &item.SSLStatus,
 			&item.VerificationToken, &item.VerifiedAt, &item.CreatedAt, &item.UpdatedAt,
 			&item.StoreName, &item.StoreSlug,
-		); err == nil {
-			results = append(results, item)
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan domain row: %w", err)
 		}
+		results = append(results, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate domain rows: %w", err)
 	}
 	return results, nil
 }

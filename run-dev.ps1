@@ -13,14 +13,14 @@ if (-not $pgConn) {
     Write-Host "[1/5] PostgreSQL is already running on port 5432." -ForegroundColor Green
 }
 
-# 2. Start Redis if not already running on 6379
-$redisConn = Get-NetTCPConnection -LocalPort 6379 -ErrorAction SilentlyContinue
+# 2. Start Redis if not already running on 6380
+$redisConn = Get-NetTCPConnection -LocalPort 6380 -ErrorAction SilentlyContinue
 if (-not $redisConn) {
-    Write-Host "[2/5] Starting Redis (port 6379)..." -ForegroundColor Yellow
-    Start-Process -FilePath "C:\ZKBioTime\redis\redis-server.exe" -ArgumentList "--port", "6379", "--requirepass", "redis_secure_password_2026" -WindowStyle Hidden
+    Write-Host "[2/5] Starting Redis (port 6380)..." -ForegroundColor Yellow
+    Start-Process -FilePath "C:\ZKBioTime\redis\redis-server.exe" -ArgumentList "--port", "6380", "--requirepass", "redis_secure_password_2026" -WindowStyle Hidden
     Start-Sleep -Seconds 1
 } else {
-    Write-Host "[2/5] Redis is already running on port 6379." -ForegroundColor Green
+    Write-Host "[2/5] Redis is already running on port 6380." -ForegroundColor Green
 }
 
 # 3. Start Backend API & Worker

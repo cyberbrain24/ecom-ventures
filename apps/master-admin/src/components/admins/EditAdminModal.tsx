@@ -1,13 +1,21 @@
 import React, { useState } from 'react';
 import { X, Save, Shield } from 'lucide-react';
 import { AdminStaffUser } from '../../types/system';
+import { apiErrorMessage } from '../../lib/api';
 
 interface EditAdminModalProps {
   user: AdminStaffUser;
   onClose: () => void;
-  onSave: (updatedUser: AdminStaffUser) => void;
+  /** Resolves when the server accepted the change; rejects with a message to show inside the modal. */
+  onSave: (updatedUser: AdminStaffUser) => Promise<void>;
 }
 
+/**
+ * EditAdminModal edits a platform staff profile. It stays open and shows the server error on failure.
+ *
+ * @param props - Staff user, close handler, and async save handler
+ * @returns The edit modal
+ */
 export const EditAdminModal: React.FC<EditAdminModalProps> = ({ user, onClose, onSave }) => {
   const [firstName, setFirstName] = useState(user.first_name);
   const [lastName, setLastName] = useState(user.last_name);
@@ -15,9 +23,11 @@ export const EditAdminModal: React.FC<EditAdminModalProps> = ({ user, onClose, o
   const [role, setRole] = useState<'SUPER_ADMIN' | 'PLATFORM_STAFF'>(user.role);
   const [status, setStatus] = useState<'ACTIVE' | 'SUSPENDED' | 'DEACTIVATED'>(user.status);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg(null);
     setIsSubmitting(true);
     const updated: AdminStaffUser = {
       ...user,
@@ -27,8 +37,13 @@ export const EditAdminModal: React.FC<EditAdminModalProps> = ({ user, onClose, o
       role,
       status,
     };
-    onSave(updated);
-    setIsSubmitting(false);
+    try {
+      await onSave(updated);
+    } catch (err) {
+      setErrorMsg(apiErrorMessage(err, 'Could not save staff changes.'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -55,6 +70,11 @@ export const EditAdminModal: React.FC<EditAdminModalProps> = ({ user, onClose, o
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-4 space-y-3">
+          {errorMsg && (
+            <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 whitespace-pre-line">
+              {errorMsg}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 mb-1">First Name</label>

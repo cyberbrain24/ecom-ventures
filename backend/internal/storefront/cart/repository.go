@@ -110,14 +110,16 @@ func (r *SQLRepository) AddItem(ctx context.Context, db *sql.DB, cartID, variant
 		FROM product_variants pv
 		LEFT JOIN variant_inventory vi ON vi.variant_id = pv.id
 		WHERE pv.id = $1
-		FOR SHARE;
+		FOR SHARE OF pv;
 	`
 	var price float64
 	var isActive bool
 	var availableQty int
 	err = tx.QueryRowContext(ctx, queryVariant, variantID).Scan(&price, &isActive, &availableQty)
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrCartItemNotFound
+	} else if err != nil {
+		return fmt.Errorf("reading variant %s for cart: %w", variantID, err)
 	}
 	if !isActive {
 		return ErrVariantInactive

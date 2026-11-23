@@ -1,59 +1,108 @@
-import React, { useState } from 'react';
-import { Truck, CheckCircle2, ShieldCheck, RefreshCw, Key, Zap, Navigation, Clock, TrendingUp, Layers } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Truck, CheckCircle2, Navigation, Clock, Layers, Settings, Key, ShieldCheck } from 'lucide-react';
 import { CourierConfig, StoreBrand, ShipmentRecord } from '../types/store';
+import { EmptyState } from './StoreStatusNotices';
+import { fetchCourierConfigs, fetchShipments, saveCourierConfig } from '../lib/logistics-api';
 
 interface LogisticsViewProps {
   currentStore: StoreBrand;
-  couriers: CourierConfig[];
-  shipments: ShipmentRecord[];
-  onToggleCourier: (provider: string) => void;
+  couriers?: CourierConfig[];
+  shipments?: ShipmentRecord[];
 }
 
-export const LogisticsView: React.FC<LogisticsViewProps> = ({
-  currentStore,
-  couriers,
-  shipments,
-  onToggleCourier,
-}) => {
-  const [activeTab, setActiveTab] = useState<'configs' | 'shipments' | 'simulator'>('configs');
-  const [testRecipient, setTestRecipient] = useState('Nusrat Jahan');
-  const [testAddress, setTestAddress] = useState('House 14, Road 7, Dhanmondi, Dhaka');
-  const [testPhone, setTestPhone] = useState('+880 1711 998822');
-  const [testAmount, setTestAmount] = useState('18500');
-  const [consignmentLog, setConsignmentLog] = useState<string | null>(null);
-  const [isBooking, setIsBooking] = useState(false);
+function countStatus(shipments: ShipmentRecord[], status: string): number {
+  return shipments.filter((s) => s.status === status).length;
+}
 
-  const handleSimulateDispatch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsBooking(true);
-    setTimeout(() => {
-      const id = `ST-${Math.floor(100000 + Math.random() * 900000)}`;
-      setConsignmentLog(`[Steadfast Dispatch Engine] Consignment booked successfully! ID: ${id} | COD Collection: ৳${testAmount} | Webhook listener registered.`);
-      setIsBooking(false);
-    }, 700);
+export const LogisticsView: React.FC<LogisticsViewProps> = ({ currentStore }) => {
+  const [activeTab, setActiveTab] = useState<'configs' | 'shipments'>('configs');
+  const [couriers, setCouriers] = useState<CourierConfig[]>([]);
+  const [shipments, setShipments] = useState<ShipmentRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedCourier, setSelectedCourier] = useState<CourierConfig | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [secretKeyInput, setSecretKeyInput] = useState('');
+  const [isEnabledInput, setIsEnabledInput] = useState(false);
+  const [isTestModeInput, setIsTestModeInput] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const [cList, sList] = await Promise.all([fetchCourierConfigs(), fetchShipments()]);
+      setCouriers(cList);
+      setShipments(sList);
+    } catch {
+      setNotice({ type: 'error', text: 'Failed to load courier logistics settings.' });
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  useEffect(() => {
+    loadData();
+  }, [currentStore.slug]);
+
+  const handleOpenConfigModal = (c: CourierConfig) => {
+    setSelectedCourier(c);
+    setApiKeyInput('');
+    setSecretKeyInput('');
+    setIsEnabledInput(c.isActive);
+    setIsTestModeInput(!c.autoDispatch);
+    setNotice(null);
+  };
+
+  const handleSaveConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCourier) return;
+
+    setIsSaving(true);
+    setNotice(null);
+    try {
+      await saveCourierConfig({
+        carrier: selectedCourier.provider.toUpperCase() as 'STEADFAST' | 'PATHAO' | 'REDX',
+        is_enabled: isEnabledInput,
+        is_test_mode: isTestModeInput,
+        api_key: apiKeyInput || 'existing_masked_key',
+        secret_key: secretKeyInput || 'existing_masked_secret',
+      });
+      setNotice({ type: 'success', text: `${selectedCourier.provider} configuration saved successfully.` });
+      setSelectedCourier(null);
+      await loadData();
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err?.message || 'Failed to save courier configuration.' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const deliveredCount = countStatus(shipments, 'DELIVERED');
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-        <div>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
-            Courier Logistics & Shipping Automation
-          </h1>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
-            Integrated automated dispatch pipelines for Steadfast, Pathao, and RedX in <code>{currentStore.name}</code>
-          </p>
-        </div>
+      <div style={{ marginBottom: '14px' }}>
+        <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
+          Courier Logistics
+        </h1>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
+          Courier integration and parcel dispatch management for <code>{currentStore.name}</code>
+        </p>
       </div>
 
-      {/* Logistics Overview Metrics - 7 Column Box Card Design */}
+      {notice && (
+        <div className={`notice notice-${notice.type === 'success' ? 'success' : 'warning'}`} style={{ marginBottom: '14px' }}>
+          {notice.text}
+        </div>
+      )}
+
       <div className="stats-grid">
         <div className="stat-card">
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Total Parcels</div>
+            <div className="stat-label">Total Shipments</div>
             <div className="stat-val">{shipments.length}</div>
             <div className="stat-sub" style={{ color: '#0284c7', fontWeight: 600 }}>
-              <Truck size={11} /> All consignments
+              <Truck size={11} /> Live courier parcels
             </div>
           </div>
           <div className="stat-icon" style={{ background: '#f0f9ff', color: '#0284c7' }}>
@@ -64,11 +113,9 @@ export const LogisticsView: React.FC<LogisticsViewProps> = ({
         <div className="stat-card">
           <div style={{ minWidth: 0, flex: 1 }}>
             <div className="stat-label">In Transit</div>
-            <div className="stat-val" style={{ color: '#0284c7' }}>
-              {shipments.filter((s) => s.status === 'IN_TRANSIT').length}
-            </div>
+            <div className="stat-val" style={{ color: '#0284c7' }}>{countStatus(shipments, 'IN_TRANSIT')}</div>
             <div className="stat-sub" style={{ color: '#0284c7' }}>
-              <Clock size={11} /> On trunk route
+              <Clock size={11} /> On the way
             </div>
           </div>
           <div className="stat-icon" style={{ background: '#e0f2fe', color: '#0369a1' }}>
@@ -76,29 +123,12 @@ export const LogisticsView: React.FC<LogisticsViewProps> = ({
           </div>
         </div>
 
-        <div className="stat-card" style={{ borderLeft: shipments.filter((s) => s.status === 'OUT_FOR_DELIVERY').length > 0 ? '3px solid #f59e0b' : undefined }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Out for Delivery</div>
-            <div className="stat-val" style={{ color: '#f59e0b' }}>
-              {shipments.filter((s) => s.status === 'OUT_FOR_DELIVERY').length}
-            </div>
-            <div className="stat-sub" style={{ color: '#d97706' }}>
-              <Zap size={11} /> With rider
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: '#fef3c7', color: '#d97706' }}>
-            <Zap size={16} />
-          </div>
-        </div>
-
         <div className="stat-card">
           <div style={{ minWidth: 0, flex: 1 }}>
             <div className="stat-label">Delivered</div>
-            <div className="stat-val" style={{ color: '#059669' }}>
-              {shipments.filter((s) => s.status === 'DELIVERED').length}
-            </div>
+            <div className="stat-val" style={{ color: '#059669' }}>{deliveredCount}</div>
             <div className="stat-sub" style={{ color: '#10b981' }}>
-              <CheckCircle2 size={11} /> Completed
+              <CheckCircle2 size={11} /> Successfully handed over
             </div>
           </div>
           <div className="stat-icon" style={{ background: '#ecfdf5', color: '#059669' }}>
@@ -108,44 +138,16 @@ export const LogisticsView: React.FC<LogisticsViewProps> = ({
 
         <div className="stat-card">
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Success Rate</div>
-            <div className="stat-val" style={{ color: '#059669' }}>
-              {shipments.length > 0 ? Math.round((shipments.filter((s) => s.status === 'DELIVERED').length / shipments.length) * 100) : 100}%
-            </div>
-            <div className="stat-sub" style={{ color: '#059669', fontWeight: 600 }}>
-              <TrendingUp size={11} /> Drop efficiency
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: '#dcfce7', color: '#15803d' }}>
-            <TrendingUp size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Couriers</div>
-            <div className="stat-val">{couriers.filter((c) => c.isActive).length}/{couriers.length}</div>
-            <div className="stat-sub" style={{ color: '#6366f1' }}>
-              <Layers size={11} /> Connected APIs
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: '#eef2ff', color: '#6366f1' }}>
-            <Layers size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Auto-Dispatch</div>
-            <div className="stat-val" style={{ color: '#059669' }}>
-              {couriers.filter((c) => c.autoDispatch).length > 0 ? 'Active' : 'Manual'}
+            <div className="stat-label">Delivery Success Rate</div>
+            <div className="stat-val">
+              {shipments.length > 0 ? `${Math.round((deliveredCount / shipments.length) * 100)}%` : '100%'}
             </div>
             <div className="stat-sub" style={{ color: '#64748b' }}>
-              <ShieldCheck size={11} /> Trigger mode
+              <Layers size={11} /> {shipments.length > 0 ? 'Delivered of all parcels' : 'No parcels dispatched yet'}
             </div>
           </div>
           <div className="stat-icon" style={{ background: '#f8fafc', color: '#475569' }}>
-            <ShieldCheck size={16} />
+            <Layers size={16} />
           </div>
         </div>
       </div>
@@ -158,7 +160,7 @@ export const LogisticsView: React.FC<LogisticsViewProps> = ({
           style={{ fontSize: '0.8rem', padding: '5px 12px' }}
         >
           <Truck size={14} />
-          <span>Courier Partners ({couriers.length})</span>
+          <span>Courier Channels ({couriers.length})</span>
         </button>
         <button
           onClick={() => setActiveTab('shipments')}
@@ -166,177 +168,158 @@ export const LogisticsView: React.FC<LogisticsViewProps> = ({
           style={{ fontSize: '0.8rem', padding: '5px 12px' }}
         >
           <Navigation size={14} />
-          <span>Active Shipments Ledger ({shipments.length})</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('simulator')}
-          className={`btn btn-sm ${activeTab === 'simulator' ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ fontSize: '0.8rem', padding: '5px 12px' }}
-        >
-          <Zap size={14} />
-          <span>Live Dispatch Engine</span>
+          <span>Parcel Shipments ({shipments.length})</span>
         </button>
       </div>
 
-      {/* Courier Providers Grid */}
       {activeTab === 'configs' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '28px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
           {couriers.map((courier) => (
-            <div key={courier.provider} className="card" style={{ marginBottom: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-sm)', background: '#e0f2fe', color: '#0369a1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Truck size={20} />
+            <div key={courier.provider} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '42px', height: '42px', borderRadius: 'var(--radius-sm)', background: courier.isActive ? '#e0f2fe' : '#f1f5f9', color: courier.isActive ? '#0369a1' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Truck size={22} />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-main)' }}>{courier.provider}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Status: {courier.webhookStatus === 'ACTIVE' ? 'Webhook Live' : 'Standard API'}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-main)' }}>{courier.provider} Courier</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Automated Parcel Delivery</div>
-                  </div>
-                </div>
-                <span className={`badge ${courier.isActive ? 'badge-active' : 'badge-outline'}`}>
-                  {courier.isActive ? 'ACTIVE' : 'DISABLED'}
-                </span>
-              </div>
-
-              <div style={{ background: '#f8fafc', padding: '12px', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', marginBottom: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>API Key:</span>
-                  <code style={{ fontFamily: 'var(--font-mono)' }}>{courier.apiKey}</code>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Webhook Sync:</span>
-                  <span style={{ color: courier.webhookStatus === 'ACTIVE' ? '#059669' : '#dc2626', fontWeight: 600 }}>
-                    {courier.webhookStatus}
+                  <span className={`badge ${courier.isActive ? 'badge-active' : 'badge-outline'}`}>
+                    {courier.isActive ? 'CONNECTED' : 'DISABLED'}
                   </span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Auto Dispatch:</span>
-                  <span style={{ fontWeight: 600 }}>{courier.autoDispatch ? 'Enabled on Payment' : 'Manual Trigger'}</span>
+
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: 1.5 }}>
+                  Automatic dispatch is {courier.autoDispatch ? 'enabled for verified orders' : 'set to manual confirmation mode'}.
                 </div>
               </div>
 
               <button
-                onClick={() => onToggleCourier(courier.provider)}
-                className={`btn btn-sm ${courier.isActive ? 'btn-secondary' : 'btn-primary'}`}
-                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={() => handleOpenConfigModal(courier)}
+                className="btn btn-sm btn-secondary"
+                style={{ width: '100%', justifyContent: 'center', gap: '6px' }}
               >
-                {courier.isActive ? 'Disable Integration' : 'Enable & Connect API'}
+                <Settings size={14} />
+                <span>Configure {courier.provider} API</span>
               </button>
             </div>
           ))}
         </div>
       )}
 
-      {/* Active Shipments Ledger */}
       {activeTab === 'shipments' && (
         <div className="card" style={{ padding: 0 }}>
-          <div className="table-container" style={{ border: 'none' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Order #</th>
-                  <th>Carrier</th>
-                  <th>Tracking #</th>
-                  <th>Recipient</th>
-                  <th>Destination</th>
-                  <th>Shipped Date</th>
-                  <th>Delivery Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shipments.map((shp) => (
-                  <tr key={shp.id}>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{shp.orderNumber}</td>
-                    <td><span className="badge badge-shipped">{shp.carrier}</span></td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0369a1' }}>{shp.trackingNumber}</td>
-                    <td style={{ fontWeight: 600 }}>{shp.recipientName}</td>
-                    <td>{shp.recipientCity}</td>
-                    <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{shp.shippedAt}</td>
-                    <td>
-                      <span className={`badge ${shp.status === 'DELIVERED' ? 'badge-active' : 'badge-shipped'}`}>
-                        {shp.status}
-                      </span>
-                    </td>
+          {shipments.length === 0 ? (
+            <EmptyState message="No dispatched parcels recorded yet. Dispatch orders directly from the Orders Queue." />
+          ) : (
+            <div className="table-container" style={{ border: 'none' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Order #</th>
+                    <th>Carrier</th>
+                    <th>Tracking #</th>
+                    <th>Recipient</th>
+                    <th>City / District</th>
+                    <th>Shipped Date</th>
+                    <th>Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {shipments.map((shp) => (
+                    <tr key={shp.id}>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{shp.orderNumber}</td>
+                      <td><span className="badge badge-shipped">{shp.carrier}</span></td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#0369a1' }}>
+                        {shp.trackingNumber || 'Pending'}
+                      </td>
+                      <td style={{ fontWeight: 600 }}>{shp.recipientName}</td>
+                      <td>{shp.recipientCity}</td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{shp.shippedAt || '—'}</td>
+                      <td>
+                        <span className={`badge ${shp.status === 'DELIVERED' ? 'badge-active' : 'badge-shipped'}`}>{shp.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Live Parcel Dispatch Simulator */}
-      {activeTab === 'simulator' && (
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <div className="card-title">Live Dispatch Booking Engine</div>
-              <div className="card-desc">Simulate direct API consignment creation with automated reverse-sync</div>
+      {/* Edit Courier Modal */}
+      {selectedCourier && (
+        <div className="modal-backdrop" onClick={() => setSelectedCourier(null)}>
+          <div className="modal-container" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Key size={18} style={{ color: 'var(--primary)' }} />
+                <h2 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0 }}>
+                  Configure {selectedCourier.provider}
+                </h2>
+              </div>
+              <button className="btn-close" onClick={() => setSelectedCourier(null)}>×</button>
             </div>
+
+            <form onSubmit={handleSaveConfig} style={{ padding: '20px' }}>
+              <div className="form-group" style={{ marginBottom: '14px' }}>
+                <label className="form-label">API Key</label>
+                <input
+                  type="password"
+                  placeholder="Leave empty to keep existing key"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  className="form-input"
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '14px' }}>
+                <label className="form-label">Secret Key / Token</label>
+                <input
+                  type="password"
+                  placeholder="Leave empty to keep existing secret"
+                  value={secretKeyInput}
+                  onChange={(e) => setSecretKeyInput(e.target.value)}
+                  className="form-input"
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', margin: '16px 0 20px 0' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={isEnabledInput}
+                    onChange={(e) => setIsEnabledInput(e.target.checked)}
+                  />
+                  <span style={{ fontWeight: 600 }}>Enable this courier for fulfillment</span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={isTestModeInput}
+                    onChange={(e) => setIsTestModeInput(e.target.checked)}
+                  />
+                  <span>Sandbox / Sandbox Test Mode</span>
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setSelectedCourier(null)}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={isSaving} className="btn btn-primary">
+                  {isSaving ? 'Saving...' : 'Save Configuration'}
+                </button>
+              </div>
+            </form>
           </div>
-
-          <form onSubmit={handleSimulateDispatch}>
-            <div className="form-grid">
-              <div className="form-group">
-                <label className="form-label">Recipient Full Name</label>
-                <input
-                  type="text"
-                  required
-                  value={testRecipient}
-                  onChange={(e) => setTestRecipient(e.target.value)}
-                  className="form-input"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Customer Mobile (+880)</label>
-                <input
-                  type="text"
-                  required
-                  value={testPhone}
-                  onChange={(e) => setTestPhone(e.target.value)}
-                  className="form-input"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">COD Collection Amount (BDT)</label>
-                <input
-                  type="number"
-                  required
-                  value={testAmount}
-                  onChange={(e) => setTestAmount(e.target.value)}
-                  className="form-input"
-                />
-              </div>
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '16px' }}>
-              <label className="form-label">Delivery Address Coordinates</label>
-              <input
-                type="text"
-                required
-                value={testAddress}
-                onChange={(e) => setTestAddress(e.target.value)}
-                className="form-input"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isBooking}
-              className="btn btn-primary"
-              style={{ backgroundColor: '#0284c7' }}
-            >
-              <Zap size={14} />
-              <span>{isBooking ? 'Contacting Courier API...' : 'Dispatch Parcel & Generate Consignment'}</span>
-            </button>
-          </form>
-
-          {consignmentLog && (
-            <div style={{ marginTop: '16px', background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '12px 16px', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', color: '#065f46', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <CheckCircle2 size={18} />
-              <span>{consignmentLog}</span>
-            </div>
-          )}
         </div>
       )}
     </div>

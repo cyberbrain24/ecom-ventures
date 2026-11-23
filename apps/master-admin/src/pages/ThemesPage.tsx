@@ -1,103 +1,52 @@
 import React, { useEffect, useState } from 'react';
-import { Palette, PlusCircle, Layout, Layers, Sparkles, Sliders, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Palette, PlusCircle, CheckCircle2 } from 'lucide-react';
 import { MetricCard } from '../components/ui/MetricCard';
 import { ThemeItem } from '../types/theme';
-import { StoreSummary } from '../types/store';
+import { StoreSummary, PaginatedStoresResponse } from '../types/store';
 import { ThemeCard } from '../components/themes/ThemeCard';
 import { AssignThemeModal } from '../components/themes/AssignThemeModal';
 import { RegisterThemeModal } from '../components/themes/RegisterThemeModal';
 import { EditThemeModal } from '../components/themes/EditThemeModal';
-import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal';
-import { api } from '../lib/api';
+import { DeactivateThemeModal } from '../components/themes/DeactivateThemeModal';
+import { api, apiErrorMessage } from '../lib/api';
 
+/**
+ * ThemesPage lists the theme registry from GET /platform/themes and handles registration,
+ * assignment, editing and activation. Themes are never deleted: a theme can only be deactivated,
+ * which asks for confirmation first and keeps existing storefronts unchanged.
+ *
+ * @returns The theme registry page
+ */
 export const ThemesPage: React.FC = () => {
   const [themes, setThemes] = useState<ThemeItem[]>([]);
   const [stores, setStores] = useState<StoreSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const [activeAssignTheme, setActiveAssignTheme] = useState<ThemeItem | null>(null);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [editingTheme, setEditingTheme] = useState<ThemeItem | null>(null);
-  const [deletingTheme, setDeletingTheme] = useState<ThemeItem | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+
+  const [togglingThemeId, setTogglingThemeId] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
+  const [deactivatingTheme, setDeactivatingTheme] = useState<ThemeItem | null>(null);
+  const [deactivateError, setDeactivateError] = useState<string | null>(null);
 
   const fetchData = async () => {
     setIsLoading(true);
+    setDataError(null);
     try {
       const [themeRes, storeRes] = await Promise.all([
         api.get<{ data: ThemeItem[] }>('/platform/themes'),
-        api.get<{ data: StoreSummary[] }>('/platform/stores?limit=100'),
+        api.get<PaginatedStoresResponse>('/platform/stores?page=1&limit=100'),
       ]);
       setThemes(themeRes.data.data || []);
       setStores(storeRes.data.data || []);
-    } catch (err) {
-      console.warn('API error, using fallback theme blueprints', err);
-      const fallbackThemes: ThemeItem[] = [
-        {
-          id: 'thm_modern_minimal',
-          name: 'Modern Minimal',
-          slug: 'modern-minimal',
-          description: 'Editorial luxury aesthetic with generous negative space, high-contrast typography, and gold/emerald accents.',
-          version: '2.4.0',
-          preview_image_url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=600&auto=format&fit=crop&q=80',
-          active_stores_count: 1,
-          is_active: true,
-          config_schema: {},
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          id: 'thm_artisan_boutique',
-          name: 'Artisan Boutique',
-          slug: 'artisan-boutique',
-          description: 'Warm, tactile palette celebrating handcrafted goods, leather craftsmanship, and boutique heritage.',
-          version: '1.8.2',
-          preview_image_url: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=600&auto=format&fit=crop&q=80',
-          active_stores_count: 1,
-          is_active: true,
-          config_schema: {},
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          id: 'thm_urban_streetwear',
-          name: 'Urban Streetwear',
-          slug: 'urban-streetwear',
-          description: 'High-energy typography, neon accent trims, and aggressive product grid for hype streetwear drops.',
-          version: '3.1.0',
-          preview_image_url: 'https://images.unsplash.com/photo-1509967419530-da38b4704bc6?w=600&auto=format&fit=crop&q=80',
-          active_stores_count: 1,
-          is_active: true,
-          config_schema: {},
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          id: 'thm_jewelry_shop',
-          name: 'Jewelry Shop',
-          slug: 'jewelry-shop',
-          description: 'An exquisite fine jewelry ecommerce theme — warm champagne gold tones, soft ivory backgrounds, refined serif typography, and elegant minimalist layouts crafted for rings, necklaces, bracelets, and luxury accessories.',
-          version: '1.0.0',
-          preview_image_url: 'https://images.unsplash.com/photo-1506630448388-4e683c67ddb0?w=600&auto=format&fit=crop&q=80',
-          active_stores_count: 0,
-          is_active: true,
-          config_schema: {
-            default_colors: {
-              primary: '#B8975A',
-              secondary: '#7A5C2E',
-              accent: '#F5ECD7',
-              background: '#FDFAF5',
-            },
-            default_typography: {
-              heading_font: 'Cormorant Garamond',
-              body_font: 'Jost',
-            },
-          },
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      ];
-      setThemes(fallbackThemes);
+    } catch (error) {
+      setThemes([]);
+      setStores([]);
+      setDataError(apiErrorMessage(error, 'Could not load themes.'));
     } finally {
       setIsLoading(false);
     }
@@ -107,28 +56,62 @@ export const ThemesPage: React.FC = () => {
     fetchData();
   }, []);
 
-  const handleUpdateTheme = async (updated: ThemeItem) => {
-    try {
-      await api.patch(`/platform/themes/${updated.id}`, updated).catch(() => {});
-    } catch (e) {
-      console.warn('API update theme fallback', e);
-    }
-    setThemes((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+  const handleUpdateTheme = async (updated: ThemeItem): Promise<void> => {
+    await api.patch(`/platform/themes/${updated.id}`, {
+      name: updated.name,
+      description: updated.description,
+      version: updated.version,
+      preview_image_url: updated.preview_image_url,
+      config_schema: updated.config_schema,
+      is_active: updated.is_active,
+    });
+    await fetchData();
     setEditingTheme(null);
   };
 
-  const handleDeleteTheme = async () => {
-    if (!deletingTheme) return;
-    setIsDeleting(true);
-    try {
-      await api.delete(`/platform/themes/${deletingTheme.id}`).catch(() => {});
-    } catch (e) {
-      console.warn('API delete theme fallback', e);
-    }
-    setThemes((prev) => prev.filter((t) => t.id !== deletingTheme.id));
-    setIsDeleting(false);
-    setDeletingTheme(null);
+  /**
+   * Sets a theme's active flag through PATCH /platform/themes/{id}. Throws the server error so the
+   * caller can show it inline.
+   *
+   * @param theme - Theme to change
+   * @param isActive - Target active state
+   */
+  const setThemeActive = async (theme: ThemeItem, isActive: boolean): Promise<void> => {
+    await api.patch(`/platform/themes/${theme.id}`, { is_active: isActive });
   };
+
+  const handleActivate = async (theme: ThemeItem) => {
+    setTogglingThemeId(theme.id);
+    setToggleError(null);
+    try {
+      await setThemeActive(theme, true);
+      setNotice(`Theme "${theme.name}" was activated. Stores can now choose it.`);
+      await fetchData();
+    } catch (error) {
+      setToggleError(apiErrorMessage(error, `Could not activate theme "${theme.name}".`));
+    } finally {
+      setTogglingThemeId(null);
+    }
+  };
+
+  const handleConfirmDeactivate = async () => {
+    if (!deactivatingTheme) return;
+    const target = deactivatingTheme;
+    setTogglingThemeId(target.id);
+    setDeactivateError(null);
+    try {
+      await setThemeActive(target, false);
+      setDeactivatingTheme(null);
+      setNotice(`Theme "${target.name}" was deactivated. Existing storefronts keep their look.`);
+      await fetchData();
+    } catch (error) {
+      setDeactivateError(apiErrorMessage(error, `Could not deactivate theme "${target.name}".`));
+    } finally {
+      setTogglingThemeId(null);
+    }
+  };
+
+  const activeThemeCount = themes.filter((t) => t.is_active).length;
 
   return (
     <div className="space-y-3.5">
@@ -137,7 +120,7 @@ export const ThemesPage: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold text-slate-900 tracking-tight">Theme Registry & Marketplace</h1>
           <p className="text-xs text-slate-500 mt-1">
-            Manage reusable presentation blueprints and dynamically assign them across portfolio storefronts.
+            Manage reusable presentation blueprints and assign them to portfolio storefronts. Themes can be deactivated but never deleted.
           </p>
         </div>
 
@@ -150,71 +133,73 @@ export const ThemesPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Theme Metrics Row - 7 Columns in One Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+      {dataError && (
+        <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 whitespace-pre-line">
+          {dataError}
+        </div>
+      )}
+
+      {toggleError && (
+        <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 whitespace-pre-line">
+          {toggleError}
+        </div>
+      )}
+
+      {notice && (
+        <div role="status" className="flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+          <span className="flex items-center space-x-1.5">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            <span>{notice}</span>
+          </span>
+          <button onClick={() => setNotice(null)} className="font-semibold hover:underline">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Theme metrics: counts computed from the complete theme registry response */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <MetricCard
           title="Theme Blueprints"
-          value={themes.length}
-          subtitle="Registered templates"
+          value={isLoading ? 'Loading' : themes.length}
+          subtitle="Registered in the registry"
           icon={Palette}
         />
         <MetricCard
-          title="Assigned Brands"
-          value={stores.length || 3}
-          subtitle="Live storefronts"
-          icon={Layers}
-        />
-        <MetricCard
-          title="Active Status"
-          value={themes.filter((t) => t.is_active).length}
-          subtitle="Available for deploy"
+          title="Active Themes"
+          value={isLoading ? 'Loading' : activeThemeCount}
+          subtitle="Available for store creation and assignment"
           icon={CheckCircle2}
-          trendPositive={true}
-        />
-        <MetricCard
-          title="Framework"
-          value="Next.js 14"
-          subtitle="App Router & SSR"
-          icon={Layout}
-        />
-        <MetricCard
-          title="CSS Variables"
-          value="Dynamic"
-          subtitle="Tenant color tokens"
-          icon={Sparkles}
-        />
-        <MetricCard
-          title="Schema Presets"
-          value={themes.length}
-          subtitle="Customizable specs"
-          icon={Sliders}
-        />
-        <MetricCard
-          title="Engine Health"
-          value="100%"
-          subtitle="Zero CSS collisions"
-          icon={ShieldCheck}
-          trendPositive={true}
         />
       </div>
 
       {/* Theme Cards Grid */}
       {isLoading ? (
-        <div className="p-8 text-center text-slate-500 text-xs">Loading theme blueprints...</div>
+        <div className="p-12 text-center text-slate-500 text-xs">Loading theme blueprints...</div>
       ) : themes.length === 0 ? (
-        <div className="p-8 bg-white rounded-lg border text-center text-slate-500">
+        <div className="p-12 bg-white rounded-xl border text-center text-slate-500">
           <Palette className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-          <p className="font-semibold text-slate-700 text-xs">No themes registered.</p>
+          <p className="font-semibold text-slate-700 text-xs">
+            {dataError ? 'Themes could not be loaded.' : 'No themes registered.'}
+          </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 items-stretch">
           {themes.map((theme) => (
             <ThemeCard
               key={theme.id}
               theme={theme}
               onAssignClick={(t) => setActiveAssignTheme(t)}
               onEditClick={(t) => setEditingTheme(t)}
-              onDeleteClick={(t) => setDeletingTheme(t)}
+              onToggleActiveClick={(t) => {
+                if (t.is_active) {
+                  setDeactivateError(null);
+                  setDeactivatingTheme(t);
+                } else {
+                  handleActivate(t);
+                }
+              }}
+              isToggling={togglingThemeId === theme.id}
             />
           ))}
         </div>
@@ -229,17 +214,20 @@ export const ThemesPage: React.FC = () => {
         />
       )}
 
-      {/* Delete Approval Confirmation Modal */}
-      {deletingTheme && (
-        <ConfirmDeleteModal
-          isOpen={!!deletingTheme}
-          title="Delete Theme Blueprint"
-          itemName={`${deletingTheme.name} (${deletingTheme.slug})`}
-          itemType="Theme Blueprint"
-          warningMessage={`Are you sure you want to permanently delete theme "${deletingTheme.name}"? If any active stores are currently assigned to this theme, their storefront presentation will revert to default.`}
-          isDeleting={isDeleting}
-          onConfirm={handleDeleteTheme}
-          onClose={() => setDeletingTheme(null)}
+      {/* Deactivate Confirmation Modal */}
+      {deactivatingTheme && (
+        <DeactivateThemeModal
+          theme={deactivatingTheme}
+          storeCount={
+            typeof deactivatingTheme.active_stores_count === 'number' ? deactivatingTheme.active_stores_count : null
+          }
+          isSubmitting={togglingThemeId === deactivatingTheme.id}
+          errorMessage={deactivateError}
+          onConfirm={handleConfirmDeactivate}
+          onClose={() => {
+            setDeactivateError(null);
+            setDeactivatingTheme(null);
+          }}
         />
       )}
 
@@ -249,7 +237,10 @@ export const ThemesPage: React.FC = () => {
           theme={activeAssignTheme}
           stores={stores}
           onClose={() => setActiveAssignTheme(null)}
-          onSuccess={() => fetchData()}
+          onSuccess={(message) => {
+            setNotice(message);
+            fetchData();
+          }}
         />
       )}
 

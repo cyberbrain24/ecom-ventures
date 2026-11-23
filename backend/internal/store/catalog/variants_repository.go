@@ -18,8 +18,9 @@ type VariantsRepository interface {
 	GetAttributeByID(ctx context.Context, db *sql.DB, id string) (*storeModels.Attribute, error)
 	GetAttributeByCode(ctx context.Context, db *sql.DB, code string) (*storeModels.Attribute, error)
 	ListAttributes(ctx context.Context, db *sql.DB) ([]AttributeDetailResponse, error)
-	UpdateAttribute(ctx context.Context, db *sql.DB, id, name, displayType string) error
+	UpdateAttribute(ctx context.Context, db *sql.DB, id, name, dataType, displayType string) error
 	DeleteAttribute(ctx context.Context, db *sql.DB, id string) error
+	ReorderAttributes(ctx context.Context, db *sql.DB, ids []string) error
 
 	CreateAttributeValue(ctx context.Context, db *sql.DB, val *storeModels.AttributeValue) error
 	GetAttributeValuesByIDs(ctx context.Context, db *sql.DB, ids []string) ([]storeModels.AttributeValue, error)
@@ -46,13 +47,28 @@ func NewSQLVariantsRepository() *SQLVariantsRepository {
 }
 
 func (r *SQLVariantsRepository) CreateAttribute(ctx context.Context, db *sql.DB, attr *storeModels.Attribute) error {
+	if err := EnsureOrderingSchema(ctx, db); err != nil {
+		return err
+	}
+	if attr.DataType == "" {
+		attr.DataType = "select"
+	}
+	// A new attribute goes to the end of the attribute list.
 	query := `
-		INSERT INTO attributes (name, code, display_type, created_at, updated_at)
-		VALUES ($1, $2, $3, NOW(), NOW())
-		RETURNING id, created_at, updated_at
+		INSERT INTO attributes (name, code, data_type, display_type, sort_order, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM attributes), NOW(), NOW())
+		RETURNING id, sort_order, created_at, updated_at
 	`
-	return db.QueryRowContext(ctx, query, attr.Name, attr.Code, attr.DisplayType).
-		Scan(&attr.ID, &attr.CreatedAt, &attr.UpdatedAt)
+	return db.QueryRowContext(ctx, query, attr.Name, attr.Code, attr.DataType, attr.DisplayType).
+		Scan(&attr.ID, &attr.SortOrder, &attr.CreatedAt, &attr.UpdatedAt)
+}
+
+// ReorderAttributes stores the position of each attribute in the attribute list.
+func (r *SQLVariantsRepository) ReorderAttributes(ctx context.Context, db *sql.DB, ids []string) error {
+	if err := EnsureOrderingSchema(ctx, db); err != nil {
+		return err
+	}
+	return reorderByIDs(ctx, db, "attributes", "sort_order", "", ids)
 }
 
 func (r *SQLVariantsRepository) GetAttributeByID(ctx context.Context, db *sql.DB, id string) (*storeModels.Attribute, error) {
@@ -88,10 +104,13 @@ func (r *SQLVariantsRepository) GetAttributeByCode(ctx context.Context, db *sql.
 }
 
 func (r *SQLVariantsRepository) ListAttributes(ctx context.Context, db *sql.DB) ([]AttributeDetailResponse, error) {
+	if err := EnsureOrderingSchema(ctx, db); err != nil {
+		return nil, err
+	}
 	query := `
-		SELECT id, name, code, display_type, created_at, updated_at
+		SELECT id, name, code, data_type, display_type, sort_order, created_at, updated_at
 		FROM attributes
-		ORDER BY created_at ASC
+		ORDER BY sort_order ASC, created_at ASC, id ASC
 	`
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
@@ -99,10 +118,10 @@ func (r *SQLVariantsRepository) ListAttributes(ctx context.Context, db *sql.DB) 
 	}
 	defer rows.Close()
 
-	var details []AttributeDetailResponse
+	details := make([]AttributeDetailResponse, 0)
 	for rows.Next() {
 		var a storeModels.Attribute
-		if err := rows.Scan(&a.ID, &a.Name, &a.Code, &a.DisplayType, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Code, &a.DataType, &a.DisplayType, &a.SortOrder, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 
@@ -122,13 +141,16 @@ func (r *SQLVariantsRepository) ListAttributes(ctx context.Context, db *sql.DB) 
 	return details, rows.Err()
 }
 
-func (r *SQLVariantsRepository) UpdateAttribute(ctx context.Context, db *sql.DB, id, name, displayType string) error {
+func (r *SQLVariantsRepository) UpdateAttribute(ctx context.Context, db *sql.DB, id, name, dataType, displayType string) error {
+	if dataType == "" {
+		dataType = "select"
+	}
 	query := `
 		UPDATE attributes
-		SET name = $1, display_type = $2, updated_at = NOW()
-		WHERE id = $3
+		SET name = $1, data_type = $2, display_type = $3, updated_at = NOW()
+		WHERE id = $4
 	`
-	res, err := db.ExecContext(ctx, query, name, displayType, id)
+	res, err := db.ExecContext(ctx, query, name, dataType, displayType, id)
 	if err != nil {
 		return err
 	}
@@ -160,11 +182,11 @@ func (r *SQLVariantsRepository) DeleteAttribute(ctx context.Context, db *sql.DB,
 
 func (r *SQLVariantsRepository) CreateAttributeValue(ctx context.Context, db *sql.DB, val *storeModels.AttributeValue) error {
 	query := `
-		INSERT INTO attribute_values (attribute_id, value, display_value, color_hex, sort_order, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		INSERT INTO attribute_values (attribute_id, value, display_value, color_hex, image_url, sort_order, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
 		RETURNING id, created_at, updated_at
 	`
-	return db.QueryRowContext(ctx, query, val.AttributeID, val.Value, val.DisplayValue, val.ColorHex, val.SortOrder).
+	return db.QueryRowContext(ctx, query, val.AttributeID, val.Value, val.DisplayValue, val.ColorHex, val.ImageURL, val.SortOrder).
 		Scan(&val.ID, &val.CreatedAt, &val.UpdatedAt)
 }
 
@@ -173,7 +195,7 @@ func (r *SQLVariantsRepository) GetAttributeValuesByIDs(ctx context.Context, db 
 		return nil, nil
 	}
 	query := `
-		SELECT id, attribute_id, value, display_value, color_hex, sort_order, created_at, updated_at
+		SELECT id, attribute_id, value, display_value, color_hex, image_url, sort_order, created_at, updated_at
 		FROM attribute_values
 		WHERE id = ANY($1)
 		ORDER BY sort_order ASC
@@ -187,7 +209,7 @@ func (r *SQLVariantsRepository) GetAttributeValuesByIDs(ctx context.Context, db 
 	var list []storeModels.AttributeValue
 	for rows.Next() {
 		var v storeModels.AttributeValue
-		if err := rows.Scan(&v.ID, &v.AttributeID, &v.Value, &v.DisplayValue, &v.ColorHex, &v.SortOrder, &v.CreatedAt, &v.UpdatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.AttributeID, &v.Value, &v.DisplayValue, &v.ColorHex, &v.ImageURL, &v.SortOrder, &v.CreatedAt, &v.UpdatedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, v)
@@ -197,21 +219,21 @@ func (r *SQLVariantsRepository) GetAttributeValuesByIDs(ctx context.Context, db 
 
 func (r *SQLVariantsRepository) GetAttributeValuesByAttributeID(ctx context.Context, db *sql.DB, attributeID string) ([]storeModels.AttributeValue, error) {
 	query := `
-		SELECT id, attribute_id, value, display_value, color_hex, sort_order, created_at, updated_at
+		SELECT id, attribute_id, value, display_value, color_hex, image_url, sort_order, created_at, updated_at
 		FROM attribute_values
 		WHERE attribute_id = $1
 		ORDER BY sort_order ASC, value ASC
 	`
 	rows, err := db.QueryContext(ctx, query, attributeID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query attribute values: %w", err)
+		return nil, fmt.Errorf("failed to query attribute values by attribute ID: %w", err)
 	}
 	defer rows.Close()
 
 	var list []storeModels.AttributeValue
 	for rows.Next() {
 		var v storeModels.AttributeValue
-		if err := rows.Scan(&v.ID, &v.AttributeID, &v.Value, &v.DisplayValue, &v.ColorHex, &v.SortOrder, &v.CreatedAt, &v.UpdatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.AttributeID, &v.Value, &v.DisplayValue, &v.ColorHex, &v.ImageURL, &v.SortOrder, &v.CreatedAt, &v.UpdatedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, v)

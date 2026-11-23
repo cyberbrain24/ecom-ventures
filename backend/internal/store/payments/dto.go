@@ -24,6 +24,7 @@ type GatewayConfig struct {
 	ID           string      `json:"id"`
 	Gateway      GatewayType `json:"gateway"`
 	IsEnabled    bool        `json:"is_enabled"`
+	IsDefault    bool        `json:"is_default"`
 	IsTestMode   bool        `json:"is_test_mode"`
 	AccountID    string      `json:"account_id"`    // Merchant ID, Store ID, or Stripe Account
 	ClientID     string      `json:"client_id"`     // App Key, Client ID
@@ -37,11 +38,21 @@ type GatewayConfig struct {
 type UpdateGatewayConfigRequest struct {
 	Gateway      GatewayType `json:"gateway"`
 	IsEnabled    bool        `json:"is_enabled"`
+	IsDefault    bool        `json:"is_default"`
 	IsTestMode   bool        `json:"is_test_mode"`
 	AccountID    string      `json:"account_id"`
 	ClientID     string      `json:"client_id"`
 	ClientSecret string      `json:"client_secret"`
 	WebhookKey   string      `json:"webhook_key"`
+}
+
+// PublicGatewayInfo defines customer-facing payment options for storefront checkout.
+type PublicGatewayInfo struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IsDefault   bool   `json:"is_default"`
+	IsEnabled   bool   `json:"is_enabled"`
 }
 
 // InitiatePaymentRequest defines payload to start an online checkout transaction.

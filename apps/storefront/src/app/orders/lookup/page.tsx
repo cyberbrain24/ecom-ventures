@@ -4,8 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { Search, Package, Truck, CheckCircle2, Clock, AlertCircle, ArrowLeft, ExternalLink } from 'lucide-react';
 import { OrderReceipt } from '../../../types/checkout';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api/v1';
+import { fetchStorefrontData, StorefrontApiError } from '../../../lib/api';
 
 export default function OrderLookupPage() {
   const [orderNumber, setOrderNumber] = useState('');
@@ -23,32 +22,19 @@ export default function OrderLookupPage() {
     setReceipt(null);
 
     try {
-      const currentHost = typeof window !== 'undefined' ? window.location.host : '';
-      const headers: Record<string, string> = {};
-      if (currentHost) {
-        headers['Host'] = currentHost;
-        headers['X-Forwarded-Host'] = currentHost;
-      }
-
-      const res = await fetch(
-        `${API_BASE_URL}/storefront/orders/${encodeURIComponent(orderNumber.trim())}?verify=${encodeURIComponent(
-          verifyContact.trim()
-        )}`,
-        { headers }
+      const currentHost = window.location.host;
+      const order = await fetchStorefrontData<OrderReceipt>(
+        currentHost,
+        `/storefront/orders/${encodeURIComponent(orderNumber.trim())}?verify=${encodeURIComponent(verifyContact.trim())}`,
+        { cache: 'no-store' }
       );
-
-      if (!res.ok) {
-        if (res.status === 404) {
-          throw new Error('Order not found. Please verify the order reference number and contact info.');
-        }
-        throw new Error('Unable to retrieve order details. Please try again later.');
+      setReceipt(order);
+    } catch (err) {
+      if (err instanceof StorefrontApiError && err.status === 404) {
+        setErrorMsg('Order not found. Please verify the order reference number and contact info.');
+      } else {
+        setErrorMsg(err instanceof Error ? err.message : 'Failed to look up the order.');
       }
-
-      const payload = await res.json();
-      const data = payload.data !== undefined ? payload.data : payload;
-      setReceipt(data);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to lookup order.');
     } finally {
       setIsLoading(false);
     }
@@ -89,7 +75,7 @@ export default function OrderLookupPage() {
             <input
               type="text"
               required
-              placeholder="e.g. ORD-100234 or mior-1001"
+              placeholder="e.g. ORD-XXXXXX"
               value={orderNumber}
               onChange={(e) => setOrderNumber(e.target.value)}
               className="w-full px-4 py-2.5 text-sm font-mono border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
@@ -189,19 +175,10 @@ export default function OrderLookupPage() {
 
             <div>
               <p className="font-bold text-slate-800 uppercase tracking-wider mb-2">
-                Courier Consignment
+                Shipment
               </p>
               <p className="text-slate-600">
-                Carrier Partner: <span className="font-bold text-slate-900">Steadfast Logistics</span>
-              </p>
-              <p className="text-slate-600 mt-1">
-                Tracking Ref:{' '}
-                <span className="font-mono font-bold text-teal-700">
-                  ST-{receipt.order_number.replace(/\D/g, '') || '992144'}
-                </span>
-              </p>
-              <p className="text-[11px] text-emerald-600 font-semibold mt-2 flex items-center">
-                <CheckCircle2 className="h-3 w-3 mr-1" /> Automated dispatch tracking active
+                Courier tracking is not connected to this store yet. Contact support for the delivery status of this order.
               </p>
             </div>
           </div>

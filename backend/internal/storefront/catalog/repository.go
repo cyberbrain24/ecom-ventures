@@ -8,6 +8,9 @@ import (
 	"math"
 	"strings"
 
+	"github.com/lib/pq"
+
+	storeCatalog "ecom-ventures/backend/internal/store/catalog"
 	storeModels "ecom-ventures/backend/internal/store/models"
 )
 
@@ -35,7 +38,7 @@ func (r *SQLRepository) ListActiveCategories(ctx context.Context, db *sql.DB) ([
 	query := `
 		SELECT id, parent_id, name, slug, COALESCE(description, ''), COALESCE(image_url, ''), display_order,
 		       COALESCE(meta_title, ''), COALESCE(meta_description, ''), COALESCE(focus_keyword, ''),
-		       COALESCE(canonical_url, ''), COALESCE(meta_robots, 'index, follow')
+		       COALESCE(canonical_url, ''), COALESCE(meta_robots, 'index, follow'), COALESCE(og_image_url, '')
 		FROM categories
 		WHERE is_active = TRUE
 		ORDER BY display_order ASC, name ASC;
@@ -52,7 +55,7 @@ func (r *SQLRepository) ListActiveCategories(ctx context.Context, db *sql.DB) ([
 		var parentID sql.NullString
 		if err := rows.Scan(
 			&c.ID, &parentID, &c.Name, &c.Slug, &c.Description, &c.ImageURL, &c.DisplayOrder,
-			&c.MetaTitle, &c.MetaDescription, &c.FocusKeyword, &c.CanonicalURL, &c.MetaRobots,
+			&c.MetaTitle, &c.MetaDescription, &c.FocusKeyword, &c.CanonicalURL, &c.MetaRobots, &c.OGImageURL,
 		); err != nil {
 			return nil, err
 		}
@@ -69,9 +72,17 @@ func (r *SQLRepository) ListActiveCategories(ctx context.Context, db *sql.DB) ([
 
 // ListPublicProducts queries active products with full-text search, recursive category trees, price range filtering, and variant inventory.
 func (r *SQLRepository) ListPublicProducts(ctx context.Context, db *sql.DB, filter *StorefrontFilterParams) ([]PublicProductCard, int, float64, float64, error) {
+	if err := storeCatalog.EnsureOrderingSchema(ctx, db); err != nil {
+		return nil, 0, 0, 0, err
+	}
+
 	where := []string{"p.status = 'ACTIVE'"}
 	args := []interface{}{}
 	argIdx := 1
+
+	if filter.FeaturedOnly {
+		where = append(where, "p.is_featured = TRUE")
+	}
 
 	if filter.Search != "" {
 		where = append(where, fmt.Sprintf("(p.title ILIKE $%d OR p.summary ILIKE $%d OR p.sku ILIKE $%d)", argIdx, argIdx, argIdx))
@@ -132,17 +143,7 @@ func (r *SQLRepository) ListPublicProducts(ctx context.Context, db *sql.DB, filt
 	}
 
 	// 2. Sorting clause
-	orderBy := "p.is_featured DESC, p.created_at DESC"
-	switch filter.Sort {
-	case "price_asc":
-		orderBy = "p.base_price ASC"
-	case "price_desc":
-		orderBy = "p.base_price DESC"
-	case "newest":
-		orderBy = "p.created_at DESC"
-	case "featured":
-		orderBy = "p.is_featured DESC, p.created_at DESC"
-	}
+	orderBy := storefrontOrderBy(filter)
 
 	limit := filter.Limit
 	if limit <= 0 {
@@ -156,16 +157,18 @@ func (r *SQLRepository) ListPublicProducts(ctx context.Context, db *sql.DB, filt
 	query := fmt.Sprintf(`
 		SELECT
 			p.id, p.title, p.slug, COALESCE(p.summary, ''), COALESCE(p.featured_image_url, ''),
-			p.base_price, p.compare_at_price, p.created_at,
+			p.base_price, p.compare_at_price, p.created_at, p.is_featured,
 			c.slug AS category_slug, c.name AS category_name,
+			b.name AS brand_name,
 			COUNT(pv.id) AS total_variants,
 			COALESCE(BOOL_OR((vi.quantity_available - vi.quantity_reserved) > 0), FALSE) AS in_stock
 		FROM products p
 		LEFT JOIN categories c ON c.id = p.category_id
+		LEFT JOIN brands b ON b.id = p.brand_id AND b.is_active = TRUE
 		LEFT JOIN product_variants pv ON pv.product_id = p.id AND pv.is_active = TRUE
 		LEFT JOIN variant_inventory vi ON vi.variant_id = pv.id
 		WHERE %s
-		GROUP BY p.id, c.slug, c.name
+		GROUP BY p.id, c.slug, c.name, b.name
 		ORDER BY %s
 		LIMIT $%d OFFSET $%d;
 	`, whereClause, orderBy, argIdx, argIdx+1)
@@ -181,15 +184,19 @@ func (r *SQLRepository) ListPublicProducts(ctx context.Context, db *sql.DB, filt
 	var products []PublicProductCard
 	for rows.Next() {
 		var p PublicProductCard
-		var catSlug, catName sql.NullString
+		var catSlug, catName, brandName sql.NullString
 		var compareAt sql.NullFloat64
 
 		if err := rows.Scan(
 			&p.ID, &p.Title, &p.Slug, &p.Summary, &p.FeaturedImageURL,
-			&p.BasePrice, &compareAt, &p.CreatedAt,
-			&catSlug, &catName, &p.TotalVariants, &p.InStock,
+			&p.BasePrice, &compareAt, &p.CreatedAt, &p.IsFeatured,
+			&catSlug, &catName, &brandName, &p.TotalVariants, &p.InStock,
 		); err != nil {
 			return nil, 0, 0, 0, err
+		}
+		if brandName.Valid {
+			bn := brandName.String
+			p.BrandName = &bn
 		}
 
 		if compareAt.Valid && compareAt.Float64 > p.BasePrice {
@@ -218,6 +225,26 @@ func (r *SQLRepository) ListPublicProducts(ctx context.Context, db *sql.DB, filt
 	return products, total, globalMin, globalMax, rows.Err()
 }
 
+// storefrontOrderBy returns the ORDER BY expression for a storefront product query. Without an explicit
+// sort the merchant's own order is used (the order set in the store admin product list); the featured list
+// follows the merchant's featured order. Ties fall back to newest first, then id, so paging stays stable.
+func storefrontOrderBy(filter *StorefrontFilterParams) string {
+	if filter.FeaturedOnly {
+		return "p.featured_order ASC, p.sort_order ASC, p.created_at DESC, p.id ASC"
+	}
+	switch filter.Sort {
+	case "price_asc":
+		return "p.base_price ASC, p.id ASC"
+	case "price_desc":
+		return "p.base_price DESC, p.id ASC"
+	case "newest":
+		return "p.created_at DESC, p.id ASC"
+	case "featured":
+		return "p.is_featured DESC, p.featured_order ASC, p.sort_order ASC, p.created_at DESC, p.id ASC"
+	}
+	return "p.sort_order ASC, p.created_at DESC, p.id ASC"
+}
+
 // buildCategoryTree recursively constructs a parent-child category tree.
 func buildCategoryTree(nodes []PublicCategoryNode, parentID *string) []PublicCategoryNode {
 	var tree []PublicCategoryNode
@@ -237,19 +264,27 @@ func buildCategoryTree(nodes []PublicCategoryNode, parentID *string) []PublicCat
 
 // GetPublicProductBySlug returns the full active product details with variant matrices and stock.
 func (r *SQLRepository) GetPublicProductBySlug(ctx context.Context, db *sql.DB, slug string) (*PublicProductDetail, error) {
+	if err := storeCatalog.EnsureOrderingSchema(ctx, db); err != nil {
+		return nil, err
+	}
+	// Only active brands and care instructions are shown; an inactive one is hidden from shoppers.
 	queryProduct := `
 		SELECT
 			p.id, p.title, p.slug, COALESCE(p.sku, ''), COALESCE(p.summary, ''), COALESCE(p.description, ''),
 			p.base_price, p.compare_at_price, COALESCE(p.featured_image_url, ''), p.created_at,
 			c.slug AS category_slug, c.name AS category_name,
 			COALESCE(p.meta_title, ''), COALESCE(p.meta_description, ''), COALESCE(p.focus_keyword, ''),
-			COALESCE(p.canonical_url, ''), COALESCE(p.meta_robots, 'index, follow'), COALESCE(p.og_image_url, '')
+			COALESCE(p.canonical_url, ''), COALESCE(p.meta_robots, 'index, follow'), COALESCE(p.og_image_url, ''),
+			b.name, COALESCE(b.logo_url, ''), COALESCE(b.origin, ''),
+			ci.title, ci.instructions
 		FROM products p
 		LEFT JOIN categories c ON c.id = p.category_id
+		LEFT JOIN brands b ON b.id = p.brand_id AND b.is_active = TRUE
+		LEFT JOIN care_instructions ci ON ci.id = p.care_instruction_id AND ci.is_active = TRUE
 		WHERE p.slug = $1 AND p.status = 'ACTIVE';
 	`
 	detail := &PublicProductDetail{}
-	var catSlug, catName sql.NullString
+	var catSlug, catName, brandName, careTitle sql.NullString
 	var compareAt sql.NullFloat64
 
 	err := db.QueryRowContext(ctx, queryProduct, slug).Scan(
@@ -258,6 +293,8 @@ func (r *SQLRepository) GetPublicProductBySlug(ctx context.Context, db *sql.DB, 
 		&catSlug, &catName,
 		&detail.MetaTitle, &detail.MetaDescription, &detail.FocusKeyword,
 		&detail.CanonicalURL, &detail.MetaRobots, &detail.OGImageURL,
+		&brandName, &detail.BrandLogoURL, &detail.BrandOrigin,
+		&careTitle, pq.Array(&detail.CareInstructions),
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -266,6 +303,16 @@ func (r *SQLRepository) GetPublicProductBySlug(ctx context.Context, db *sql.DB, 
 		return nil, fmt.Errorf("failed to query product by slug: %w", err)
 	}
 
+	// A product without an active care instruction scans as NULL; the API always returns a list.
+	if detail.CareInstructions == nil {
+		detail.CareInstructions = []string{}
+	}
+	if brandName.Valid {
+		detail.BrandName = brandName.String
+	}
+	if careTitle.Valid {
+		detail.CareInstructionTitle = careTitle.String
+	}
 	if compareAt.Valid {
 		cVal := compareAt.Float64
 		detail.CompareAtPrice = &cVal

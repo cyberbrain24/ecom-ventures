@@ -1,259 +1,195 @@
-import React, { useState } from 'react';
-import { BarChart3, ShieldCheck, CheckCircle2, Save, TrendingUp, Globe, Eye, ShoppingBag } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Save, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { MarketingConfig, StoreBrand } from '../types/store';
+import { fetchMarketingConfig, saveMarketingConfig } from '../lib/marketing-api';
 
 interface MarketingViewProps {
   currentStore: StoreBrand;
-  marketing: MarketingConfig;
-  onSaveMarketing: (config: MarketingConfig) => void;
+  marketing?: MarketingConfig | null;
 }
 
-export const MarketingView: React.FC<MarketingViewProps> = ({ currentStore, marketing, onSaveMarketing }) => {
-  const [form, setForm] = useState<MarketingConfig>({ ...marketing });
-  const [savedSuccess, setSavedSuccess] = useState(false);
+export const MarketingView: React.FC<MarketingViewProps> = ({ currentStore }) => {
+  const [metaPixelId, setMetaPixelId] = useState('');
+  const [metaCapiToken, setMetaCapiToken] = useState('');
+  const [ga4MeasurementId, setGa4MeasurementId] = useState('');
+  const [gtmContainerId, setGtmContainerId] = useState('');
+  const [trackPageView, setTrackPageView] = useState(true);
+  const [trackAddToCart, setTrackAddToCart] = useState(true);
+  const [trackPurchase, setTrackPurchase] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const config = await fetchMarketingConfig();
+      if (config) {
+        setMetaPixelId(config.metaPixelId || '');
+        setMetaCapiToken(config.metaCapiToken || '');
+        setGa4MeasurementId(config.ga4MeasurementId || '');
+        setGtmContainerId(config.gtmContainerId || '');
+        setTrackPageView(config.trackPageView);
+        setTrackAddToCart(config.trackAddToCart);
+        setTrackPurchase(config.trackPurchase);
+      }
+    } catch {
+      setNotice({ type: 'error', text: 'Failed to load marketing settings from server.' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [currentStore.slug]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveMarketing(form);
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2500);
+    setIsSaving(true);
+    setNotice(null);
+
+    try {
+      await saveMarketingConfig({
+        meta_pixel_id: metaPixelId.trim(),
+        meta_capi_token: metaCapiToken.trim(),
+        ga4_measurement_id: ga4MeasurementId.trim(),
+        gtm_container_id: gtmContainerId.trim(),
+        is_pixel_enabled: trackPageView,
+        is_capi_enabled: trackAddToCart,
+        is_ga4_enabled: trackPurchase,
+        is_gtm_enabled: Boolean(gtmContainerId.trim()),
+      });
+      setNotice({ type: 'success', text: 'Marketing telemetry & pixel tracking configurations saved successfully.' });
+    } catch (err: any) {
+      setNotice({ type: 'error', text: err?.message || 'Failed to save marketing tracking settings.' });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-        <div>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
-            Marketing Telemetry & Analytics Hub
-          </h1>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
-            Client-side scripts & server-side Conversions API (CAPI) for <code>{currentStore.name}</code>
-          </p>
-        </div>
+      <div style={{ marginBottom: '14px' }}>
+        <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
+          Marketing Telemetry & Pixels
+        </h1>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
+          Conversion tracking, Meta CAPI & Google Analytics 4 settings for <code>{currentStore.name}</code>
+        </p>
       </div>
 
-      {/* Marketing Telemetry Metrics - 7 Column Box Card Design */}
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Meta Pixel</div>
-            <div className="stat-val" style={{ color: form.metaPixelId ? '#059669' : 'var(--text-subtle)', fontSize: '1rem' }}>
-              {form.metaPixelId ? 'Connected' : 'Unset'}
-            </div>
-            <div className="stat-sub" style={{ color: form.metaPixelId ? '#10b981' : 'var(--text-subtle)' }}>
-              <BarChart3 size={11} /> Client pixel
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: form.metaPixelId ? '#ecfdf5' : '#f1f5f9', color: form.metaPixelId ? '#059669' : '#94a3b8' }}>
-            <BarChart3 size={16} />
-          </div>
+      {notice && (
+        <div className={`notice notice-${notice.type === 'success' ? 'success' : 'warning'}`} style={{ marginBottom: '14px' }}>
+          {notice.text}
         </div>
+      )}
 
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Server CAPI</div>
-            <div className="stat-val" style={{ color: form.metaCapiToken ? '#059669' : 'var(--text-subtle)', fontSize: '1rem' }}>
-              {form.metaCapiToken ? 'Protected' : 'Pending'}
-            </div>
-            <div className="stat-sub" style={{ color: form.metaCapiToken ? '#10b981' : 'var(--text-subtle)' }}>
-              <ShieldCheck size={11} /> Server events
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: form.metaCapiToken ? '#ecfdf5' : '#f1f5f9', color: form.metaCapiToken ? '#059669' : '#94a3b8' }}>
-            <ShieldCheck size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Google GA4</div>
-            <div className="stat-val" style={{ color: form.ga4MeasurementId ? '#0284c7' : 'var(--text-subtle)', fontSize: '1rem' }}>
-              {form.ga4MeasurementId ? 'Stream OK' : 'Unset'}
-            </div>
-            <div className="stat-sub" style={{ color: form.ga4MeasurementId ? '#0284c7' : 'var(--text-subtle)' }}>
-              <TrendingUp size={11} /> Analytics 4
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: form.ga4MeasurementId ? '#f0f9ff' : '#f1f5f9', color: form.ga4MeasurementId ? '#0284c7' : '#94a3b8' }}>
-            <TrendingUp size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Google GTM</div>
-            <div className="stat-val" style={{ color: form.gtmContainerId ? '#6366f1' : 'var(--text-subtle)', fontSize: '1rem' }}>
-              {form.gtmContainerId ? 'Mounted' : 'Unset'}
-            </div>
-            <div className="stat-sub" style={{ color: form.gtmContainerId ? '#6366f1' : 'var(--text-subtle)' }}>
-              <Globe size={11} /> Container
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: form.gtmContainerId ? '#eef2ff' : '#f1f5f9', color: form.gtmContainerId ? '#6366f1' : '#94a3b8' }}>
-            <Globe size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Page Views</div>
-            <div className="stat-val" style={{ color: form.trackPageView ? '#059669' : 'var(--text-subtle)', fontSize: '1rem' }}>
-              {form.trackPageView ? 'Tracking' : 'Paused'}
-            </div>
-            <div className="stat-sub" style={{ color: form.trackPageView ? '#10b981' : 'var(--text-subtle)' }}>
-              <Eye size={11} /> View beacon
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: form.trackPageView ? '#ecfdf5' : '#f1f5f9', color: form.trackPageView ? '#059669' : '#94a3b8' }}>
-            <Eye size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Add To Cart</div>
-            <div className="stat-val" style={{ color: form.trackAddToCart ? '#059669' : 'var(--text-subtle)', fontSize: '1rem' }}>
-              {form.trackAddToCart ? 'Tracking' : 'Paused'}
-            </div>
-            <div className="stat-sub" style={{ color: form.trackAddToCart ? '#10b981' : 'var(--text-subtle)' }}>
-              <ShoppingBag size={11} /> Intent beacon
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: form.trackAddToCart ? '#ecfdf5' : '#f1f5f9', color: form.trackAddToCart ? '#059669' : '#94a3b8' }}>
-            <ShoppingBag size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Purchases</div>
-            <div className="stat-val" style={{ color: form.trackPurchase ? '#059669' : 'var(--text-subtle)', fontSize: '1rem' }}>
-              {form.trackPurchase ? 'Tracking' : 'Paused'}
-            </div>
-            <div className="stat-sub" style={{ color: form.trackPurchase ? '#10b981' : 'var(--text-subtle)' }}>
-              <CheckCircle2 size={11} /> Conversions
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: form.trackPurchase ? '#dcfce7' : '#f1f5f9', color: form.trackPurchase ? '#15803d' : '#94a3b8' }}>
-            <CheckCircle2 size={16} />
-          </div>
-        </div>
-      </div>
-
-      <form onSubmit={handleSubmit} style={{ maxWidth: '800px' }}>
-        {/* Meta Integration */}
-        <div className="card">
+      <form onSubmit={handleSubmit} style={{ maxWidth: '820px' }}>
+        <div className="card" style={{ marginBottom: '16px' }}>
           <div className="card-header">
-            <div>
-              <div className="card-title">Meta Business Suite (Facebook & Instagram)</div>
-              <div className="card-desc">Sync browser pixel and server-side Conversions API events</div>
-            </div>
+            <div className="card-title">Meta (Facebook & Instagram Tracking)</div>
           </div>
-
           <div className="form-group" style={{ marginBottom: '16px' }}>
-            <label className="form-label">Meta Pixel ID</label>
+            <label className="form-label" htmlFor="mkt-meta-pixel">Meta Pixel ID</label>
             <input
+              id="mkt-meta-pixel"
               type="text"
-              placeholder="e.g. 9845112093412"
-              value={form.metaPixelId}
-              onChange={(e) => setForm({ ...form, metaPixelId: e.target.value })}
+              placeholder="e.g. 182937492817293"
+              value={metaPixelId}
+              onChange={(e) => setMetaPixelId(e.target.value)}
               className="form-input"
             />
           </div>
-
           <div className="form-group">
-            <label className="form-label">Server-Side Meta Conversions API (CAPI) Access Token</label>
+            <label className="form-label" htmlFor="mkt-capi-token">Conversions API (CAPI) Server Token</label>
             <input
+              id="mkt-capi-token"
               type="password"
-              placeholder="EAAG..."
-              value={form.metaCapiToken}
-              onChange={(e) => setForm({ ...form, metaCapiToken: e.target.value })}
+              placeholder="Leave empty or enter new CAPI system token"
+              value={metaCapiToken}
+              onChange={(e) => setMetaCapiToken(e.target.value)}
               className="form-input"
             />
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Enables privacy-resilient server-side purchase tracking bypassing browser ad-blockers.
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+              Enables server-side deduplicated conversion tracking even when ad blockers are active.
             </span>
           </div>
         </div>
 
-        {/* Google Analytics & GTM */}
-        <div className="card">
+        <div className="card" style={{ marginBottom: '16px' }}>
           <div className="card-header">
-            <div>
-              <div className="card-title">Google Analytics 4 & Tag Manager</div>
-              <div className="card-desc">Direct client telemetry streaming</div>
-            </div>
+            <div className="card-title">Google Analytics 4 & Tag Manager</div>
           </div>
-
           <div className="form-grid">
             <div className="form-group">
-              <label className="form-label">GA4 Measurement ID</label>
+              <label className="form-label" htmlFor="mkt-ga4">GA4 Measurement ID</label>
               <input
+                id="mkt-ga4"
                 type="text"
-                placeholder="e.g. G-XXXXXXXXXX"
-                value={form.ga4MeasurementId}
-                onChange={(e) => setForm({ ...form, ga4MeasurementId: e.target.value })}
+                placeholder="G-XXXXXXXXXX"
+                value={ga4MeasurementId}
+                onChange={(e) => setGa4MeasurementId(e.target.value)}
                 className="form-input"
               />
             </div>
             <div className="form-group">
-              <label className="form-label">Google Tag Manager Container ID</label>
+              <label className="form-label" htmlFor="mkt-gtm">GTM Container ID</label>
               <input
+                id="mkt-gtm"
                 type="text"
-                placeholder="e.g. GTM-XXXXXX"
-                value={form.gtmContainerId}
-                onChange={(e) => setForm({ ...form, gtmContainerId: e.target.value })}
+                placeholder="GTM-XXXXXXX"
+                value={gtmContainerId}
+                onChange={(e) => setGtmContainerId(e.target.value)}
                 className="form-input"
               />
             </div>
           </div>
         </div>
 
-        {/* Telemetry Tracking Toggles */}
-        <div className="card">
+        <div className="card" style={{ marginBottom: '20px' }}>
           <div className="card-header">
-            <div className="card-title">Telemetry Dispatch Rules</div>
+            <div className="card-title">Telemetry Events & Tracking Signals</div>
           </div>
-
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.85rem' }}>
               <input
                 type="checkbox"
-                checked={form.trackPageView}
-                onChange={(e) => setForm({ ...form, trackPageView: e.target.checked })}
+                checked={trackPageView}
+                onChange={(e) => setTrackPageView(e.target.checked)}
               />
-              <span>Stream <strong>PageView</strong> events on brand catalog and PDP navigation</span>
+              <span style={{ fontWeight: 600 }}>Track Page Views (Automatic on storefront route changes)</span>
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', cursor: 'pointer' }}>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.85rem' }}>
               <input
                 type="checkbox"
-                checked={form.trackAddToCart}
-                onChange={(e) => setForm({ ...form, trackAddToCart: e.target.checked })}
+                checked={trackAddToCart}
+                onChange={(e) => setTrackAddToCart(e.target.checked)}
               />
-              <span>Dispatch <strong>AddToCart</strong> and <strong>InitiateCheckout</strong> telemetry</span>
+              <span style={{ fontWeight: 600 }}>Track AddToCart & ViewContent</span>
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', cursor: 'pointer' }}>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.85rem' }}>
               <input
                 type="checkbox"
-                checked={form.trackPurchase}
-                onChange={(e) => setForm({ ...form, trackPurchase: e.target.checked })}
+                checked={trackPurchase}
+                onChange={(e) => setTrackPurchase(e.target.checked)}
               />
-              <span>Trigger dual-pipeline <strong>Purchase</strong> CAPI and browser conversion event</span>
+              <span style={{ fontWeight: 600 }}>Track Purchase with Revenue & Items Payload</span>
             </label>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <button type="submit" className="btn btn-primary" style={{ padding: '10px 20px' }}>
-            <Save size={16} />
-            <span>Save Telemetry Configuration</span>
-          </button>
-          {savedSuccess && (
-            <span style={{ color: '#059669', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <CheckCircle2 size={16} /> Telemetry parameters saved to store settings successfully!
-            </span>
-          )}
-        </div>
+        <button
+          type="submit"
+          disabled={isSaving}
+          className="btn btn-primary"
+          style={{ padding: '10px 24px', gap: '8px' }}
+        >
+          <Save size={16} />
+          <span>{isSaving ? 'Saving Settings...' : 'Save Tracking Settings'}</span>
+        </button>
       </form>
     </div>
   );

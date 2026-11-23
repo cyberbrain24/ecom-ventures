@@ -26,6 +26,23 @@ import {
   StorefrontReviewsResponse,
 } from '../../lib/reviews-api';
 import { ProductBundleBuilder } from './ProductBundleBuilder';
+import { WishlistButton } from '../catalog/WishlistButton';
+
+/**
+ * Brand logo for the product page. Shows the award icon when there is no logo address or when the image
+ * fails to load (for example a deleted file), so a broken image is never left on the page.
+ */
+const BrandLogo: React.FC<{ src: string | undefined; alt: string }> = ({ src, alt }) => {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) {
+    return <Award className="h-6 w-6 text-[var(--brand-primary)]" />;
+  }
+  return (
+    <div className="relative h-full w-full">
+      <Image src={src} alt={alt} fill sizes="44px" className="object-cover" onError={() => setFailed(true)} />
+    </div>
+  );
+};
 
 interface ProductDetailViewProps {
   product: PublicProductDetail;
@@ -33,7 +50,7 @@ interface ProductDetailViewProps {
 }
 
 export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, currency }) => {
-  const { addItem, isLoading, toggleFitCheck } = useCart();
+  const { addItem, isLoading } = useCart();
 
   // Active selections per attribute option { [attributeId]: valueId }
   const [selectedValues, setSelectedValues] = useState<Record<string, string>>(() => {
@@ -91,46 +108,32 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
   const [newPhotoUrl, setNewPhotoUrl] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [reviewSuccessMessage, setReviewSuccessMessage] = useState<string | null>(null);
+  const [reviewSubmissionError, setReviewSubmissionError] = useState<string | null>(null);
+  const [reviewLoadError, setReviewLoadError] = useState<string | null>(null);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(true);
 
   // Fetch reviews on mount
   useEffect(() => {
     let isMounted = true;
-    fetchProductReviews(product.slug, product.id).then((res) => {
-      if (isMounted && res) {
-        setReviewsData(res);
-      }
-    });
+    setIsLoadingReviews(true);
+    setReviewLoadError(null);
+    fetchProductReviews(product.slug, product.id)
+      .then((res) => {
+        // The API sends "reviews": null when a product has no reviews yet; normalise it to an empty list.
+        if (isMounted) setReviewsData({ ...res, reviews: res.reviews ?? [] });
+      })
+      .catch((error: unknown) => {
+        if (isMounted) {
+          setReviewLoadError(error instanceof Error ? error.message : 'Could not load product reviews.');
+        }
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingReviews(false);
+      });
     return () => {
       isMounted = false;
     };
   }, [product.slug, product.id]);
-
-  // Auto-match saved AI fit recommendation from localStorage if available
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const savedSize = localStorage.getItem('poshplex_fit_size');
-        if (savedSize && product.attributes) {
-          const sizeAttr = product.attributes.find(
-            (a) => a.code?.toLowerCase() === 'size' || a.name.toLowerCase().includes('size')
-          );
-          if (sizeAttr) {
-            const matchingVal = sizeAttr.values.find((v) => {
-              const valLower = v.value.toLowerCase();
-              const dispLower = (v.displayValue || v.display_value || '').toLowerCase();
-              const target = savedSize.toLowerCase();
-              return valLower === target || dispLower.includes(`(${target})`) || dispLower === target;
-            });
-            if (matchingVal) {
-              setSelectedValues((prev) => ({ ...prev, [sizeAttr.id]: matchingVal.id }));
-            }
-          }
-        }
-      } catch (e) {
-        // Ignore storage errors
-      }
-    }
-  }, [product.attributes]);
 
   const handleAttributeSelect = (attrId: string, valId: string) => {
     const updated = { ...selectedValues, [attrId]: valId };
@@ -168,26 +171,31 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
     if (!newComment.trim()) return;
 
     setIsSubmittingReview(true);
+    setReviewSubmissionError(null);
     const photos = newPhotoUrl.trim() ? [newPhotoUrl.trim()] : [];
 
-    const res = await submitCustomerReview(product.slug, {
-      product_id: product.id,
-      rating: newRating,
-      title: newTitle.trim() || 'Verified Customer Review',
-      comment: newComment.trim(),
-      images: photos,
-    });
+    try {
+      const res = await submitCustomerReview(product.slug, {
+        product_id: product.id,
+        rating: newRating,
+        title: newTitle.trim(),
+        comment: newComment.trim(),
+        images: photos,
+      });
 
-    setIsSubmittingReview(false);
-    setReviewSuccessMessage(res.message);
-    setNewTitle('');
-    setNewComment('');
-    setNewPhotoUrl('');
-
-    setTimeout(() => {
-      setIsWriteReviewOpen(false);
-      setReviewSuccessMessage(null);
-    }, 2500);
+      setReviewSuccessMessage(res.message);
+      setNewTitle('');
+      setNewComment('');
+      setNewPhotoUrl('');
+      setTimeout(() => {
+        setIsWriteReviewOpen(false);
+        setReviewSuccessMessage(null);
+      }, 2500);
+    } catch (error) {
+      setReviewSubmissionError(error instanceof Error ? error.message : 'Could not submit the review.');
+    } finally {
+      setIsSubmittingReview(false);
+    }
   };
 
   // Filtered reviews calculation
@@ -208,12 +216,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
     : (product.compareAtPrice ?? product.compare_at_price);
 
   const isExplicitSoldOut = Boolean(product.isSoldOut ?? product.is_sold_out);
-  const variantInStock = activeVariant ? Boolean(activeVariant.inStock ?? activeVariant.in_stock) : true;
+  const variantInStock = activeVariant ? Boolean(activeVariant.inStock ?? activeVariant.in_stock) : false;
   const isAvailable = !isExplicitSoldOut && variantInStock;
 
   const availableQty = activeVariant
     ? (activeVariant.availableQuantity ?? activeVariant.available_quantity ?? 0)
-    : 10;
+    : 0;
 
   const featuredImg = product.featuredImageURL || product.featured_image_url || '';
   const currentImgUrl = activeVariantImageOverride || (product.images && product.images[activeImageIndex]?.url) || featuredImg;
@@ -343,31 +351,15 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
           {brandName && (
             <div className="flex items-center gap-3.5 p-3.5 bg-slate-50 border border-slate-200/80 rounded-[var(--brand-radius)]">
               <div className="h-11 w-11 rounded-lg overflow-hidden border border-slate-200 bg-white shrink-0 flex items-center justify-center">
-                {brandLogo ? (
-                  <div className="relative h-full w-full">
-                    <Image
-                      src={brandLogo}
-                      alt={brandName}
-                      fill
-                      sizes="44px"
-                      className="object-cover"
-                    />
-                  </div>
-                ) : (
-                  <Award className="h-6 w-6 text-[var(--brand-primary)]" />
-                )}
+                <BrandLogo src={brandLogo} alt={brandName} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-black text-slate-900 tracking-tight truncate">{brandName}</span>
-                  <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded uppercase shrink-0">
-                    <ShieldCheck className="h-2.5 w-2.5" />
-                    Verified
-                  </span>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                  Authentic designer goods • Origin: {brandOrigin || 'Bangladesh'}
-                </p>
+                {brandOrigin && (
+                  <p className="text-[11px] text-slate-500 mt-0.5 truncate">Origin: {brandOrigin}</p>
+                )}
               </div>
             </div>
           )}
@@ -401,25 +393,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
                   attr.displayType === 'COLOR_SWATCH' ||
                   attr.display_type === 'COLOR_SWATCH' ||
                   attr.name.toLowerCase().includes('color');
-                const isSize =
-                  attr.code?.toLowerCase() === 'size' ||
-                  attr.name.toLowerCase().includes('size');
 
                 return (
                   <div key={attr.id} className="space-y-2">
                     <div className="flex justify-between items-center text-xs">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-slate-800 uppercase tracking-wide">{attr.name}</span>
-                        {isSize && (
-                          <button
-                            type="button"
-                            onClick={toggleFitCheck}
-                            className="inline-flex items-center gap-1 text-[10.5px] font-bold text-cyan-700 hover:text-cyan-800 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200/80 px-2 py-0.5 rounded-full transition active:scale-95"
-                          >
-                            <Sparkles className="h-3 w-3 text-cyan-500" />
-                            <span>AI Fit Check™</span>
-                          </button>
-                        )}
                       </div>
                       <span className="text-slate-500 font-medium">
                         {attr.values.find((v) => v.id === selectedValues[attr.id])?.displayValue ||
@@ -483,11 +462,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
           )}
 
           {/* Multi-Item Bundle Tiers ("Buy More & Save") Slot-Filling Engine */}
-          <ProductBundleBuilder
-            currentProduct={product}
-            currentVariant={activeVariant}
-            selectedAttributes={selectedValues}
-          />
+          <ProductBundleBuilder />
 
           {/* Desktop Purchasing Actions */}
           <div className="pt-2 flex flex-col sm:flex-row gap-3">
@@ -523,6 +498,21 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
               <ShoppingBag className="h-4 w-4" />
               <span>{isAvailable ? 'Add to Cart' : 'Sold Out'}</span>
             </button>
+
+            <WishlistButton
+              item={{
+                id: product.id,
+                title: product.title,
+                slug: product.slug,
+                price: activeVariant ? activeVariant.price : product.base_price,
+                featured_image_url: activeVariant?.image_url || product.featured_image_url || undefined,
+                category_name: product.category_name || undefined,
+                brand_name: product.brand_name || undefined,
+                variant_id: activeVariant?.id,
+              }}
+              className="h-11 w-11 flex items-center justify-center border border-slate-200 rounded-[var(--brand-radius)]"
+              iconClassName="h-5 w-5"
+            />
           </div>
 
           {/* Care Instructions Accordion */}
@@ -566,11 +556,11 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
             </div>
             <div className="space-y-1">
               <ShieldCheck className="h-5 w-5 text-slate-400 mx-auto" />
-              <p className="text-[11px] font-semibold text-slate-800">100% Authentic</p>
+              <p className="text-[11px] font-semibold text-slate-800">Store Support</p>
             </div>
             <div className="space-y-1">
               <RefreshCw className="h-5 w-5 text-slate-400 mx-auto" />
-              <p className="text-[11px] font-semibold text-slate-800">7-Day Replacement</p>
+              <p className="text-[11px] font-semibold text-slate-800">Returns Policy</p>
             </div>
           </div>
         </div>
@@ -605,6 +595,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
               <span>Write a Customer Review</span>
             </button>
           </div>
+
+          {reviewLoadError && (
+            <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
+              Could not load reviews: {reviewLoadError}
+            </div>
+          )}
 
           {/* Social Proof Hero Card & 5-Star Histogram */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 p-6 sm:p-8 bg-slate-50 border border-slate-200 rounded-[var(--brand-radius)]">
@@ -748,7 +744,13 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
           <div className="space-y-4">
             {displayedReviews.length === 0 ? (
               <div className="p-8 text-center bg-slate-50 rounded-[var(--brand-radius)] border border-slate-100 text-slate-500 text-xs">
-                No reviews found matching the selected filter.
+                {isLoadingReviews
+                  ? 'Loading reviews...'
+                  : reviewLoadError
+                    ? 'Reviews are unavailable right now.'
+                    : reviewsData.reviews.length === 0
+                      ? 'No reviews have been published for this product.'
+                      : 'No reviews found matching the selected filter.'}
               </div>
             ) : (
               displayedReviews.map((rev) => (
@@ -873,6 +875,12 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
                 <span>{reviewSuccessMessage}</span>
               </div>
             ) : (
+              <>
+              {reviewSubmissionError && (
+                <div role="alert" className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs">
+                  Could not submit review: {reviewSubmissionError}
+                </div>
+              )}
               <form onSubmit={handleReviewSubmit} className="space-y-4">
                 {/* 1-5 Star Picker */}
                 <div>
@@ -911,7 +919,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Luxurious fabric, fits true to size!"
+                    placeholder="Summarize your experience"
                     value={newTitle}
                     onChange={(e) => setNewTitle(e.target.value)}
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30"
@@ -940,7 +948,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
                   </label>
                   <input
                     type="url"
-                    placeholder="https://images.unsplash.com/photo-..."
+                    placeholder="https://..."
                     value={newPhotoUrl}
                     onChange={(e) => setNewPhotoUrl(e.target.value)}
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/30"
@@ -976,6 +984,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
                   </button>
                 </div>
               </form>
+              </>
             )}
           </div>
         </div>
@@ -1008,8 +1017,8 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({ product, c
         </div>
       )}
 
-      {/* Smartphone (< 768px / lg:hidden) Thumb-Driven Sticky Bottom CTA Bar */}
-      <div className="fixed bottom-[52px] left-0 right-0 p-3 sm:p-4 bg-white/95 backdrop-blur-md border-t border-slate-200 z-40 flex items-center justify-between gap-4 shadow-2xl lg:hidden">
+      {/* Smartphone & Tablet (< 1024px / lg:hidden) Thumb-Driven Sticky Bottom CTA Bar */}
+      <div className="fixed bottom-[calc(60px+env(safe-area-inset-bottom,0px))] md:bottom-0 left-0 right-0 p-3 sm:p-4 bg-[var(--t-surface)]/95 backdrop-blur-md border-t border-[var(--t-line)] z-40 flex items-center justify-between gap-4 shadow-2xl lg:hidden">
         <div className="flex flex-col">
           <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
             {isAvailable ? 'Total Price' : 'Availability'}

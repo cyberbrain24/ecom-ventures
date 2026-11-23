@@ -3,27 +3,28 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log/slog"
 
 	"ecom-ventures/backend/internal/store/marketing"
 )
+
+// ErrNoEmailProvider is returned by UnconfiguredEmailSender. Returning an error (rather than
+// reporting success) makes JOB_SEND_EMAIL retry and then dead-letter the job.
+var ErrNoEmailProvider = errors.New("no email provider configured: transactional email was not sent")
 
 // EmailSender specifies interface for sending transactional emails.
 type EmailSender interface {
 	SendEmail(ctx context.Context, to, subject, body string) error
 }
 
-// LogEmailSender implements EmailSender for logging and development.
-type LogEmailSender struct{}
+// UnconfiguredEmailSender is the sender used until a transactional email provider is configured.
+// Every send fails with ErrNoEmailProvider so no email is ever reported as delivered.
+type UnconfiguredEmailSender struct{}
 
-// SendEmail logs the outgoing transactional email.
-func (s *LogEmailSender) SendEmail(ctx context.Context, to, subject, body string) error {
-	slog.Default().Info("Transactional Email Dispatched",
-		slog.String("to", to),
-		slog.String("subject", subject),
-	)
-	return nil
+// SendEmail always returns ErrNoEmailProvider.
+func (s *UnconfiguredEmailSender) SendEmail(ctx context.Context, to, subject, body string) error {
+	return ErrNoEmailProvider
 }
 
 // BuildEmailNotificationHandler creates a handler for JOB_SEND_EMAIL.

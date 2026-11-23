@@ -1,0 +1,11 @@
+-- Store Visual Branding, Typography, Hero Banners, and Footer Content
+ALTER TABLE store_settings
+ADD COLUMN IF NOT EXISTS logo_url TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS desktop_hero_banner_url TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS mobile_hero_banner_url TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS site_description TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS footer_content TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS primary_color VARCHAR(30) NOT NULL DEFAULT '#0d9488',
+ADD COLUMN IF NOT EXISTS secondary_color VARCHAR(30) NOT NULL DEFAULT '#10b981',
+ADD COLUMN IF NOT EXISTS font_heading VARCHAR(100) NOT NULL DEFAULT 'Inter, sans-serif',
+ADD COLUMN IF NOT EXISTS font_body VARCHAR(100) NOT NULL DEFAULT 'Inter, sans-serif';

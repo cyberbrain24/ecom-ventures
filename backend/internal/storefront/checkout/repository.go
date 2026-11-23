@@ -47,7 +47,7 @@ func (r *SQLRepository) GetCartItemsForCheckout(ctx context.Context, db *sql.DB,
 
 	queryItems := `
 		SELECT
-			ci.variant_id, p.title, pv.title, pv.sku, ci.unit_price, ci.quantity
+			p.id::TEXT, COALESCE(p.category_id::TEXT, ''), ci.variant_id, p.title, pv.title, pv.sku, ci.unit_price, ci.quantity
 		FROM cart_items ci
 		JOIN product_variants pv ON pv.id = ci.variant_id
 		JOIN products p ON p.id = pv.product_id
@@ -65,7 +65,7 @@ func (r *SQLRepository) GetCartItemsForCheckout(ctx context.Context, db *sql.DB,
 
 	for rows.Next() {
 		var it CheckoutReceiptItem
-		if err := rows.Scan(&it.VariantID, &it.ProductTitle, &it.VariantTitle, &it.SKU, &it.UnitPrice, &it.Quantity); err != nil {
+		if err := rows.Scan(&it.ProductID, &it.CategoryID, &it.VariantID, &it.ProductTitle, &it.VariantTitle, &it.SKU, &it.UnitPrice, &it.Quantity); err != nil {
 			return nil, 0, "", err
 		}
 		it.TotalPrice = it.UnitPrice * float64(it.Quantity)

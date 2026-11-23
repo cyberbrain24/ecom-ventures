@@ -68,15 +68,19 @@ func (s *Service) Login(ctx context.Context, email, password, clientIP, userAgen
 
 	// Update last login timestamp and audit login
 	now := time.Now().UTC()
-	_, _ = s.db.ExecContext(ctx, "UPDATE platform_users SET last_login_at = $1 WHERE id = $2;", now, user.ID)
+	if _, err := s.db.ExecContext(ctx, "UPDATE platform_users SET last_login_at = $1 WHERE id = $2;", now, user.ID); err != nil {
+		return nil, nil, fmt.Errorf("recording last login for user %s: %w", user.ID, err)
+	}
 
 	pair, err := s.tokenManager.GeneratePlatformTokenPair(user.ID, user.Email, string(user.Role))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate token pair: %w", err)
 	}
 
-	// Store refresh session in Redis
-	_ = s.sessionManager.StoreSession(ctx, user.ID, pair.RefreshToken, 7*24*time.Hour)
+	// Store refresh session in Redis; login fails closed when the session cannot be recorded.
+	if err := s.sessionManager.StoreSession(ctx, user.ID, pair.RefreshToken, 7*24*time.Hour); err != nil {
+		return nil, nil, fmt.Errorf("storing login session: %w", err)
+	}
 
 	return pair, &user, nil
 }
@@ -93,7 +97,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (*pkgAuth.To
 	}
 
 	valid, err := s.sessionManager.ValidateSession(ctx, claims.UserID, refreshToken)
-	if err != nil || !valid {
+	if err != nil {
+		return nil, fmt.Errorf("validating refresh session: %w", err)
+	}
+	if !valid {
 		return nil, pkgAuth.ErrInvalidToken
 	}
 
@@ -102,7 +109,9 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (*pkgAuth.To
 		return nil, err
 	}
 
-	_ = s.sessionManager.StoreSession(ctx, claims.UserID, pair.RefreshToken, 7*24*time.Hour)
+	if err := s.sessionManager.StoreSession(ctx, claims.UserID, pair.RefreshToken, 7*24*time.Hour); err != nil {
+		return nil, fmt.Errorf("storing refreshed session: %w", err)
+	}
 	return pair, nil
 }
 

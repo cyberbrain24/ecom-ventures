@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -67,6 +68,7 @@ func (s *Service) CreateCategory(ctx context.Context, req CreateCategoryRequest)
 		FocusKeyword:    strings.TrimSpace(req.FocusKeyword),
 		CanonicalURL:    strings.TrimSpace(req.CanonicalURL),
 		MetaRobots:      strings.TrimSpace(req.MetaRobots),
+		OGImageURL:      strings.TrimSpace(req.OGImageURL),
 	}
 
 	if err := s.repo.CreateCategory(ctx, tenantDB, category); err != nil {
@@ -121,6 +123,7 @@ func (s *Service) UpdateCategory(ctx context.Context, id string, req UpdateCateg
 	if req.MetaRobots != "" {
 		existing.MetaRobots = strings.TrimSpace(req.MetaRobots)
 	}
+	existing.OGImageURL = strings.TrimSpace(req.OGImageURL)
 
 	if err := s.repo.UpdateCategory(ctx, tenantDB, existing); err != nil {
 		return nil, err
@@ -168,27 +171,56 @@ func (s *Service) CreateProduct(ctx context.Context, req CreateProductRequest) (
 	}
 
 	product := &storeModels.Product{
-		CategoryID:       req.CategoryID,
-		Title:            title,
-		Slug:             slug,
-		Summary:          req.Summary,
-		Description:      req.Description,
-		Status:           status,
-		FeaturedImageURL: req.FeaturedImageURL,
-		BasePrice:        req.BasePrice,
-		CompareAtPrice:   req.CompareAtPrice,
-		SKU:              strings.ToUpper(strings.TrimSpace(req.SKU)),
-		IsFeatured:       req.IsFeatured,
-		MetaTitle:        strings.TrimSpace(req.MetaTitle),
-		MetaDescription:  strings.TrimSpace(req.MetaDescription),
-		FocusKeyword:     strings.TrimSpace(req.FocusKeyword),
-		CanonicalURL:     strings.TrimSpace(req.CanonicalURL),
-		MetaRobots:       strings.TrimSpace(req.MetaRobots),
-		OGImageURL:       strings.TrimSpace(req.OGImageURL),
+		CategoryID:        req.CategoryID,
+		Title:             title,
+		Slug:              slug,
+		Summary:           req.Summary,
+		Description:       req.Description,
+		Status:            status,
+		FeaturedImageURL:  req.FeaturedImageURL,
+		BasePrice:         req.BasePrice,
+		CompareAtPrice:    req.CompareAtPrice,
+		CostPrice:         req.CostPrice,
+		SKU:               strings.ToUpper(strings.TrimSpace(req.SKU)),
+		IsFeatured:        req.IsFeatured,
+		BrandID:           req.BrandID,
+		CareInstructionID: req.CareInstructionID,
+		VideoURL:          strings.TrimSpace(req.VideoURL),
+		VideoAutoplay:     req.VideoAutoplay,
+		VideoMuted:        req.VideoMuted,
+		OptionLayout:      req.OptionLayout,
+		SizeGuideTemplate: req.SizeGuideTemplate,
+		MetaTitle:         strings.TrimSpace(req.MetaTitle),
+		MetaDescription:   strings.TrimSpace(req.MetaDescription),
+		FocusKeyword:      strings.TrimSpace(req.FocusKeyword),
+		CanonicalURL:      strings.TrimSpace(req.CanonicalURL),
+		MetaRobots:        strings.TrimSpace(req.MetaRobots),
+		OGImageURL:        strings.TrimSpace(req.OGImageURL),
 	}
 
 	if err := s.repo.CreateProduct(ctx, tenantDB, product); err != nil {
 		return nil, err
+	}
+
+	// Handle media gallery filenames if provided (separated by commas)
+	if strings.TrimSpace(req.GalleryFilenames) != "" {
+		names := strings.Split(req.GalleryFilenames, ",")
+		for i, name := range names {
+			cleanName := strings.TrimSpace(name)
+			if cleanName != "" {
+				imgURL := cleanName
+				if !strings.HasPrefix(cleanName, "http") && !strings.HasPrefix(cleanName, "/") {
+					imgURL = "/media/" + cleanName
+				}
+				_ = s.repo.InsertProductImage(ctx, tenantDB, &storeModels.ProductImage{
+					ProductID: product.ID,
+					URL:       imgURL,
+					AltText:   product.Title,
+					SortOrder: i,
+					IsPrimary: i == 0 && product.FeaturedImageURL == "",
+				})
+			}
+		}
 	}
 
 	return product, nil
@@ -235,8 +267,28 @@ func (s *Service) UpdateProduct(ctx context.Context, id string, req UpdateProduc
 	existing.FeaturedImageURL = req.FeaturedImageURL
 	existing.BasePrice = req.BasePrice
 	existing.CompareAtPrice = req.CompareAtPrice
+	if req.CostPrice != nil {
+		existing.CostPrice = req.CostPrice
+	}
 	existing.SKU = strings.ToUpper(strings.TrimSpace(req.SKU))
 	existing.IsFeatured = req.IsFeatured
+	if req.BrandID != nil {
+		existing.BrandID = req.BrandID
+	}
+	if req.CareInstructionID != nil {
+		existing.CareInstructionID = req.CareInstructionID
+	}
+	if req.VideoURL != "" {
+		existing.VideoURL = strings.TrimSpace(req.VideoURL)
+	}
+	existing.VideoAutoplay = req.VideoAutoplay
+	existing.VideoMuted = req.VideoMuted
+	if req.OptionLayout != "" {
+		existing.OptionLayout = req.OptionLayout
+	}
+	if req.SizeGuideTemplate != "" {
+		existing.SizeGuideTemplate = req.SizeGuideTemplate
+	}
 	if req.MetaTitle != "" {
 		existing.MetaTitle = strings.TrimSpace(req.MetaTitle)
 	}
@@ -261,6 +313,146 @@ func (s *Service) DeleteProduct(ctx context.Context, id string) error {
 		return err
 	}
 	return s.repo.DeleteProduct(ctx, tenantDB, id)
+}
+
+// --- ORDERING AND FEATURED SERVICES ---
+
+// maxReorderIDs bounds a reorder request so one call cannot lock an unreasonable number of rows.
+const maxReorderIDs = 5000
+
+// ErrInvalidReorder is returned when a reorder or featured request is malformed.
+var ErrInvalidReorder = errors.New("catalog: invalid reorder request")
+
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// ValidateOrderedIDs checks that ids is a non-empty list of unique UUIDs of reasonable size.
+// The returned error wraps ErrInvalidReorder and says what is wrong.
+func ValidateOrderedIDs(ids []string) error {
+	if len(ids) == 0 {
+		return fmt.Errorf("%w: ids must not be empty", ErrInvalidReorder)
+	}
+	if len(ids) > maxReorderIDs {
+		return fmt.Errorf("%w: at most %d ids can be reordered at once", ErrInvalidReorder, maxReorderIDs)
+	}
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if !uuidPattern.MatchString(id) {
+			return fmt.Errorf("%w: %q is not a valid id", ErrInvalidReorder, id)
+		}
+		key := strings.ToLower(id)
+		if _, dup := seen[key]; dup {
+			return fmt.Errorf("%w: id %s appears more than once", ErrInvalidReorder, id)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+// validateFeaturedRequest checks the product id and that the featured flag was actually sent.
+func validateFeaturedRequest(id string, featured *bool) error {
+	if !uuidPattern.MatchString(id) {
+		return fmt.Errorf("%w: %q is not a valid product id", ErrInvalidReorder, id)
+	}
+	if featured == nil {
+		return fmt.Errorf("%w: is_featured is required", ErrInvalidReorder)
+	}
+	return nil
+}
+
+// SetProductFeatured marks or unmarks a product as featured and returns the updated product.
+func (s *Service) SetProductFeatured(ctx context.Context, id string, featured *bool) (*storeModels.Product, error) {
+	tenantDB, err := storeCtx.GetTenantDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateFeaturedRequest(id, featured); err != nil {
+		return nil, err
+	}
+	if err := s.repo.SetProductFeatured(ctx, tenantDB, id, *featured); err != nil {
+		return nil, err
+	}
+	return s.repo.GetProductByID(ctx, tenantDB, id)
+}
+
+// ProductLinksRequest sets which brand and care instruction a product uses. A null or missing value clears
+// that link. Both fields are always replaced, so a client must send the current value of the one it does not change.
+type ProductLinksRequest struct {
+	BrandID           *string `json:"brand_id"`
+	CareInstructionID *string `json:"care_instruction_id"`
+}
+
+// SetProductLinks validates the ids and updates the product's brand and care instruction.
+func (s *Service) SetProductLinks(ctx context.Context, id string, req ProductLinksRequest) (*storeModels.Product, error) {
+	db, err := storeCtx.GetTenantDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !uuidPattern.MatchString(id) {
+		return nil, fmt.Errorf("%w: %q is not a valid product id", ErrInvalidReorder, id)
+	}
+	brandID, err := normalizeOptionalID("brand_id", req.BrandID)
+	if err != nil {
+		return nil, err
+	}
+	careID, err := normalizeOptionalID("care_instruction_id", req.CareInstructionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.SetProductLinks(ctx, db, id, brandID, careID); err != nil {
+		return nil, err
+	}
+	return s.repo.GetProductByID(ctx, db, id)
+}
+
+// normalizeOptionalID returns nil for a missing or blank id, and otherwise a validated UUID.
+func normalizeOptionalID(field string, value *string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	v := strings.TrimSpace(*value)
+	if v == "" {
+		return nil, nil
+	}
+	if !uuidPattern.MatchString(v) {
+		return nil, fmt.Errorf("%w: %s is not a valid id", ErrInvalidReorder, field)
+	}
+	return &v, nil
+}
+
+// ReorderProducts saves the order of the main product list.
+func (s *Service) ReorderProducts(ctx context.Context, ids []string) error {
+	tenantDB, err := storeCtx.GetTenantDB(ctx)
+	if err != nil {
+		return err
+	}
+	if err := ValidateOrderedIDs(ids); err != nil {
+		return err
+	}
+	return s.repo.ReorderProducts(ctx, tenantDB, ids)
+}
+
+// ReorderFeaturedProducts saves the order of the featured list shown on the storefront home page.
+func (s *Service) ReorderFeaturedProducts(ctx context.Context, ids []string) error {
+	tenantDB, err := storeCtx.GetTenantDB(ctx)
+	if err != nil {
+		return err
+	}
+	if err := ValidateOrderedIDs(ids); err != nil {
+		return err
+	}
+	return s.repo.ReorderFeaturedProducts(ctx, tenantDB, ids)
+}
+
+// ReorderCategories saves the order of one sibling group of categories.
+func (s *Service) ReorderCategories(ctx context.Context, ids []string) error {
+	tenantDB, err := storeCtx.GetTenantDB(ctx)
+	if err != nil {
+		return err
+	}
+	if err := ValidateOrderedIDs(ids); err != nil {
+		return err
+	}
+	return s.repo.ReorderCategories(ctx, tenantDB, ids)
 }
 
 // --- MEDIA SERVICES ---

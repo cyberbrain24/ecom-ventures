@@ -6,8 +6,6 @@ import (
 	"strconv"
 
 	"ecom-ventures/backend/pkg/response"
-
-	"github.com/go-chi/chi/v5"
 )
 
 // Handler exposes system, admin staff, and audit endpoints.
@@ -63,35 +61,6 @@ func (h *Handler) CreateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.JSON(w, http.StatusCreated, user)
-}
-
-// UpdateAdminStatus handles PATCH /api/v1/platform/admins/{id}/status.
-func (h *Handler) UpdateAdminStatus(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if id == "" {
-		response.BadRequest(w, r, "Missing admin ID.")
-		return
-	}
-
-	var payload struct {
-		Status string `json:"status"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		response.BadRequest(w, r, "Invalid payload.")
-		return
-	}
-
-	if payload.Status != "ACTIVE" && payload.Status != "SUSPENDED" && payload.Status != "DEACTIVATED" {
-		response.BadRequest(w, r, "Status must be ACTIVE, SUSPENDED, or DEACTIVATED.")
-		return
-	}
-
-	if err := h.service.UpdateAdminStatus(r.Context(), id, payload.Status); err != nil {
-		response.BadRequest(w, r, err.Error())
-		return
-	}
-
-	response.JSON(w, http.StatusOK, map[string]string{"message": "Status updated successfully"})
 }
 
 // ListAuditLogs handles GET /api/v1/platform/audit-logs.

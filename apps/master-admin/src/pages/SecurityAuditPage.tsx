@@ -5,70 +5,29 @@ import {
   AlertTriangle,
   Play,
   RefreshCw,
-  CheckCircle2,
-  Lock,
-  Database,
-  Globe,
-  Terminal,
-  Activity
+  CheckCircle2
 } from 'lucide-react';
 import { MetricCard } from '../components/ui/MetricCard';
 import { SecurityAuditReportResponse } from '../types/system';
-import { api } from '../lib/api';
+import { api, apiErrorMessage } from '../lib/api';
 
 export const SecurityAuditPage: React.FC = () => {
   const [report, setReport] = useState<SecurityAuditReportResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [lastAuditedAt, setLastAuditedAt] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const runAudit = async () => {
     setIsLoading(true);
+    setErrorMessage(null);
     try {
-      const res = await api.get<any>('/platform/security/audit');
-      const payload = res.data?.data !== undefined ? res.data.data : res.data;
-      setReport(payload);
-      setLastAuditedAt(new Date().toISOString());
+      const res = await api.get<{ data: SecurityAuditReportResponse }>('/platform/security/audit');
+      setReport(res.data.data);
+      setLastAuditedAt(res.data.data.timestamp);
     } catch (err) {
-      console.warn('Fallback to local security audit results', err);
-      setReport({
-        timestamp: new Date().toISOString(),
-        checks_run: 4,
-        passed_checks: 4,
-        warning_checks: 0,
-        failed_checks: 0,
-        overall_verdict: 'PASS',
-        findings: [
-          {
-            name: 'Platform DB Schema Purity',
-            description: 'Verifies central platform DB contains zero operational tenant tables (products, orders, carts).',
-            status: 'PASS',
-            details: 'Purity verified: Platform DB contains only 7 global metadata tables.',
-            timestamp: new Date().toISOString(),
-          },
-          {
-            name: 'Database Credential Encryption at Rest',
-            description: 'Verifies all tenant connection passwords in stores table are encrypted with AES-256-GCM.',
-            status: 'PASS',
-            details: 'Verified across all registered stores: All db_password_encrypted values possess valid hex nonce vectors.',
-            timestamp: new Date().toISOString(),
-          },
-          {
-            name: 'Custom Domain SSL & Isolation Invariants',
-            description: 'Checks domain mapping table for unverified or conflicting CNAME records.',
-            status: 'PASS',
-            details: 'Verified: All primary domains possess valid TLS certificate references and isolated store IDs.',
-            timestamp: new Date().toISOString(),
-          },
-          {
-            name: 'Tenant Pool Isolation & SQL Injection Resistance',
-            description: 'Validates that tenant connection pools execute queries with strict tenant context resolution.',
-            status: 'PASS',
-            details: 'Verified: Cross-tenant query execution is blocked at connection pool resolver layer.',
-            timestamp: new Date().toISOString(),
-          },
-        ],
-      });
-      setLastAuditedAt(new Date().toISOString());
+      setReport(null);
+      setLastAuditedAt(null);
+      setErrorMessage(apiErrorMessage(err, 'Could not run the security audit.'));
     } finally {
       setIsLoading(false);
     }
@@ -103,52 +62,39 @@ export const SecurityAuditPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Security Metrics Row - 7 Columns in One Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+      {errorMessage && (
+        <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 whitespace-pre-line">
+          {errorMessage}
+        </div>
+      )}
+
+      {/* Security Metrics Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard
           title="Audit Verdict"
-          value={report?.overall_verdict || 'PASS'}
-          subtitle="Platform isolation"
+          value={report?.overall_verdict || '—'}
+          subtitle="Audit result"
           icon={ShieldCheck}
-          trendPositive={report?.overall_verdict !== 'FAIL'}
+          trendPositive={report?.overall_verdict === 'PASS'}
         />
         <MetricCard
           title="Passed Checks"
-          value={report?.passed_checks ?? 4}
-          subtitle="Compliant tests"
+          value={report?.passed_checks ?? '—'}
+          subtitle="Passed audit checks"
           icon={CheckCircle2}
-          trendPositive={true}
+          trendPositive={report ? report.failed_checks === 0 : undefined}
         />
         <MetricCard
           title="Warnings"
-          value={report?.warning_checks ?? 0}
-          subtitle="Minor advisories"
+          value={report?.warning_checks ?? '—'}
+          subtitle="Reported warnings"
           icon={AlertTriangle}
         />
         <MetricCard
           title="Critical Flags"
-          value={report?.failed_checks ?? 0}
-          subtitle="Zero vulnerabilities"
+          value={report?.failed_checks ?? '—'}
+          subtitle="Reported failures"
           icon={ShieldAlert}
-        />
-        <MetricCard
-          title="DB Separation"
-          value="Isolated"
-          subtitle="Physical partitions"
-          icon={Database}
-        />
-        <MetricCard
-          title="AES-256-GCM"
-          value="Active"
-          subtitle="96-bit unique nonces"
-          icon={Lock}
-        />
-        <MetricCard
-          title="Kernel Health"
-          value="100%"
-          subtitle="Header guard active"
-          icon={Terminal}
-          trendPositive={true}
         />
       </div>
 
@@ -198,8 +144,7 @@ export const SecurityAuditPage: React.FC = () => {
               </div>
               <p className="text-[11px] text-slate-600 mt-0.5">
                 Last executed:{' '}
-                {lastAuditedAt ? new Date(lastAuditedAt).toLocaleString() : 'Just now'} via
-                Automated Platform Kernel (Phase 29).
+                {lastAuditedAt ? new Date(lastAuditedAt).toLocaleString() : 'Unknown'}
               </p>
             </div>
           </div>
@@ -225,11 +170,11 @@ export const SecurityAuditPage: React.FC = () => {
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-3.5 py-2 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
           <h3 className="text-xs font-bold text-slate-900">Isolation & Cryptographic Check Invariants</h3>
-          <span className="text-[10px] text-slate-500 font-mono">Kernel Security Runner</span>
+          <span className="text-[10px] text-slate-500 font-mono">Server audit report</span>
         </div>
 
         <div className="divide-y divide-slate-100">
-          {(report?.findings || []).map((finding, idx) => (
+          {report ? report.findings.map((finding, idx) => (
             <div key={idx} className="p-3 hover:bg-slate-50/50 transition flex items-start space-x-3">
               <div className="mt-0.5 flex-shrink-0">
                 {finding.status === 'PASS' ? (
@@ -262,45 +207,14 @@ export const SecurityAuditPage: React.FC = () => {
                 </div>
               </div>
             </div>
-          ))}
+          )) : (
+            <p className="p-4 text-xs text-slate-500">
+              {errorMessage ? 'Audit results are unavailable until the request succeeds.' : 'Run the audit to load results.'}
+            </p>
+          )}
         </div>
       </div>
 
-      {/* Security Architecture Reference */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-          <div className="flex items-center space-x-1.5 text-slate-900 font-bold text-xs mb-1">
-            <Database className="h-3.5 w-3.5 text-teal-600" />
-            <span>Database Segregation</span>
-          </div>
-          <p className="text-[11px] text-slate-500 leading-snug">
-            Multi-database architecture ensures physical partition between brands. No tenant table exists on the
-            central platform DB.
-          </p>
-        </div>
-
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-          <div className="flex items-center space-x-1.5 text-slate-900 font-bold text-xs mb-1">
-            <Lock className="h-3.5 w-3.5 text-purple-600" />
-            <span>AES-256-GCM Encryption</span>
-          </div>
-          <p className="text-[11px] text-slate-500 leading-snug">
-            All tenant credentials, payment gateway keys, and courier secrets are encrypted at rest using AES-GCM
-            with 96-bit unique nonces.
-          </p>
-        </div>
-
-        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-          <div className="flex items-center space-x-1.5 text-slate-900 font-bold text-xs mb-1">
-            <Terminal className="h-3.5 w-3.5 text-blue-600" />
-            <span>Penetration Resistance</span>
-          </div>
-          <p className="text-[11px] text-slate-500 leading-snug">
-            Strict tenant context resolution middleware blocks header spoofing or host header injection attacks at
-            the routing boundary.
-          </p>
-        </div>
-      </div>
     </div>
   );
 };

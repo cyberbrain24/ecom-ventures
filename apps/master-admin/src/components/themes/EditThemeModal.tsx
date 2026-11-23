@@ -1,33 +1,51 @@
 import React, { useState } from 'react';
-import { X, Save, Edit3, Palette } from 'lucide-react';
+import { X, Save, Palette } from 'lucide-react';
 import { ThemeItem } from '../../types/theme';
+import { apiErrorMessage } from '../../lib/api';
 
 interface EditThemeModalProps {
   theme: ThemeItem;
   onClose: () => void;
-  onSave: (updatedTheme: ThemeItem) => void;
+  /** Resolves when the server accepted the change; rejects with a message to show inside the modal. */
+  onSave: (updatedTheme: ThemeItem) => Promise<void>;
 }
 
+/**
+ * EditThemeModal edits a theme blueprint's registry fields. It stays open and shows the
+ * server error when the save fails.
+ *
+ * @param props - Theme to edit, close handler, and async save handler
+ * @returns The edit modal
+ */
 export const EditThemeModal: React.FC<EditThemeModalProps> = ({ theme, onClose, onSave }) => {
   const [name, setName] = useState(theme.name);
   const [version, setVersion] = useState(theme.version);
   const [description, setDescription] = useState(theme.description || '');
+  const [previewImageUrl, setPreviewImageUrl] = useState(theme.preview_image_url || '');
   const [isActive, setIsActive] = useState(theme.is_active);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg(null);
     setIsSubmitting(true);
     const updated: ThemeItem = {
       ...theme,
       name: name.trim(),
       version: version.trim(),
       description: description.trim(),
+      preview_image_url: previewImageUrl.trim() || undefined,
       is_active: isActive,
       updated_at: new Date().toISOString(),
     };
-    onSave(updated);
-    setIsSubmitting(false);
+    try {
+      await onSave(updated);
+    } catch (err) {
+      setErrorMsg(apiErrorMessage(err, 'Could not save theme changes.'));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -54,6 +72,11 @@ export const EditThemeModal: React.FC<EditThemeModalProps> = ({ theme, onClose, 
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-4 space-y-3">
+          {errorMsg && (
+            <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 whitespace-pre-line">
+              {errorMsg}
+            </div>
+          )}
           <div>
             <label className="block text-[11px] font-semibold text-slate-700 mb-1">
               Theme Display Name
@@ -77,7 +100,20 @@ export const EditThemeModal: React.FC<EditThemeModalProps> = ({ theme, onClose, 
               value={version}
               onChange={(e) => setVersion(e.target.value)}
               className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
-              placeholder="e.g. 1.2.0"
+              placeholder="1.0.0"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+              Preview Image URL (Optional)
+            </label>
+            <input
+              type="url"
+              value={previewImageUrl}
+              onChange={(e) => setPreviewImageUrl(e.target.value)}
+              className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
+              placeholder="https://images.unsplash.com/..."
             />
           </div>
 

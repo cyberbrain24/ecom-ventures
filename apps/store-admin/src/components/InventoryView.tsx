@@ -1,332 +1,256 @@
-import React, { useState } from 'react';
-import { AlertTriangle, Plus, Minus, History, CheckCircle, RefreshCw, Package, DollarSign, Sparkles, XCircle, TrendingUp } from 'lucide-react';
-import { StoreProduct, InventoryMovement, StoreBrand } from '../types/store';
+import React, { useEffect, useState } from 'react';
+import { StoreBrand } from '../types/store';
+import { EmptyState } from './StoreStatusNotices';
+import {
+  InventoryItem,
+  InventoryMovementItem,
+  adjustInventoryStock,
+  fetchInventoryItems,
+  fetchInventoryMovements,
+} from '../lib/inventory-api';
+import { RecordModal } from './RecordModal';
 
 interface InventoryViewProps {
   currentStore: StoreBrand;
-  products: StoreProduct[];
-  movements: InventoryMovement[];
-  onAdjustStock: (productId: string, delta: number, reason: string) => void;
+  products?: any[];
+  movements?: any[];
 }
 
-export const InventoryView: React.FC<InventoryViewProps> = ({
-  currentStore,
-  products,
-  movements,
-  onAdjustStock,
-}) => {
-  const [selectedProduct, setSelectedProduct] = useState<StoreProduct | null>(null);
-  const [adjustAmount, setAdjustAmount] = useState<string>('5');
-  const [adjustReason, setAdjustReason] = useState<string>('RESTOCK');
-  const [isModalOpen, setIsModalOpen] = useState(false);
+export const InventoryView: React.FC<InventoryViewProps> = ({ currentStore }) => {
+  const [activeTab, setActiveTab] = useState<'stock' | 'history'>('stock');
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [movements, setMovements] = useState<InventoryMovementItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const lowStockItems = products.filter((p) => p.inventoryCount > 0 && p.inventoryCount < 10);
-  const healthyStockItems = products.filter((p) => p.inventoryCount >= 10);
-  const outOfStockItems = products.filter((p) => (p.inventoryCount || 0) === 0);
-  const totalStockUnits = products.reduce((sum, p) => sum + (p.inventoryCount || 0), 0);
-  const totalStockValuation = products.reduce((sum, p) => sum + (p.inventoryCount || 0) * (p.price || 0), 0);
+  // Adjustment Modal
+  const [adjustItem, setAdjustItem] = useState<InventoryItem | null>(null);
+  const [adjustQuantity, setAdjustQuantity] = useState<number>(0);
+  const [adjustReason, setAdjustReason] = useState<string>('MANUAL_CORRECTION');
+  const [adjustNotes, setAdjustNotes] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const openAdjustModal = (product: StoreProduct) => {
-    setSelectedProduct(product);
-    setIsModalOpen(true);
+  const loadData = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      if (activeTab === 'stock') {
+        const res = await fetchInventoryItems();
+        setItems(res.items || []);
+      } else {
+        const res = await fetchInventoryMovements();
+        setMovements(res.movements || []);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load inventory data');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleAdjust = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedProduct) return;
-    const qty = parseInt(adjustAmount, 10);
-    if (isNaN(qty)) return;
+  useEffect(() => {
+    loadData();
+  }, [activeTab]);
 
-    onAdjustStock(selectedProduct.id, qty, adjustReason);
-    setIsModalOpen(false);
+  const handleAdjustSubmit = async () => {
+    if (!adjustItem) return;
+    if (adjustQuantity === 0) {
+      throw new Error('Quantity change must be non-zero.');
+    }
+    await adjustInventoryStock(adjustItem.variant_id, adjustQuantity, adjustReason, adjustNotes);
+    setAdjustItem(null);
+    setAdjustQuantity(0);
+    setAdjustNotes('');
+    loadData();
   };
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-        <div>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
-            Real-Time Stock Inventory & Ledger
-          </h1>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
-            Physical inventory levels and atomic stock movement auditing for <code>{currentStore.name}</code>
-          </p>
-        </div>
+      <div style={{ marginBottom: '14px' }}>
+        <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
+          Inventory & Stocks
+        </h1>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
+          Live stock levels and double-entry movement ledger for <code>{currentStore.name}</code>
+        </p>
       </div>
 
-      {/* Stock Operational Metrics - 7 Column Box Card Design */}
-      <div className="stats-grid">
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Total Stock Units</div>
-            <div className="stat-val">{totalStockUnits}</div>
-            <div className="stat-sub" style={{ color: '#0284c7', fontWeight: 600 }}>
-              <Package size={11} /> Physical items
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: '#f0f9ff', color: '#0284c7' }}>
-            <Package size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Tracked SKUs</div>
-            <div className="stat-val">{products.length}</div>
-            <div className="stat-sub" style={{ color: '#6366f1' }}>
-              <Sparkles size={11} /> Active models
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: '#eef2ff', color: '#6366f1' }}>
-            <Sparkles size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Healthy Stock</div>
-            <div className="stat-val" style={{ color: '#059669' }}>{healthyStockItems.length}</div>
-            <div className="stat-sub" style={{ color: '#10b981' }}>
-              <CheckCircle size={11} /> &ge;10 units
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: '#ecfdf5', color: '#059669' }}>
-            <CheckCircle size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card" style={{ borderLeft: lowStockItems.length > 0 ? '3px solid #f59e0b' : undefined }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Low Stock</div>
-            <div className="stat-val" style={{ color: lowStockItems.length > 0 ? '#f59e0b' : 'var(--text-main)' }}>
-              {lowStockItems.length}
-            </div>
-            <div className="stat-sub" style={{ color: '#d97706' }}>
-              <AlertTriangle size={11} /> &lt;10 units
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: '#fef3c7', color: '#d97706' }}>
-            <AlertTriangle size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card" style={{ borderLeft: outOfStockItems.length > 0 ? '3px solid #ef4444' : undefined }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Out of Stock</div>
-            <div className="stat-val" style={{ color: outOfStockItems.length > 0 ? '#ef4444' : 'var(--text-main)' }}>
-              {outOfStockItems.length}
-            </div>
-            <div className="stat-sub" style={{ color: '#dc2626' }}>
-              <XCircle size={11} /> 0 inventory
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: '#fee2e2', color: '#dc2626' }}>
-            <XCircle size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Asset Valuation</div>
-            <div className="stat-val">৳{Math.round(totalStockValuation).toLocaleString()}</div>
-            <div className="stat-sub" style={{ color: '#059669' }}>
-              <DollarSign size={11} /> Inventory value
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: '#ecfdf5', color: '#059669' }}>
-            <DollarSign size={16} />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="stat-label">Audit History</div>
-            <div className="stat-val">{movements.length}</div>
-            <div className="stat-sub" style={{ color: '#64748b' }}>
-              <History size={11} /> Movements
-            </div>
-          </div>
-          <div className="stat-icon" style={{ background: '#f8fafc', color: '#475569' }}>
-            <History size={16} />
-          </div>
-        </div>
-      </div>
-
-      {/* Low Stock Alerts Banner */}
-      {lowStockItems.length > 0 && (
-        <div
-          style={{
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
-            borderRadius: 'var(--radius-sm)',
-            padding: '10px 14px',
-            marginBottom: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border)', marginBottom: '12px', paddingBottom: '8px' }}>
+        <button
+          onClick={() => setActiveTab('stock')}
+          className={`btn btn-sm ${activeTab === 'stock' ? 'btn-primary' : 'btn-secondary'}`}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <AlertTriangle style={{ color: '#dc2626' }} size={18} />
-            <div>
-              <div style={{ fontWeight: 700, color: '#991b1b', fontSize: '0.84rem' }}>
-                Stock Depletion Warning ({lowStockItems.length} item{lowStockItems.length > 1 ? 's' : ''} low on stock)
-              </div>
-              <div style={{ fontSize: '0.78rem', color: '#b91c1c' }}>
-                The following SKUs have fallen below the 10-unit safety threshold:{' '}
-                {lowStockItems.map((p) => `${p.title} (${p.inventoryCount} left)`).join(', ')}
-              </div>
-            </div>
-          </div>
+          Stock balances ({items.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`btn btn-sm ${activeTab === 'history' ? 'btn-primary' : 'btn-secondary'}`}
+        >
+          Movement history ({movements.length})
+        </button>
+      </div>
+
+      {error && (
+        <div className="notice notice-error" style={{ marginBottom: '12px' }}>
+          {error}
         </div>
       )}
 
-      {/* Stock Overview Table */}
-      <div className="card">
-        <div className="card-header">
-          <div>
-            <div className="card-title">Stock Levels Probing</div>
-            <div className="card-desc">Current available inventory across product catalog</div>
-          </div>
-        </div>
-
-        <div className="table-container">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Product Title</th>
-                <th>SKU</th>
-                <th>Category</th>
-                <th>Available Stock</th>
-                <th>Stock Health</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((p) => {
-                const isLow = p.inventoryCount < 10;
-                return (
-                  <tr key={p.id}>
-                    <td style={{ fontWeight: 600 }}>{p.title}</td>
-                    <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{p.sku}</td>
-                    <td><span className="badge badge-outline">{p.category}</span></td>
-                    <td style={{ fontWeight: 700, fontSize: '0.95rem', color: isLow ? '#dc2626' : '#059669' }}>
-                      {p.inventoryCount} units
-                    </td>
-                    <td>
-                      <span className={`badge ${isLow ? 'badge-danger' : 'badge-active'}`}>
-                        {isLow ? 'Low Stock' : 'Optimal'}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        onClick={() => openAdjustModal(p)}
-                        className="btn btn-secondary btn-sm"
-                      >
-                        Adjust Stock
-                      </button>
-                    </td>
+      {activeTab === 'stock' && (
+        <div className="card" style={{ padding: 0 }}>
+          {isLoading ? (
+            <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading stock balances...</div>
+          ) : items.length === 0 ? (
+            <EmptyState message="No inventory items found. Add products with variants to begin tracking stock." />
+          ) : (
+            <div className="table-container" style={{ border: 'none' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Product & Variant</th>
+                    <th>SKU</th>
+                    <th>On Hand</th>
+                    <th>Reserved</th>
+                    <th>Available</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Stock Movement Audit Log */}
-      <div className="card">
-        <div className="card-header">
-          <div>
-            <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <History size={18} />
-              <span>Stock Movement Audit Trail</span>
+                </thead>
+                <tbody>
+                  {items.map((it) => (
+                    <tr key={it.variant_id}>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{it.product_title}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{it.variant_title}</div>
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)' }}>{it.sku}</td>
+                      <td style={{ fontWeight: 700 }}>{it.quantity_on_hand}</td>
+                      <td style={{ color: 'var(--text-muted)' }}>{it.quantity_reserved}</td>
+                      <td style={{ fontWeight: 700, color: it.quantity_available <= it.low_stock_threshold ? '#dc2626' : '#15803d' }}>
+                        {it.quantity_available}
+                      </td>
+                      <td>
+                        <span className={`badge ${it.is_low_stock ? 'badge-error' : 'badge-active'}`}>
+                          {it.is_low_stock ? 'LOW STOCK' : 'IN STOCK'}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          onClick={() => {
+                            setAdjustItem(it);
+                            setAdjustQuantity(0);
+                            setAdjustNotes('');
+                          }}
+                          className="btn btn-sm btn-secondary"
+                        >
+                          Adjust Stock
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <div className="card-desc">Immutable transaction log of stock decrements and restocking batches</div>
-          </div>
+          )}
         </div>
+      )}
 
-        <div className="table-container">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Timestamp</th>
-                <th>Product / SKU</th>
-                <th>Adjustment</th>
-                <th>Ending Balance</th>
-                <th>Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              {movements.map((m) => (
-                <tr key={m.id}>
-                  <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{m.timestamp}</td>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{m.productTitle}</div>
-                    <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{m.sku}</div>
-                  </td>
-                  <td style={{ fontWeight: 700, color: m.change > 0 ? '#059669' : '#dc2626' }}>
-                    {m.change > 0 ? `+${m.change}` : m.change}
-                  </td>
-                  <td style={{ fontWeight: 600 }}>{m.balance} units</td>
-                  <td>
-                    <span className="badge badge-outline">{m.reason}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {activeTab === 'history' && (
+        <div className="card" style={{ padding: 0 }}>
+          {isLoading ? (
+            <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading movement audit trail...</div>
+          ) : movements.length === 0 ? (
+            <EmptyState message="No stock movements recorded yet." />
+          ) : (
+            <div className="table-container" style={{ border: 'none' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Variant ID</th>
+                    <th>Change</th>
+                    <th>Before → After</th>
+                    <th>Reason</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movements.map((m) => (
+                    <tr key={m.id}>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{new Date(m.created_at).toLocaleString()}</td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{m.variant_id.slice(0, 8)}...</td>
+                      <td style={{ fontWeight: 700, color: m.quantity_change > 0 ? '#15803d' : '#dc2626' }}>
+                        {m.quantity_change > 0 ? `+${m.quantity_change}` : m.quantity_change}
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
+                        {m.quantity_before} → {m.quantity_after}
+                      </td>
+                      <td>
+                        <span className="badge badge-outline">{m.reason}</span>
+                      </td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{m.notes || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Adjust Stock Modal */}
-      {isModalOpen && selectedProduct && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Adjust Stock: {selectedProduct.title}</h2>
-              <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.25rem' }}>✕</button>
+      {adjustItem && (
+        <RecordModal
+          title={`Adjust Stock: ${adjustItem.product_title} (${adjustItem.sku})`}
+          submitLabel="Save Adjustment"
+          onClose={() => setAdjustItem(null)}
+          onSubmit={handleAdjustSubmit}
+        >
+          <div className="form-grid">
+            <div className="form-group">
+              <label className="form-label">Current On Hand</label>
+              <input className="form-input" disabled value={adjustItem.quantity_on_hand} />
             </div>
 
-            <form onSubmit={handleAdjust}>
-              <div style={{ background: '#f8fafc', padding: '14px', borderRadius: 'var(--radius-sm)', marginBottom: '16px' }}>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Current Available Balance:</div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--primary)' }}>{selectedProduct.inventoryCount} units</div>
-              </div>
+            <div className="form-group">
+              <label className="form-label">Quantity Change (+ / -) *</label>
+              <input
+                type="number"
+                className="form-input"
+                required
+                value={adjustQuantity}
+                onChange={(e) => setAdjustQuantity(parseInt(e.target.value, 10) || 0)}
+                placeholder="e.g. +10 or -2"
+                autoFocus
+              />
+            </div>
 
-              <div className="form-group" style={{ marginBottom: '14px' }}>
-                <label className="form-label">Adjustment Quantity (+ or -)</label>
-                <input
-                  type="number"
-                  required
-                  value={adjustAmount}
-                  onChange={(e) => setAdjustAmount(e.target.value)}
-                  className="form-input"
-                />
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Enter positive value to restock, negative to write-off.</span>
-              </div>
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Reason</label>
+              <select
+                className="form-select"
+                value={adjustReason}
+                onChange={(e) => setAdjustReason(e.target.value)}
+              >
+                <option value="MANUAL_CORRECTION">Manual Stock Correction</option>
+                <option value="PURCHASE_RECEIPT">Purchase Receipt (Inventory In)</option>
+                <option value="DAMAGED">Damaged / Defective Stock</option>
+                <option value="SHRINKAGE">Shrinkage / Lost Inventory</option>
+                <option value="RETURN_RESTOCK">Customer Return Restock</option>
+              </select>
+            </div>
 
-              <div className="form-group" style={{ marginBottom: '20px' }}>
-                <label className="form-label">Adjustment Reason</label>
-                <select
-                  value={adjustReason}
-                  onChange={(e) => setAdjustReason(e.target.value)}
-                  className="form-select"
-                >
-                  <option value="RESTOCK">RESTOCK (Supplier replenishment)</option>
-                  <option value="DAMAGE">DAMAGE (Damaged in storage)</option>
-                  <option value="MANUAL_CORRECTION">MANUAL_CORRECTION (Physical inventory count sync)</option>
-                  <option value="ORDER_FULFILLMENT">ORDER_FULFILLMENT (Direct fulfillment)</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                <button type="button" onClick={() => setIsModalOpen(false)} className="btn btn-secondary">Cancel</button>
-                <button type="submit" className="btn btn-primary">Commit Stock Change</button>
-              </div>
-            </form>
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Notes / Remarks</label>
+              <input
+                className="form-input"
+                value={adjustNotes}
+                onChange={(e) => setAdjustNotes(e.target.value)}
+                placeholder="Audit explanation for this adjustment"
+              />
+            </div>
           </div>
-        </div>
+        </RecordModal>
       )}
     </div>
   );

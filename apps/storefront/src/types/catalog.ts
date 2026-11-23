@@ -8,6 +8,7 @@ export interface PublicCategory {
   slug: string;
   description?: string;
   image_url?: string;
+  og_image_url?: string;
   display_order: number;
   meta_title?: string;
   meta_description?: string;

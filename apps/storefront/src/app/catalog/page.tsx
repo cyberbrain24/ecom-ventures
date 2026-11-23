@@ -3,16 +3,16 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { getStorefrontConfig } from '../../lib/api';
 import { getStorefrontCategories, getStorefrontProducts } from '../../lib/catalog-api';
+import { PublicCategory } from '../../types/catalog';
 import { ProductCard } from '../../components/catalog/ProductCard';
 import { CatalogFilters } from '../../components/catalog/CatalogFilters';
 import { CatalogToolbar } from '../../components/catalog/CatalogToolbar';
-import { ShoppingBag, Sparkles } from 'lucide-react';
+import { ShoppingBag } from 'lucide-react';
 
 interface CatalogPageProps {
   searchParams: {
     search?: string;
     category?: string;
-    size?: string;
     min_price?: string;
     max_price?: string;
     in_stock?: string;
@@ -21,9 +21,20 @@ interface CatalogPageProps {
   };
 }
 
+function findCategory(cats: PublicCategory[], slug: string): PublicCategory | null {
+  for (const c of cats) {
+    if (c.slug === slug) return c;
+    if (c.children && c.children.length > 0) {
+      const match = findCategory(c.children, slug);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
 export async function generateMetadata({ searchParams }: CatalogPageProps): Promise<Metadata> {
   const headersList = headers();
-  const host = headersList.get('x-storefront-host') || 'localhost';
+  const host = headersList.get('x-storefront-host') || '';
   const [config, categories] = await Promise.all([
     getStorefrontConfig(host),
     getStorefrontCategories(host),
@@ -31,30 +42,45 @@ export async function generateMetadata({ searchParams }: CatalogPageProps): Prom
 
   const storeName = config?.store.name || 'Store';
   const selectedCat = searchParams.category
-    ? categories.find((c) => c.slug === searchParams.category)
+    ? findCategory(categories, searchParams.category)
     : null;
 
   let title = `Catalog & All Products | ${storeName}`;
-  let description = `Explore authentic premium merchandise curated for ${storeName}. High quality with swift delivery.`;
+  let description = `Browse the product catalog of ${storeName}.`;
   let canonicalUrl = `https://${host}/catalog`;
+  let ogImage = config?.seo?.default_og_image_url || config?.store?.logo_url || '';
+  let keywords: string[] | undefined = undefined;
+  let robots = 'index, follow';
 
   if (selectedCat) {
     title = selectedCat.meta_title || `${selectedCat.name} Collection | ${storeName}`;
     description =
       selectedCat.meta_description ||
-      `Shop our exclusive ${selectedCat.name} range at ${storeName}. Verified quality guarantee.`;
+      `Shop our ${selectedCat.name} range at ${storeName}.`;
     canonicalUrl = selectedCat.canonical_url || `https://${host}/catalog?category=${selectedCat.slug}`;
+    if (selectedCat.og_image_url || selectedCat.image_url) {
+      ogImage = selectedCat.og_image_url || selectedCat.image_url || '';
+    }
+    if (selectedCat.focus_keyword) {
+      keywords = [selectedCat.focus_keyword, selectedCat.name, storeName];
+    }
+    if (selectedCat.meta_robots) {
+      robots = selectedCat.meta_robots;
+    }
   } else if (searchParams.search) {
     title = `Search results for "${searchParams.search}" | ${storeName}`;
   }
 
   // Prevent duplicate content penalty when multiple transient facet parameters are applied
   const hasFilterParams = Boolean(searchParams.min_price || searchParams.max_price || searchParams.sort);
-  const robots = hasFilterParams ? 'noindex, follow' : 'index, follow';
+  if (hasFilterParams) {
+    robots = 'noindex, follow';
+  }
 
   return {
     title,
     description,
+    keywords,
     alternates: {
       canonical: canonicalUrl,
     },
@@ -64,18 +90,20 @@ export async function generateMetadata({ searchParams }: CatalogPageProps): Prom
       description,
       url: canonicalUrl,
       type: 'website',
+      images: ogImage ? [{ url: ogImage, alt: title }] : undefined,
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
+      images: ogImage ? [ogImage] : undefined,
     },
   };
 }
 
 export default async function CatalogPage({ searchParams }: CatalogPageProps) {
   const headersList = headers();
-  const host = headersList.get('x-storefront-host') || 'localhost';
+  const host = headersList.get('x-storefront-host') || '';
 
   // Parallel server-side data fetching
   const [config, categories, catalogData] = await Promise.all([
@@ -89,7 +117,7 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
   }
 
   const selectedCat = searchParams.category
-    ? categories.find((c) => c.slug === searchParams.category)
+    ? findCategory(categories, searchParams.category)
     : null;
 
   const currentUrl = `https://${host}/catalog${searchParams.category ? `?category=${searchParams.category}` : ''}`;
@@ -98,9 +126,10 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
   const collectionSchema = {
     '@context': 'https://schema.org',
     '@type': 'CollectionPage',
-    name: selectedCat ? `${selectedCat.name} Collection` : 'All Products Catalog',
-    description: selectedCat?.description || `Authentic merchandise curated for ${config.store.name}.`,
-    url: currentUrl,
+    name: selectedCat?.meta_title || (selectedCat ? `${selectedCat.name} Collection` : 'All Products Catalog'),
+    description: selectedCat?.meta_description || selectedCat?.description || `Products from ${config.store.name}.`,
+    url: selectedCat?.canonical_url || currentUrl,
+    image: selectedCat?.og_image_url || selectedCat?.image_url || undefined,
     mainEntity: {
       '@type': 'ItemList',
       itemListElement: (catalogData.products || []).slice(0, 10).map((prod, idx) => ({
@@ -130,13 +159,13 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
       },
       ...(selectedCat
         ? [
-            {
-              '@type': 'ListItem',
-              position: 3,
-              name: selectedCat.name,
-              item: currentUrl,
-            },
-          ]
+          {
+            '@type': 'ListItem',
+            position: 3,
+            name: selectedCat.name,
+            item: currentUrl,
+          },
+        ]
         : []),
     ],
   };
@@ -160,7 +189,7 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             {selectedCat?.description ||
-              `Explore authentic merchandise curated specifically for ${config.store.name}.`}
+              `Browse the products available from ${config.store.name}.`}
           </p>
         </div>
 
@@ -176,33 +205,6 @@ export default async function CatalogPage({ searchParams }: CatalogPageProps) {
           {/* Catalog Main Content */}
           <div className="flex-1 w-full min-w-0">
             <CatalogToolbar total={catalogData.total} />
-
-            {searchParams.size && (
-              <div className="mt-4 p-3.5 bg-gradient-to-r from-violet-950 via-slate-900 to-cyan-950 border border-cyan-500/40 rounded-xl text-white flex items-center justify-between shadow-md animate-in fade-in">
-                <div className="flex items-center space-x-2.5">
-                  <div className="h-7 w-7 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center border border-cyan-400/30">
-                    <Sparkles className="h-3.5 w-3.5" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <span>AI Fit Filter Active</span>
-                      <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-cyan-400 text-slate-950 font-black">
-                        SIZE {searchParams.size.toUpperCase()}
-                      </span>
-                    </div>
-                    <p className="text-[10.5px] text-slate-400">
-                      Showing streetwear drops curated for your customized silhouette match.
-                    </p>
-                  </div>
-                </div>
-                <a
-                  href={`/catalog${searchParams.category ? `?category=${searchParams.category}` : ''}`}
-                  className="text-[11px] font-bold text-slate-300 hover:text-white px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition flex-shrink-0"
-                >
-                  Reset
-                </a>
-              </div>
-            )}
 
             {catalogData.products.length === 0 ? (
               <div className="py-20 sm:py-24 text-center border border-dashed border-slate-200 rounded-2xl mt-6">

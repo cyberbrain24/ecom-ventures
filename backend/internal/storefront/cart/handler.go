@@ -63,6 +63,10 @@ func (h *Handler) AddItem(w http.ResponseWriter, r *http.Request) {
 			response.WriteBadRequest(w, r, err.Error())
 			return
 		}
+		if errors.Is(err, ErrCartItemNotFound) {
+			response.WriteNotFound(w, r, "The product variant was not found.")
+			return
+		}
 		response.WriteInternalError(w, r, "Failed to add item to cart: "+err.Error())
 		return
 	}

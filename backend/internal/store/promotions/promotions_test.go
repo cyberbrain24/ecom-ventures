@@ -143,42 +143,65 @@ func TestInvalidDiscountValues(t *testing.T) {
 	}
 }
 
-func TestBundleTrioProRatedCalculations(t *testing.T) {
-	// Standard Trio Bundle: 3 Items, 10% discount, Free Delivery
-	discountPct := 10.0
-	slots := []BundleCalculationSlot{
-		{ProductID: "p1", VariantID: "v1", Title: "Acid Trim Tee", UnitPrice: 1000.00},
-		{ProductID: "p2", VariantID: "v2", Title: "Baggy Cargo", UnitPrice: 1200.00},
-		{ProductID: "p3", VariantID: "v3", Title: "Minimalist Cap", UnitPrice: 800.00},
+// TestTargetingAndProportionalAllocation tests Stages 4, 5, 6, and 7
+func TestTargetingAndProportionalAllocation(t *testing.T) {
+	evaluator := NewEvaluator()
+
+	// Scenario: 15% coupon applicable to Category A (and subcategories)
+	// Product P2 is blacklisted explicitly even though it's in Category A
+	coupon := &Coupon{
+		DiscountType:          DiscountTypePercentage,
+		DiscountValue:         15.0, // 15%
+		ApplicableCategoryIDs: []string{"cat-a"},
+		ExcludedProductIDs:    []string{"prod-2"},
 	}
 
-	var originalTotal float64
-	var discountAmount float64
-	for _, s := range slots {
-		savings := s.UnitPrice * (discountPct / 100.0)
-		discounted := s.UnitPrice - savings
-		originalTotal += s.UnitPrice
-		discountAmount += savings
-
-		if s.ProductID == "p1" && discounted != 900.00 {
-			t.Errorf("expected p1 discounted price 900.00, got %.2f", discounted)
-		}
-		if s.ProductID == "p2" && discounted != 1080.00 {
-			t.Errorf("expected p2 discounted price 1080.00, got %.2f", discounted)
-		}
-		if s.ProductID == "p3" && discounted != 720.00 {
-			t.Errorf("expected p3 discounted price 720.00, got %.2f", discounted)
-		}
+	resolvedCategories := map[string]bool{
+		"cat-a":     true,
+		"cat-a-sub": true, // descendant category
 	}
 
-	if originalTotal != 3000.00 {
-		t.Errorf("expected original total 3000.00, got %.2f", originalTotal)
+	items := []CartLineItem{
+		{ProductID: "prod-1", CategoryID: "cat-a-sub", Subtotal: 1000.00}, // Eligible
+		{ProductID: "prod-2", CategoryID: "cat-a", Subtotal: 1000.00},     // Ineligible (Excluded)
+		{ProductID: "prod-3", CategoryID: "cat-b", Subtotal: 1000.00},     // Ineligible (Wrong category)
 	}
-	if discountAmount != 300.00 {
-		t.Errorf("expected total discount 300.00, got %.2f", discountAmount)
+
+	res, err := evaluator.EvaluateAndAllocate(coupon, items, 3000.00, 60.00, resolvedCategories)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	finalTotal := originalTotal - discountAmount
-	if finalTotal != 2700.00 {
-		t.Errorf("expected final total 2700.00, got %.2f", finalTotal)
+
+	// Only prod-1 qualifies: eligible subtotal = 1000.00
+	if res.EligibleSubtotal != 1000.00 {
+		t.Errorf("expected eligible subtotal 1000.00, got %.2f", res.EligibleSubtotal)
+	}
+
+	// 15% of 1000.00 = 150.00
+	if res.TotalDiscount != 150.00 {
+		t.Errorf("expected total discount 150.00, got %.2f", res.TotalDiscount)
+	}
+
+	// Check line items
+	if len(res.LineItemDetails) != 3 {
+		t.Fatalf("expected 3 line item details, got %d", len(res.LineItemDetails))
+	}
+
+	// prod-1
+	p1 := res.LineItemDetails[0]
+	if !p1.IsEligible || p1.DiscountAmount != 150.00 || p1.FinalSubtotal != 850.00 {
+		t.Errorf("prod-1 breakdown mismatch: %+v", p1)
+	}
+
+	// prod-2 (blacklisted)
+	p2 := res.LineItemDetails[1]
+	if p2.IsEligible || p2.DiscountAmount != 0 || p2.FinalSubtotal != 1000.00 {
+		t.Errorf("prod-2 breakdown mismatch: %+v", p2)
+	}
+
+	// prod-3 (other category)
+	p3 := res.LineItemDetails[2]
+	if p3.IsEligible || p3.DiscountAmount != 0 || p3.FinalSubtotal != 1000.00 {
+		t.Errorf("prod-3 breakdown mismatch: %+v", p3)
 	}
 }

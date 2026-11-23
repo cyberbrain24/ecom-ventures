@@ -14,9 +14,7 @@ import {
   ShieldCheck,
   Settings,
   ChevronRight,
-  Bell,
   LogOut,
-  User,
   DollarSign,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -57,9 +55,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-50 w-64 md:w-60 lg:w-64 bg-slate-900 text-slate-300 flex flex-col h-screen transform transition-transform duration-300 ease-in-out md:translate-x-0 ${
+      className={`fixed inset-y-0 left-0 z-50 w-72 sm:w-80 lg:w-64 bg-slate-900 text-slate-300 flex flex-col h-screen transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${
         mobileMenuOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
-      } md:sticky md:top-0 border-r border-slate-800 select-none flex-shrink-0`}
+      } lg:sticky lg:top-0 border-r border-slate-800 select-none flex-shrink-0`}
     >
       {/* Brand Header */}
       <div className="h-16 py-3 flex items-center justify-between px-4 border-b border-slate-800 bg-slate-950 flex-shrink-0">
@@ -73,10 +71,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Mobile Close Button */}
+        {/* Mobile/Tablet Close Button */}
         <button
           onClick={onCloseMobile}
-          className="md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center p-2 text-slate-400 hover:text-white rounded-lg focus:outline-none"
+          className="lg:hidden min-h-[44px] min-w-[44px] flex items-center justify-center p-2 text-slate-400 hover:text-white rounded-lg focus:outline-none"
           aria-label="Close Navigation Drawer"
         >
           <ChevronRight className="h-5 w-5 rotate-180" />
@@ -114,27 +112,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2.5 min-w-0">
               <div className="h-8 w-8 rounded-full bg-teal-500/20 border border-teal-500/40 flex items-center justify-center text-teal-300 font-bold text-xs flex-shrink-0">
-                {user?.first_name ? user.first_name[0] : 'A'}
+                {user?.first_name ? user.first_name[0] : (user?.email ? user.email[0].toUpperCase() : '?')}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-bold text-slate-200 truncate leading-tight">
-                  {user ? `${user.first_name} ${user.last_name}` : 'Platform Admin'}
+                  {(user?.first_name || user?.last_name)
+                    ? `${user.first_name || ''} ${user.last_name || ''}`.trim()
+                    : user?.email || 'Signed in operator'}
                 </p>
-                <p className="text-[10px] text-teal-400 font-mono leading-tight mt-0.5">
-                  {user?.role || 'SUPER_ADMIN'}
-                </p>
+                {user?.role && (
+                  <p className="text-[10px] text-teal-400 font-mono leading-tight mt-0.5">{user.role}</p>
+                )}
               </div>
             </div>
 
             <div className="flex items-center space-x-1 flex-shrink-0">
-              <button
-                title="Notifications"
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition relative"
-              >
-                <Bell className="h-4 w-4" />
-                <span className="absolute top-2.5 right-2.5 h-1.5 w-1.5 bg-teal-400 rounded-full"></span>
-              </button>
-
               <button
                 onClick={logout}
                 title="Sign Out"
@@ -146,14 +138,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Cluster Status Line */}
-        <div className="px-3 py-2 bg-slate-950/90 border-t border-slate-800/80 text-[10px] text-slate-400 flex items-center justify-between font-mono">
-          <span className="flex items-center">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5"></span>
-            PG Cluster: OK
-          </span>
-          <span className="text-slate-500">v1.0</span>
-        </div>
       </div>
     </aside>
   );

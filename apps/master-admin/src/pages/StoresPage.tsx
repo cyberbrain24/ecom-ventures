@@ -7,21 +7,32 @@ import React, { useEffect, useState } from 'react';
 import { StoreTable } from '../components/stores/StoreTable';
 import { StoreCreatorWizard } from '../components/stores/StoreCreatorWizard';
 import { StoreDetailDrawer } from '../components/stores/StoreDetailDrawer';
-import { EditStoreModal } from '../components/stores/EditStoreModal';
+import { EditStoreModal, StoreEditPayload } from '../components/stores/EditStoreModal';
 import { ConfirmDeleteModal } from '../components/ui/ConfirmDeleteModal';
 import { StoreSummary, PaginatedStoresResponse } from '../types/store';
-import { PlusCircle, Search, Filter, Store, CheckCircle2, Layers, Globe, Palette, Database, ShieldCheck } from 'lucide-react';
+import { PlusCircle, Search, Filter, Store, CheckCircle2, Layers } from 'lucide-react';
 import { MetricCard } from '../components/ui/MetricCard';
-import { api } from '../lib/api';
+import { api, apiErrorMessage } from '../lib/api';
+import { fetchStoreTotal } from '../lib/store-totals';
 
 interface StoresPageProps {
   initialCreating?: boolean;
 }
 
+/**
+ * Renders the store registry: API-reported totals, a filtered paginated table, and the
+ * create, edit, delete and inspect flows.
+ *
+ * @param props - Optional flag to open the creation wizard immediately
+ * @returns The store portfolio page
+ */
 export const StoresPage: React.FC<StoresPageProps> = ({ initialCreating = false }) => {
   const [stores, setStores] = useState<StoreSummary[]>([]);
-  const [total, setTotal] = useState(0);
+  const [total, setTotal] = useState<number | null>(null);
+  const [activeTotal, setActiveTotal] = useState<number | null>(null);
+  const [provisioningTotal, setProvisioningTotal] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   // Filter & Search states
   const [search, setSearch] = useState('');
@@ -34,9 +45,11 @@ export const StoresPage: React.FC<StoresPageProps> = ({ initialCreating = false 
   const [editingStore, setEditingStore] = useState<StoreSummary | null>(null);
   const [deletingStore, setDeletingStore] = useState<StoreSummary | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const fetchStores = async () => {
+  const fetchStores = async (): Promise<void> => {
     setIsLoading(true);
+    setDataError(null);
     try {
       const params = new URLSearchParams();
       params.append('page', currentPage.toString());
@@ -45,51 +58,36 @@ export const StoresPage: React.FC<StoresPageProps> = ({ initialCreating = false 
       if (statusFilter) params.append('status', statusFilter);
 
       const res = await api.get<PaginatedStoresResponse>(`/platform/stores?${params.toString()}`);
+      const pageTotal = res.data.meta?.total;
+      if (typeof pageTotal !== 'number') {
+        throw new Error('The server did not return a store total.');
+      }
       setStores(res.data.data || []);
-      setTotal(res.data.meta?.total || 0);
-    } catch {
-      const fallbackStores: StoreSummary[] = [
-        {
-          id: 'str_mior_001',
-          name: 'Mior Fashion',
-          slug: 'mior',
-          status: 'ACTIVE',
-          primary_domain: 'mior.localhost:3002',
-          active_theme: 'Modern Minimal',
-          contact_email: 'concierge@miorfashion.com',
-          currency: 'BDT',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          id: 'str_artisan_002',
-          name: 'Artisan Boutique',
-          slug: 'artisan',
-          status: 'ACTIVE',
-          primary_domain: 'artisan.localhost:3002',
-          active_theme: 'Artisan Boutique',
-          contact_email: 'hello@artisanboutique.com',
-          currency: 'BDT',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          id: 'str_urban_003',
-          name: 'Urban Streetwear',
-          slug: 'urban',
-          status: 'MAINTENANCE',
-          primary_domain: 'urban.localhost:3002',
-          active_theme: 'Urban Streetwear',
-          contact_email: 'support@urbanstreetwear.com',
-          currency: 'BDT',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      ];
-      setStores(fallbackStores);
-      setTotal(fallbackStores.length);
+      setTotal(pageTotal);
+    } catch (error) {
+      setStores([]);
+      setTotal(null);
+      setDataError(apiErrorMessage(error, 'Could not load stores.'));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchPortfolioTotals = async (): Promise<void> => {
+    try {
+      const [all, active, provisioning] = await Promise.all([
+        fetchStoreTotal(),
+        fetchStoreTotal('ACTIVE'),
+        fetchStoreTotal('PROVISIONING'),
+      ]);
+      setTotal(all);
+      setActiveTotal(active);
+      setProvisioningTotal(provisioning);
+    } catch (error) {
+      setTotal(null);
+      setActiveTotal(null);
+      setProvisioningTotal(null);
+      setDataError(apiErrorMessage(error, 'Could not load portfolio totals.'));
     }
   };
 
@@ -97,36 +95,38 @@ export const StoresPage: React.FC<StoresPageProps> = ({ initialCreating = false 
     fetchStores();
   }, [currentPage, statusFilter]);
 
+  useEffect(() => {
+    fetchPortfolioTotals();
+  }, []);
+
+  const refreshAll = async () => {
+    await Promise.all([fetchStores(), fetchPortfolioTotals()]);
+  };
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setCurrentPage(1);
     fetchStores();
   };
 
-  const handleUpdateStore = async (updated: StoreSummary) => {
-    try {
-      await api.patch(`/platform/stores/${updated.id}`, updated).catch(() => {});
-    } catch (e) {
-      console.warn('API update fallback to local state', e);
-    }
-    setStores((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+  const handleUpdateStore = async (storeId: string, changes: StoreEditPayload): Promise<void> => {
+    await api.patch(`/platform/stores/${storeId}`, changes);
+    await refreshAll();
     setEditingStore(null);
   };
 
   const handleDeleteStore = async () => {
     if (!deletingStore) return;
     setIsDeleting(true);
+    setDeleteError(null);
     try {
       await api.delete(`/platform/stores/${deletingStore.id}`);
-      setStores((prev) => prev.filter((s) => s.id !== deletingStore.id));
-      setTotal((prev) => Math.max(0, prev - 1));
-      await fetchStores();
-    } catch (e: any) {
-      console.error('Failed to delete store', e);
-      alert(e.response?.data?.detail || 'Failed to delete store and its database.');
+      setDeletingStore(null);
+      await refreshAll();
+    } catch (error) {
+      setDeleteError(apiErrorMessage(error, 'Failed to delete store and its database.'));
     } finally {
       setIsDeleting(false);
-      setDeletingStore(null);
     }
   };
 
@@ -137,7 +137,7 @@ export const StoresPage: React.FC<StoresPageProps> = ({ initialCreating = false 
         <div>
           <h1 className="text-xl font-bold text-slate-900 tracking-tight">Store Portfolio Registry</h1>
           <p className="text-xs text-slate-500 mt-1">
-            Oversee and provision multi-brand retail tenants across dedicated database instances.
+            Oversee and provision brand tenants, each with its own database.
           </p>
         </div>
 
@@ -152,53 +152,33 @@ export const StoresPage: React.FC<StoresPageProps> = ({ initialCreating = false 
         )}
       </div>
 
-      {/* Stores Overview Metrics - 7 Columns in One Row */}
+      {/* Stores Overview Metrics: totals reported by the API */}
       {!isCreatingStore && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <MetricCard
             title="Total Brands"
-            value={total || stores.length}
-            subtitle="Tenant registry"
+            value={total ?? 'Not available'}
+            subtitle="Tenant registry total"
             icon={Store}
           />
           <MetricCard
             title="Active Stores"
-            value={stores.filter((s) => s.status === 'ACTIVE').length}
-            subtitle="Serving traffic"
+            value={activeTotal ?? 'Not available'}
+            subtitle="Status ACTIVE"
             icon={CheckCircle2}
-            trendPositive={true}
           />
           <MetricCard
             title="Provisioning"
-            value={stores.filter((s) => s.status === 'PROVISIONING').length}
-            subtitle="DB build queue"
+            value={provisioningTotal ?? 'Not available'}
+            subtitle="Status PROVISIONING"
             icon={Layers}
           />
-          <MetricCard
-            title="Custom Domains"
-            value={stores.filter((s) => Boolean(s.primary_domain)).length}
-            subtitle="Routing apexes"
-            icon={Globe}
-          />
-          <MetricCard
-            title="Active Themes"
-            value={new Set(stores.map((s) => s.active_theme)).size || 3}
-            subtitle="Modern / Artisan"
-            icon={Palette}
-          />
-          <MetricCard
-            title="Isolated DBs"
-            value={total || stores.length}
-            subtitle="Partitioned schemas"
-            icon={Database}
-          />
-          <MetricCard
-            title="Cluster Health"
-            value="100%"
-            subtitle="Zero downtime"
-            icon={ShieldCheck}
-            trendPositive={true}
-          />
+        </div>
+      )}
+
+      {dataError && (
+        <div role="alert" className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 whitespace-pre-line">
+          {dataError}
         </div>
       )}
 
@@ -209,7 +189,7 @@ export const StoresPage: React.FC<StoresPageProps> = ({ initialCreating = false 
           onSuccess={(newId) => {
             setIsCreatingStore(false);
             setInspectedStoreId(newId);
-            fetchStores();
+            refreshAll();
           }}
         />
       ) : (
@@ -265,7 +245,7 @@ export const StoresPage: React.FC<StoresPageProps> = ({ initialCreating = false 
           {/* Pagination */}
           <div className="px-4 py-2.5 border-t border-slate-200 flex items-center justify-between text-xs text-slate-600">
             <span>
-              Showing {stores.length} of {total} registered brands
+              Showing {stores.length} of {total ?? 'an unknown number of'} registered brands
             </span>
             <div className="space-x-2">
               <button
@@ -276,7 +256,7 @@ export const StoresPage: React.FC<StoresPageProps> = ({ initialCreating = false 
                 Previous
               </button>
               <button
-                disabled={stores.length < 10 || currentPage * 10 >= total}
+                disabled={total === null || stores.length < 10 || currentPage * 10 >= total}
                 onClick={() => setCurrentPage((p) => p + 1)}
                 className="px-3 py-1.5 border rounded text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
               >
@@ -305,8 +285,12 @@ export const StoresPage: React.FC<StoresPageProps> = ({ initialCreating = false 
           itemType="Store Tenant"
           warningMessage="Are you sure you want to permanently delete this brand store tenant? This will decommission database linkages, domain routing, and tenant configurations."
           isDeleting={isDeleting}
+          errorMessage={deleteError}
           onConfirm={handleDeleteStore}
-          onClose={() => setDeletingStore(null)}
+          onClose={() => {
+            setDeleteError(null);
+            setDeletingStore(null);
+          }}
         />
       )}
 
@@ -315,7 +299,7 @@ export const StoresPage: React.FC<StoresPageProps> = ({ initialCreating = false 
         <StoreDetailDrawer
           storeId={inspectedStoreId}
           onClose={() => setInspectedStoreId(null)}
-          onStatusUpdated={() => fetchStores()}
+          onStatusUpdated={() => refreshAll()}
         />
       )}
     </div>

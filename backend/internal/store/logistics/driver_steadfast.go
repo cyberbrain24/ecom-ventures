@@ -142,7 +142,7 @@ func (d *SteadfastDriver) TrackConsignment(ctx context.Context, trackingNumber s
 // CancelConsignment handles cancellation requests for Steadfast parcels.
 func (d *SteadfastDriver) CancelConsignment(ctx context.Context, trackingNumber string, config *CourierConfig) error {
 	// Steadfast does not support automated API cancellation once booked; requires manual courier support contact
-	return nil
+	return fmt.Errorf("steadfast: manual cancellation required with the courier: %w", ErrCancellationNotImplemented)
 }
 
 // HandleStatusWebhook processes asynchronous delivery milestone notifications from Steadfast.

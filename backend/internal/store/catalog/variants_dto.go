@@ -10,7 +10,9 @@ import (
 type CreateAttributeRequest struct {
 	Name        string                        `json:"name"`
 	Code        string                        `json:"code"`
-	DisplayType string                        `json:"display_type"` // SELECT, COLOR_SWATCH, BUTTON
+	DataType    string                        `json:"data_type"`    // text, number, boolean, select
+	DisplayType string                        `json:"display_type"` // text, color, image, button, select
+	SortOrder   int                           `json:"sort_order"`
 	Values      []CreateAttributeValueRequest `json:"values,omitempty"`
 }
 
@@ -19,13 +21,17 @@ type CreateAttributeValueRequest struct {
 	Value        string  `json:"value"`
 	DisplayValue string  `json:"display_value"`
 	ColorHex     *string `json:"color_hex,omitempty"`
+	ImageURL     string  `json:"image_url,omitempty"`
 	SortOrder    int     `json:"sort_order"`
 }
 
 // UpdateAttributeRequest defines payload to modify an existing attribute dimension.
 type UpdateAttributeRequest struct {
-	Name        string `json:"name"`
-	DisplayType string `json:"display_type"`
+	Name        string                        `json:"name"`
+	DataType    string                        `json:"data_type"`
+	DisplayType string                        `json:"display_type"`
+	SortOrder   int                           `json:"sort_order"`
+	Values      []CreateAttributeValueRequest `json:"values,omitempty"`
 }
 
 // AttributeSelector represents an attribute and selected values for variant matrix generation.

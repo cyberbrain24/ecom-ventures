@@ -52,14 +52,14 @@ func main() {
 	consumer := worker.NewConsumerEngine(redisClient, producer, "worker-daemon-1", 4)
 
 	// Register Task Handlers
-	emailSender := &worker.LogEmailSender{}
+	emailSender := &worker.UnconfiguredEmailSender{}
 	capiDispatcher := marketing.NewMetaCAPIDispatcher()
 
 	consumer.RegisterHandler(worker.JobSendEmail, worker.BuildEmailNotificationHandler(emailSender))
 	consumer.RegisterHandler(worker.JobMetaCAPIRetry, worker.BuildCAPIRetryHandler(capiDispatcher))
-	consumer.RegisterHandler(worker.JobExpireCarts, worker.BuildExpireCartsHandler(platformPool.DB, tenantPool))
-	consumer.RegisterHandler(worker.JobAuditLowStock, worker.BuildAuditLowStockHandler(platformPool.DB, tenantPool))
-	consumer.RegisterHandler(worker.JobTenantDBBackup, worker.BuildTenantBackupHandler("./backups", []byte(cfg.DatabaseEncryptionKey)))
+	consumer.RegisterHandler(worker.JobExpireCarts, worker.BuildExpireCartsHandler(platformPool.DB, tenantPool, []byte(cfg.DatabaseEncryptionKey)))
+	consumer.RegisterHandler(worker.JobAuditLowStock, worker.BuildAuditLowStockHandler(platformPool.DB, tenantPool, []byte(cfg.DatabaseEncryptionKey)))
+	consumer.RegisterHandler(worker.JobTenantDBBackup, worker.BuildTenantBackupHandler(platformPool.DB, "./backups", []byte(cfg.DatabaseEncryptionKey)))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
