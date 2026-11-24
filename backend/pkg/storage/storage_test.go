@@ -194,4 +194,3 @@ func TestR2StorageConfigValidation(t *testing.T) {
 		t.Errorf("unexpected R2 public URL: %s", url)
 	}
 }
-

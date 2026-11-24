@@ -4,17 +4,17 @@ import "time"
 
 // MetaAdAccount represents a connected Meta Marketing ad account.
 type MetaAdAccount struct {
-	ID             int        `json:"id"`
-	Name           string     `json:"name"`
-	MetaAccountID  string     `json:"meta_account_id"`
-	Currency       string     `json:"currency"`
-	Timezone       string     `json:"timezone"`
-	DailySpendCap  float64    `json:"daily_spend_cap"`
-	IsActive       bool       `json:"is_active"`
-	IsTokenStored  bool       `json:"is_token_stored"` // True if token is securely encrypted in DB (never returns raw token)
-	LastSyncedAt   *time.Time `json:"last_synced_at,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID            int        `json:"id"`
+	Name          string     `json:"name"`
+	MetaAccountID string     `json:"meta_account_id"`
+	Currency      string     `json:"currency"`
+	Timezone      string     `json:"timezone"`
+	DailySpendCap float64    `json:"daily_spend_cap"`
+	IsActive      bool       `json:"is_active"`
+	IsTokenStored bool       `json:"is_token_stored"` // True if token is securely encrypted in DB (never returns raw token)
+	LastSyncedAt  *time.Time `json:"last_synced_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 // ConnectMetaAdAccountRequest is the payload to connect or update an ad account.

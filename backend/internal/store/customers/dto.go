@@ -10,14 +10,14 @@ import (
 
 // CreateCustomerRequest defines payload to register a new customer profile.
 type CreateCustomerRequest struct {
-	Email          string                       `json:"email"`
-	FirstName      string                       `json:"first_name"`
-	LastName       string                       `json:"last_name"`
-	Phone          *string                      `json:"phone,omitempty"`
-	Password       *string                      `json:"password,omitempty"` // Optional when created manually by store admin
-	MembershipTier storeModels.MembershipTier   `json:"membership_tier,omitempty"`
-	DateOfBirth    *string                      `json:"date_of_birth,omitempty"`
-	CRMNotes       string                       `json:"crm_notes,omitempty"`
+	Email          string                     `json:"email"`
+	FirstName      string                     `json:"first_name"`
+	LastName       string                     `json:"last_name"`
+	Phone          *string                    `json:"phone,omitempty"`
+	Password       *string                    `json:"password,omitempty"` // Optional when created manually by store admin
+	MembershipTier storeModels.MembershipTier `json:"membership_tier,omitempty"`
+	DateOfBirth    *string                    `json:"date_of_birth,omitempty"`
+	CRMNotes       string                     `json:"crm_notes,omitempty"`
 }
 
 // UpdateCustomerRequest defines payload to update mutable customer details.
@@ -68,8 +68,8 @@ type CustomerMetrics struct {
 	CancelledOrders   int        `json:"cancelled_orders"`
 	RtoOrders         int        `json:"rto_orders"`
 	ReliabilityScore  float64    `json:"reliability_score"` // Percentage: Delivered / (Delivered + Cancelled + RTO) * 100
-	RtoRate           float64    `json:"rto_rate"`           // Percentage: (Cancelled + RTO) / TotalOrders * 100
-	LifetimeValue     float64    `json:"lifetime_value"`     // Paid orders spend
+	RtoRate           float64    `json:"rto_rate"`          // Percentage: (Cancelled + RTO) / TotalOrders * 100
+	LifetimeValue     float64    `json:"lifetime_value"`    // Paid orders spend
 	AverageOrderValue float64    `json:"average_order_value"`
 	LastOrderDate     *time.Time `json:"last_order_date,omitempty"`
 }

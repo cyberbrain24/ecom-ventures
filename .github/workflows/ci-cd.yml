@@ -88,3 +88,23 @@ jobs:
           tags: ecom-ventures/master-admin:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Job 3: Automated Production VPS Continuous Deployment
+  deploy:
+    name: Deploy to Production VPS
+    needs: build-docker
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Execute Remote SSH Deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST || secrets.VPS_HOST || '185.227.134.236' }}
+          username: ${{ secrets.SSH_USER || secrets.VPS_USER || 'ecom' }}
+          password: ${{ secrets.SSH_PASSWORD || secrets.VPS_PASSWORD || 'EcomVenturesPass2026!' }}
+          port: ${{ secrets.SSH_PORT || secrets.VPS_PORT || 22 }}
+          script: |
+            cd /home/ecom/ecom_ventures
+            git pull origin main
+            docker compose -f docker-compose.prod.yml up -d --build
+

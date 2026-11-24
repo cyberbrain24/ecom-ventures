@@ -186,7 +186,13 @@ func (r *SQLRepository) GetMetaAttributionDashboard(ctx context.Context, db *sql
 		defer cRows.Close()
 
 		mockMultipliers := []struct {
-			placed int; placedBDT float64; deliv int; delivBDT float64; cogs float64; courier float64; penalty float64
+			placed    int
+			placedBDT float64
+			deliv     int
+			delivBDT  float64
+			cogs      float64
+			courier   float64
+			penalty   float64
 		}{
 			{placed: 84, placedBDT: 121800.0, deliv: 68, delivBDT: 98600.0, cogs: 39400.0, courier: 8160.0, penalty: 0.0},
 			{placed: 62, placedBDT: 89900.0, deliv: 52, delivBDT: 75400.0, cogs: 30160.0, courier: 6240.0, penalty: 0.0},

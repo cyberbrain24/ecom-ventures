@@ -9,21 +9,21 @@ import (
 type OrderStatus string
 
 const (
-	OrderStatusPlaced            OrderStatus = "PLACED"
-	OrderStatusReview            OrderStatus = "REVIEW"
-	OrderStatusPending           OrderStatus = "PENDING"
-	OrderStatusDelayed           OrderStatus = "DELAYED"
-	OrderStatusHold              OrderStatus = "HOLD"
-	OrderStatusConfirmed         OrderStatus = "CONFIRMED"
-	OrderStatusProcessing        OrderStatus = "PROCESSING"
-	OrderStatusApprovalPending   OrderStatus = "APPROVAL_PENDING"
-	OrderStatusShipped           OrderStatus = "SHIPPED"
-	OrderStatusDelivered         OrderStatus = "DELIVERED"
+	OrderStatusPlaced             OrderStatus = "PLACED"
+	OrderStatusReview             OrderStatus = "REVIEW"
+	OrderStatusPending            OrderStatus = "PENDING"
+	OrderStatusDelayed            OrderStatus = "DELAYED"
+	OrderStatusHold               OrderStatus = "HOLD"
+	OrderStatusConfirmed          OrderStatus = "CONFIRMED"
+	OrderStatusProcessing         OrderStatus = "PROCESSING"
+	OrderStatusApprovalPending    OrderStatus = "APPROVAL_PENDING"
+	OrderStatusShipped            OrderStatus = "SHIPPED"
+	OrderStatusDelivered          OrderStatus = "DELIVERED"
 	OrderStatusPartiallyDelivered OrderStatus = "PARTIALLY_DELIVERED"
-	OrderStatusReturned          OrderStatus = "RETURNED"
-	OrderStatusCancelled         OrderStatus = "CANCELLED"
-	OrderStatusManuallyCancelled OrderStatus = "MANUALLY_CANCELLED"
-	OrderStatusRefunded          OrderStatus = "REFUNDED"
+	OrderStatusReturned           OrderStatus = "RETURNED"
+	OrderStatusCancelled          OrderStatus = "CANCELLED"
+	OrderStatusManuallyCancelled  OrderStatus = "MANUALLY_CANCELLED"
+	OrderStatusRefunded           OrderStatus = "REFUNDED"
 )
 
 // PaymentStatus defines the transaction settlement state.
@@ -59,50 +59,50 @@ type RiskFlag struct {
 
 // Order represents a finalized customer purchase transaction.
 type Order struct {
-	ID                   string               `json:"id"`
-	OrderNumber          string               `json:"order_number"`
-	CustomerID           *string              `json:"customer_id,omitempty"`
-	CustomerEmail        string               `json:"customer_email,omitempty"`
-	CustomerPhone        string               `json:"customer_phone,omitempty"`
-	Status               OrderStatus          `json:"status"`
-	PaymentStatus        PaymentStatus        `json:"payment_status"`
-	Subtotal             float64              `json:"subtotal"`
-	DiscountAmount       float64              `json:"discount_amount"`
-	TaxAmount            float64              `json:"tax_amount"`
-	ShippingCost         float64              `json:"shipping_cost,omitempty"`
-	ShippingFee          float64              `json:"shipping_fee"`
-	TotalAmount          float64              `json:"total_amount"`
-	PaidAmount           float64              `json:"paid_amount"`
-	DueAmount            float64              `json:"due_amount"`
-	Currency             string               `json:"currency"`
-	ShippingAddress      CustomerAddress      `json:"shipping_address"`
-	BillingAddress       *CustomerAddress     `json:"billing_address,omitempty"`
-	PaymentMethod        string               `json:"payment_method,omitempty"`
-	Notes                string               `json:"notes,omitempty"`
-	SpecialNote          *string              `json:"special_note,omitempty"`
-	ShippingDistrict     string               `json:"shipping_district,omitempty"`
-	ShippingThana        string               `json:"shipping_thana,omitempty"`
-	IsUrgent             bool                 `json:"is_urgent"`
-	IsReady              bool                 `json:"is_ready"`
-	IsPrintReady         bool                 `json:"is_print_ready"`
-	CourierRiskLevel     string               `json:"courier_risk_level"`
-	CourierDeliveryRatio float64              `json:"courier_delivery_ratio"`
-	RiskScoreFlags       []RiskFlag           `json:"risk_score_flags"`
-	CourierConsignmentID *string              `json:"courier_consignment_id,omitempty"`
-	CourierTrackingCode  *string              `json:"courier_tracking_code,omitempty"`
-	CourierStatusSyncAt  *time.Time           `json:"courier_status_sync_at,omitempty"`
-	Items                []OrderItem          `json:"items,omitempty"`
-	Shipments            []OrderShipment      `json:"shipments,omitempty"`
-	Transactions         []PaymentTransaction `json:"transactions,omitempty"`
-	StatusHistory        []OrderStatusHistory `json:"status_history,omitempty"`
-	CallNotes            []OrderCallNote      `json:"call_notes,omitempty"`
-	DelayBlockerReason     *string              `json:"delay_blocker_reason,omitempty"`
-	CancellationRootCause  *string              `json:"cancellation_root_cause,omitempty"`
-	ReturnRootCause        *string              `json:"return_root_cause,omitempty"`
-	IsPartialSplit         bool                 `json:"is_partial_split"`
-	ParentOrderID          *string              `json:"parent_order_id,omitempty"`
-	CreatedAt              time.Time            `json:"created_at"`
-	UpdatedAt              time.Time            `json:"updated_at"`
+	ID                    string               `json:"id"`
+	OrderNumber           string               `json:"order_number"`
+	CustomerID            *string              `json:"customer_id,omitempty"`
+	CustomerEmail         string               `json:"customer_email,omitempty"`
+	CustomerPhone         string               `json:"customer_phone,omitempty"`
+	Status                OrderStatus          `json:"status"`
+	PaymentStatus         PaymentStatus        `json:"payment_status"`
+	Subtotal              float64              `json:"subtotal"`
+	DiscountAmount        float64              `json:"discount_amount"`
+	TaxAmount             float64              `json:"tax_amount"`
+	ShippingCost          float64              `json:"shipping_cost,omitempty"`
+	ShippingFee           float64              `json:"shipping_fee"`
+	TotalAmount           float64              `json:"total_amount"`
+	PaidAmount            float64              `json:"paid_amount"`
+	DueAmount             float64              `json:"due_amount"`
+	Currency              string               `json:"currency"`
+	ShippingAddress       CustomerAddress      `json:"shipping_address"`
+	BillingAddress        *CustomerAddress     `json:"billing_address,omitempty"`
+	PaymentMethod         string               `json:"payment_method,omitempty"`
+	Notes                 string               `json:"notes,omitempty"`
+	SpecialNote           *string              `json:"special_note,omitempty"`
+	ShippingDistrict      string               `json:"shipping_district,omitempty"`
+	ShippingThana         string               `json:"shipping_thana,omitempty"`
+	IsUrgent              bool                 `json:"is_urgent"`
+	IsReady               bool                 `json:"is_ready"`
+	IsPrintReady          bool                 `json:"is_print_ready"`
+	CourierRiskLevel      string               `json:"courier_risk_level"`
+	CourierDeliveryRatio  float64              `json:"courier_delivery_ratio"`
+	RiskScoreFlags        []RiskFlag           `json:"risk_score_flags"`
+	CourierConsignmentID  *string              `json:"courier_consignment_id,omitempty"`
+	CourierTrackingCode   *string              `json:"courier_tracking_code,omitempty"`
+	CourierStatusSyncAt   *time.Time           `json:"courier_status_sync_at,omitempty"`
+	Items                 []OrderItem          `json:"items,omitempty"`
+	Shipments             []OrderShipment      `json:"shipments,omitempty"`
+	Transactions          []PaymentTransaction `json:"transactions,omitempty"`
+	StatusHistory         []OrderStatusHistory `json:"status_history,omitempty"`
+	CallNotes             []OrderCallNote      `json:"call_notes,omitempty"`
+	DelayBlockerReason    *string              `json:"delay_blocker_reason,omitempty"`
+	CancellationRootCause *string              `json:"cancellation_root_cause,omitempty"`
+	ReturnRootCause       *string              `json:"return_root_cause,omitempty"`
+	IsPartialSplit        bool                 `json:"is_partial_split"`
+	ParentOrderID         *string              `json:"parent_order_id,omitempty"`
+	CreatedAt             time.Time            `json:"created_at"`
+	UpdatedAt             time.Time            `json:"updated_at"`
 }
 
 // OrderItem represents a line item within a customer order.
@@ -210,4 +210,3 @@ type AbandonedCheckout struct {
 	CreatedAt           time.Time               `json:"created_at"`
 	UpdatedAt           time.Time               `json:"updated_at"`
 }
-

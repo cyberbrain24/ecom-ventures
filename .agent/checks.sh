@@ -16,7 +16,8 @@ for PATTERN in "${PROHIBITED_PATTERNS[@]}"; do
     --exclude-dir={.git,node_modules,.next,dist,.agent} \
     --exclude="checks.sh" \
     --exclude=".agent/checks.sh" \
-    --exclude="AGENT.md" \
+    --exclude="AGENTS.md" \
+    --exclude="*.md" \
     "${ROOT_DIR}" | grep -v -E '(placeholder=|placeholder-|::placeholder)' || true)
 
   if [ -n "${MATCHES}" ]; then

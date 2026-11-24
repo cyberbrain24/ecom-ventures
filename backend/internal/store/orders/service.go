@@ -562,7 +562,6 @@ func (s *Service) ExecutePartialSplit(ctx context.Context, orderID string, req *
 	return s.repo.ExecutePartialSplit(ctx, stCtx.TenantDB, orderID, req, performedBy)
 }
 
-
 func extractActor(ctx context.Context, defaultActor string) string {
 	if claims, ok := ctx.Value(middleware.AuthClaimsKey).(*pkgAuth.Claims); ok && claims != nil {
 		if claims.Email != "" {

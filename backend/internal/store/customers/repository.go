@@ -11,11 +11,11 @@ import (
 )
 
 var (
-	ErrCustomerNotFound   = errors.New("customer profile not found")
-	ErrAddressNotFound    = errors.New("customer address not found")
-	ErrEmailConflict      = errors.New("customer email already registered in this store")
-	ErrPhoneConflict      = errors.New("customer phone number already registered in this store")
-	ErrCustomerHasOrders  = errors.New("customer has active financial records. Hard deletion is forbidden to preserve audit integrity; use soft deactivation or blacklisting instead")
+	ErrCustomerNotFound  = errors.New("customer profile not found")
+	ErrAddressNotFound   = errors.New("customer address not found")
+	ErrEmailConflict     = errors.New("customer email already registered in this store")
+	ErrPhoneConflict     = errors.New("customer phone number already registered in this store")
+	ErrCustomerHasOrders = errors.New("customer has active financial records. Hard deletion is forbidden to preserve audit integrity; use soft deactivation or blacklisting instead")
 )
 
 // Repository specifies transactional database interactions for the customer subsystem.

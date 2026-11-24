@@ -87,13 +87,13 @@ type CAPIEvent struct {
 
 // MetaAttributionScorecard represents the 3-Way Reconciliation Scorecard.
 type MetaAttributionScorecard struct {
-	Status              string  `json:"status"` // HEALTHY, WARNING, CRITICAL
-	DiscrepancyRate     float64 `json:"discrepancy_rate"`
-	StorefrontOrders    int     `json:"storefront_orders"`
-	TrackedTouchpoints  int     `json:"tracked_touchpoints"`
-	MetaCAPIReceived    int     `json:"meta_capi_received"`
-	IntakeEvents        int     `json:"intake_events"`
-	QuarantinedEvents   int     `json:"quarantined_events"`
+	Status             string  `json:"status"` // HEALTHY, WARNING, CRITICAL
+	DiscrepancyRate    float64 `json:"discrepancy_rate"`
+	StorefrontOrders   int     `json:"storefront_orders"`
+	TrackedTouchpoints int     `json:"tracked_touchpoints"`
+	MetaCAPIReceived   int     `json:"meta_capi_received"`
+	IntakeEvents       int     `json:"intake_events"`
+	QuarantinedEvents  int     `json:"quarantined_events"`
 }
 
 // ExecutiveFinancialMetrics tiles.
@@ -127,23 +127,22 @@ type CampaignAttributionRow struct {
 
 // MetaCAPIAuditLogRow represents an audit entry for server-side CAPI dispatch.
 type MetaCAPIAuditLogRow struct {
-	ID                string    `json:"id"`
-	OrderID           *string   `json:"order_id,omitempty"`
-	EventName         string    `json:"event_name"`
-	EventID           string    `json:"event_id"`
-	Status            string    `json:"status"` // SUCCESS, SKIPPED, FAILED, QUARANTINED
-	HTTPCode          int       `json:"http_code"`
-	AgeHours          float64   `json:"age_hours"`
-	IsAgeQuarantined  bool      `json:"is_age_quarantined"`
-	DispatchedAt      time.Time `json:"dispatched_at"`
+	ID               string    `json:"id"`
+	OrderID          *string   `json:"order_id,omitempty"`
+	EventName        string    `json:"event_name"`
+	EventID          string    `json:"event_id"`
+	Status           string    `json:"status"` // SUCCESS, SKIPPED, FAILED, QUARANTINED
+	HTTPCode         int       `json:"http_code"`
+	AgeHours         float64   `json:"age_hours"`
+	IsAgeQuarantined bool      `json:"is_age_quarantined"`
+	DispatchedAt     time.Time `json:"dispatched_at"`
 }
 
 // MetaAttributionDashboardResponse aggregates all components of the Attribution Platform.
 type MetaAttributionDashboardResponse struct {
-	Scorecard   MetaAttributionScorecard   `json:"scorecard"`
-	Financials  ExecutiveFinancialMetrics  `json:"financials"`
-	Campaigns   []CampaignAttributionRow   `json:"campaigns"`
-	AuditLogs   []MetaCAPIAuditLogRow      `json:"audit_logs"`
-	ActiveModel string                     `json:"active_model"` // last_paid_ad, first_touch, linear, position_based
+	Scorecard   MetaAttributionScorecard  `json:"scorecard"`
+	Financials  ExecutiveFinancialMetrics `json:"financials"`
+	Campaigns   []CampaignAttributionRow  `json:"campaigns"`
+	AuditLogs   []MetaCAPIAuditLogRow     `json:"audit_logs"`
+	ActiveModel string                    `json:"active_model"` // last_paid_ad, first_touch, linear, position_based
 }
-

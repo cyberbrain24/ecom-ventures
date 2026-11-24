@@ -23,22 +23,22 @@ type StorageSettings struct {
 
 // StorageSettingsInternal holds plaintext secrets in-memory after authenticated decryption.
 type StorageSettingsInternal struct {
-	ID                        string
-	Provider                  string
-	IsActive                  bool
-	AccountID                 string
-	BucketName                string
-	AccessKeyID               string
-	SecretAccessKeyEncrypted  string
-	SecretAccessKeyPlain      string
-	PublicURL                 string
-	Region                    string
-	LocalBasePath             string
-	LocalBaseURL              string
-	LastTestedAt              *time.Time
-	LastTestStatus            string
-	LastTestError             string
-	UpdatedAt                 time.Time
+	ID                       string
+	Provider                 string
+	IsActive                 bool
+	AccountID                string
+	BucketName               string
+	AccessKeyID              string
+	SecretAccessKeyEncrypted string
+	SecretAccessKeyPlain     string
+	PublicURL                string
+	Region                   string
+	LocalBasePath            string
+	LocalBaseURL             string
+	LastTestedAt             *time.Time
+	LastTestStatus           string
+	LastTestError            string
+	UpdatedAt                time.Time
 }
 
 // UpdateStorageSettingsRequest encapsulates user payload when saving storage configuration.

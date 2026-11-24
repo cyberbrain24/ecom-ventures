@@ -24,15 +24,15 @@ const (
 
 // AllowedMediaMimes defines verified binary image and audio signatures.
 var AllowedMediaMimes = map[string]string{
-	"image/jpeg":        ".jpg",
-	"image/png":         ".png",
-	"image/webp":        ".webp",
-	"image/avif":        ".avif",
-	"audio/mpeg":        ".mp3",
-	"audio/mp3":         ".mp3",
-	"audio/ogg":         ".ogg",
-	"audio/vorbis":      ".ogg",
-	"application/ogg":   ".ogg",
+	"image/jpeg":      ".jpg",
+	"image/png":       ".png",
+	"image/webp":      ".webp",
+	"image/avif":      ".avif",
+	"audio/mpeg":      ".mp3",
+	"audio/mp3":       ".mp3",
+	"audio/ogg":       ".ogg",
+	"audio/vorbis":    ".ogg",
+	"application/ogg": ".ogg",
 }
 
 // AllowedImageMimes defines verified binary image signatures (for backward compatibility).

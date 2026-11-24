@@ -397,5 +397,3 @@ func (h *Handler) PartialSplit(w http.ResponseWriter, r *http.Request) {
 		"message": "Order successfully split into accepted and returned items",
 	})
 }
-
-

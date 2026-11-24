@@ -42,14 +42,14 @@ type UpdateCategoryRequest struct {
 
 // CreateProductRequest defines payload to create a new base product.
 type CreateProductRequest struct {
-	CategoryID       *string  `json:"category_id,omitempty"`
-	Title            string   `json:"title"`
-	Slug             string   `json:"slug"`
-	Summary          string   `json:"summary,omitempty"`
-	Description      string   `json:"description,omitempty"`
-	Status           string   `json:"status"` // DRAFT, ACTIVE, ARCHIVED
-	FeaturedImageURL string   `json:"featured_image_url,omitempty"`
-	BasePrice        float64  `json:"base_price"`
+	CategoryID        *string  `json:"category_id,omitempty"`
+	Title             string   `json:"title"`
+	Slug              string   `json:"slug"`
+	Summary           string   `json:"summary,omitempty"`
+	Description       string   `json:"description,omitempty"`
+	Status            string   `json:"status"` // DRAFT, ACTIVE, ARCHIVED
+	FeaturedImageURL  string   `json:"featured_image_url,omitempty"`
+	BasePrice         float64  `json:"base_price"`
 	CompareAtPrice    *float64 `json:"compare_at_price,omitempty"`
 	CostPrice         *float64 `json:"cost_price,omitempty"`
 	SKU               string   `json:"sku,omitempty"`
@@ -64,23 +64,23 @@ type CreateProductRequest struct {
 	SizeGuideTemplate string   `json:"size_guide_template,omitempty"`
 	GalleryFilenames  string   `json:"gallery_filenames,omitempty"`
 	MetaTitle         string   `json:"meta_title,omitempty"`
-	MetaDescription  string   `json:"meta_description,omitempty"`
-	FocusKeyword     string   `json:"focus_keyword,omitempty"`
-	CanonicalURL     string   `json:"canonical_url,omitempty"`
-	MetaRobots       string   `json:"meta_robots,omitempty"`
-	OGImageURL       string   `json:"og_image_url,omitempty"`
+	MetaDescription   string   `json:"meta_description,omitempty"`
+	FocusKeyword      string   `json:"focus_keyword,omitempty"`
+	CanonicalURL      string   `json:"canonical_url,omitempty"`
+	MetaRobots        string   `json:"meta_robots,omitempty"`
+	OGImageURL        string   `json:"og_image_url,omitempty"`
 }
 
 // UpdateProductRequest defines payload to modify base product properties.
 type UpdateProductRequest struct {
-	CategoryID       *string  `json:"category_id,omitempty"`
-	Title            string   `json:"title"`
-	Slug             string   `json:"slug"`
-	Summary          string   `json:"summary,omitempty"`
-	Description      string   `json:"description,omitempty"`
-	Status           string   `json:"status"`
-	FeaturedImageURL string   `json:"featured_image_url,omitempty"`
-	BasePrice        float64  `json:"base_price"`
+	CategoryID        *string  `json:"category_id,omitempty"`
+	Title             string   `json:"title"`
+	Slug              string   `json:"slug"`
+	Summary           string   `json:"summary,omitempty"`
+	Description       string   `json:"description,omitempty"`
+	Status            string   `json:"status"`
+	FeaturedImageURL  string   `json:"featured_image_url,omitempty"`
+	BasePrice         float64  `json:"base_price"`
 	CompareAtPrice    *float64 `json:"compare_at_price,omitempty"`
 	CostPrice         *float64 `json:"cost_price,omitempty"`
 	SKU               string   `json:"sku,omitempty"`
@@ -95,11 +95,11 @@ type UpdateProductRequest struct {
 	SizeGuideTemplate string   `json:"size_guide_template,omitempty"`
 	GalleryFilenames  string   `json:"gallery_filenames,omitempty"`
 	MetaTitle         string   `json:"meta_title,omitempty"`
-	MetaDescription  string   `json:"meta_description,omitempty"`
-	FocusKeyword     string   `json:"focus_keyword,omitempty"`
-	CanonicalURL     string   `json:"canonical_url,omitempty"`
-	MetaRobots       string   `json:"meta_robots,omitempty"`
-	OGImageURL       string   `json:"og_image_url,omitempty"`
+	MetaDescription   string   `json:"meta_description,omitempty"`
+	FocusKeyword      string   `json:"focus_keyword,omitempty"`
+	CanonicalURL      string   `json:"canonical_url,omitempty"`
+	MetaRobots        string   `json:"meta_robots,omitempty"`
+	OGImageURL        string   `json:"og_image_url,omitempty"`
 }
 
 // ProductFilterParams defines query parameters for searching and paginating catalog items.
