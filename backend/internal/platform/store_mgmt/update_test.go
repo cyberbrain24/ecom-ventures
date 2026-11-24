@@ -76,8 +76,8 @@ func TestCheckImmutableStoreFields(t *testing.T) {
 	changed := UpdateStoreRequest{Slug: strPtr("other"), Status: strPtr("SUSPENDED"), PrimaryDomain: strPtr("x.com"), ActiveTheme: strPtr("Other")}
 	err := checkImmutableStoreFields(&changed, cur)
 	var ve *validation.Error
-	if !errors.As(err, &ve) || len(ve.Fields) != 4 {
-		t.Fatalf("expected 4 rejected fields, got %v", err)
+	if !errors.As(err, &ve) || len(ve.Fields) != 2 {
+		t.Fatalf("expected 2 rejected fields (slug and status), got %v", err)
 	}
 }
 

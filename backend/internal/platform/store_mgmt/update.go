@@ -22,9 +22,10 @@ import (
 )
 
 var (
-	currencyRegex = regexp.MustCompile(`^[A-Z]{3}$`)
-	timezoneRegex = regexp.MustCompile(`^(UTC|[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2})$`)
-	phoneRegex    = regexp.MustCompile(`^\+?[0-9][0-9 ()-]{3,48}$`)
+	currencyRegex     = regexp.MustCompile(`^[A-Z]{3}$`)
+	timezoneRegex     = regexp.MustCompile(`^(UTC|[A-Za-z]+(/[A-Za-z0-9_+-]+){1,2})$`)
+	phoneRegex        = regexp.MustCompile(`^\+?[0-9][0-9 ()-]{3,48}$`)
+	domainFormatRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
 )
 
 // normalizeUpdateStore trims and validates the editable fields of req in place.
@@ -106,8 +107,24 @@ func normalizeUpdateStore(req *UpdateStoreRequest) error {
 		v := strings.TrimSpace(*req.OwnerLastName)
 		req.OwnerLastName = &v
 	}
+	if req.PrimaryDomain != nil {
+		editable = true
+		v := strings.ToLower(strings.TrimSpace(*req.PrimaryDomain))
+		if v == "" || len(v) > 255 || (!domainFormatRegex.MatchString(v) && !strings.HasSuffix(v, ".localhost")) {
+			c.Add("primary_domain", "primary_domain must be a valid domain such as mior.dropiobd.com")
+		}
+		req.PrimaryDomain = &v
+	}
+	if req.ActiveTheme != nil {
+		editable = true
+		v := strings.TrimSpace(*req.ActiveTheme)
+		if v == "" || len(v) > 100 {
+			c.Add("active_theme", "active_theme is required and must be at most 100 characters")
+		}
+		req.ActiveTheme = &v
+	}
 	if !editable {
-		c.Add("body", "at least one editable field is required: name, description, contact_email, contact_phone, currency, timezone, owner_email, owner_password, owner_first_name or owner_last_name")
+		c.Add("body", "at least one editable field is required: name, description, contact_email, contact_phone, currency, timezone, primary_domain, active_theme, owner_email, owner_password, owner_first_name or owner_last_name")
 	}
 	return c.Err()
 }
@@ -136,12 +153,6 @@ func checkImmutableStoreFields(req *UpdateStoreRequest, cur *storeEditSnapshot) 
 	if req.Status != nil && !strings.EqualFold(strings.TrimSpace(*req.Status), cur.Status) {
 		c.Add("status", "status cannot be changed here; use PATCH /platform/stores/{id}/status")
 	}
-	if req.PrimaryDomain != nil && !strings.EqualFold(strings.TrimSpace(*req.PrimaryDomain), cur.PrimaryDomain) {
-		c.Add("primary_domain", "primary domain cannot be changed here; use the domains endpoints")
-	}
-	if req.ActiveTheme != nil && strings.TrimSpace(*req.ActiveTheme) != cur.ActiveTheme {
-		c.Add("active_theme", "theme cannot be changed here; use PUT /platform/stores/{id}/theme")
-	}
 	return c.Err()
 }
 
@@ -165,6 +176,12 @@ func applyStoreEdit(cur storeEditSnapshot, req *UpdateStoreRequest) storeEditSna
 	if req.Timezone != nil {
 		cur.Timezone = *req.Timezone
 	}
+	if req.PrimaryDomain != nil {
+		cur.PrimaryDomain = *req.PrimaryDomain
+	}
+	if req.ActiveTheme != nil {
+		cur.ActiveTheme = *req.ActiveTheme
+	}
 	return cur
 }
 
@@ -173,6 +190,7 @@ func editableStoreFields(v *storeEditSnapshot) map[string]string {
 	return map[string]string{
 		"name": v.Name, "description": v.Description, "contact_email": v.ContactEmail,
 		"contact_phone": v.ContactPhone, "currency": v.Currency, "timezone": v.Timezone,
+		"primary_domain": v.PrimaryDomain, "active_theme": v.ActiveTheme,
 	}
 }
 
@@ -221,6 +239,65 @@ func (s *Service) UpdateStore(ctx context.Context, storeID string, req UpdateSto
 	}
 	next := applyStoreEdit(cur, &req)
 
+	// Process primary domain modification inside transaction
+	if req.PrimaryDomain != nil && *req.PrimaryDomain != cur.PrimaryDomain {
+		var conflictStoreID string
+		err = tx.QueryRowContext(ctx, "SELECT store_id FROM domains WHERE domain = $1 AND store_id <> $2;", *req.PrimaryDomain, storeID).Scan(&conflictStoreID)
+		if err == nil {
+			return nil, ErrDomainConflict
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("checking domain conflict: %w", err)
+		}
+
+		if _, err := tx.ExecContext(ctx, "UPDATE domains SET is_primary = FALSE WHERE store_id = $1;", storeID); err != nil {
+			return nil, fmt.Errorf("demoting previous primary domains: %w", err)
+		}
+
+		res, err := tx.ExecContext(ctx, "UPDATE domains SET is_primary = TRUE WHERE store_id = $1 AND domain = $2;", storeID, *req.PrimaryDomain)
+		if err != nil {
+			return nil, fmt.Errorf("promoting domain: %w", err)
+		}
+		ra, _ := res.RowsAffected()
+		if ra == 0 {
+			sslStatus := models.SSLStatusActive
+			now := time.Now().UTC()
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO domains (store_id, domain, is_primary, is_custom, ssl_status, verified_at)
+				VALUES ($1, $2, TRUE, TRUE, $3, $4);`,
+				storeID, *req.PrimaryDomain, sslStatus, &now)
+			if err != nil {
+				return nil, fmt.Errorf("inserting new primary domain: %w", err)
+			}
+		}
+		next.PrimaryDomain = *req.PrimaryDomain
+	}
+
+	// Process active theme modification inside transaction
+	if req.ActiveTheme != nil && *req.ActiveTheme != cur.ActiveTheme {
+		var themeID, themeName string
+		err = tx.QueryRowContext(ctx, `
+			SELECT id, name FROM themes 
+			WHERE (slug = $1 OR name = $1 OR id::text = $1) AND is_active = TRUE 
+			LIMIT 1;`, *req.ActiveTheme).Scan(&themeID, &themeName)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrThemeNotFound
+		} else if err != nil {
+			return nil, fmt.Errorf("finding theme %s: %w", *req.ActiveTheme, err)
+		}
+
+		if _, err := tx.ExecContext(ctx, "UPDATE store_themes SET is_active = FALSE WHERE store_id = $1;", storeID); err != nil {
+			return nil, fmt.Errorf("demoting current store themes: %w", err)
+		}
+
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO store_themes (store_id, theme_id, custom_config, is_active, activated_at)
+			VALUES ($1, $2, '{}'::jsonb, TRUE, CURRENT_TIMESTAMP);`, storeID, themeID)
+		if err != nil {
+			return nil, fmt.Errorf("binding active theme: %w", err)
+		}
+		next.ActiveTheme = themeName
+	}
+
 	var updatedAt time.Time
 	err = tx.QueryRowContext(ctx, `
 		UPDATE stores
@@ -247,7 +324,7 @@ func (s *Service) UpdateStore(ctx context.Context, storeID string, req UpdateSto
 		return nil, fmt.Errorf("committing store update: %w", err)
 	}
 
-	// Update tenant store_settings and store_staff if owner or brand details were changed
+	// Update tenant store_settings, metadata, and store_staff if owner or brand details were changed
 	if s.resolver != nil {
 		if stCtx, rErr := s.resolver.ResolveBySlug(ctx, cur.Slug); rErr == nil && stCtx != nil && stCtx.TenantDB != nil {
 			if req.Name != nil {
@@ -255,6 +332,16 @@ func (s *Service) UpdateStore(ctx context.Context, storeID string, req UpdateSto
 			}
 			if req.ContactEmail != nil {
 				_, _ = stCtx.TenantDB.ExecContext(ctx, `UPDATE store_settings SET support_email = $1 WHERE 1=1;`, *req.ContactEmail)
+			}
+			if req.PrimaryDomain != nil {
+				_, _ = stCtx.TenantDB.ExecContext(ctx, `ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS primary_domain VARCHAR(255) NOT NULL DEFAULT '';`)
+				_, _ = stCtx.TenantDB.ExecContext(ctx, `UPDATE store_settings SET primary_domain = $1 WHERE 1=1;`, *req.PrimaryDomain)
+				_, _ = stCtx.TenantDB.ExecContext(ctx, `INSERT INTO store_metadata (key, value, updated_at) VALUES ('primary_domain', $1, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP;`, *req.PrimaryDomain)
+			}
+			if req.ActiveTheme != nil {
+				_, _ = stCtx.TenantDB.ExecContext(ctx, `ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS active_theme VARCHAR(100) NOT NULL DEFAULT '';`)
+				_, _ = stCtx.TenantDB.ExecContext(ctx, `UPDATE store_settings SET active_theme = $1 WHERE 1=1;`, next.ActiveTheme)
+				_, _ = stCtx.TenantDB.ExecContext(ctx, `INSERT INTO store_metadata (key, value, updated_at) VALUES ('active_theme', $1, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP;`, next.ActiveTheme)
 			}
 			if req.OwnerEmail != nil {
 				_, _ = stCtx.TenantDB.ExecContext(ctx, `UPDATE store_staff SET email = $1, updated_at = CURRENT_TIMESTAMP WHERE role = 'STORE_OWNER';`, *req.OwnerEmail)
@@ -278,6 +365,11 @@ func (s *Service) UpdateStore(ctx context.Context, storeID string, req UpdateSto
 		for _, d := range routes {
 			s.resolver.InvalidateCache(ctx, d, cur.Slug)
 		}
+		if req.PrimaryDomain != nil {
+			s.resolver.InvalidateCache(ctx, *req.PrimaryDomain, cur.Slug)
+		}
+		allRoutes := append(routes, next.PrimaryDomain)
+		_, _ = s.resolver.PurgeStoreCache(ctx, storeID, cur.Slug, allRoutes)
 	}
 
 	return &StoreSummaryResponse{

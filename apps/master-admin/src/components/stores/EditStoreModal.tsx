@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { X, Save, Edit3, Lock, Key, ShieldCheck } from 'lucide-react';
+import { X, Save, Edit3, Lock, Key, ShieldCheck, Globe, Palette } from 'lucide-react';
 import { StoreDetailResponse, StoreSummary } from '../../types/store';
 import { api, apiErrorMessage } from '../../lib/api';
 
-/** The only fields PATCH /platform/stores/{id} accepts from this form. */
+/** The fields PATCH /platform/stores/{id} accepts from this form. */
 export interface StoreEditPayload {
   name: string;
   description: string;
@@ -11,6 +11,8 @@ export interface StoreEditPayload {
   contact_phone: string;
   currency: string;
   timezone: string;
+  primary_domain?: string;
+  active_theme?: string;
   owner_email?: string;
   owner_password?: string;
   owner_first_name?: string;
@@ -31,9 +33,8 @@ const READONLY_CLASS =
 
 /**
  * EditStoreModal edits a store tenant's profile: name, description, contact email, contact phone,
- * currency, timezone, and store owner administrator credentials (email & password reset).
- * Status, primary domain, slug, database name and active theme are shown read-only because they
- * are managed by their own dedicated operations.
+ * currency, timezone, primary domain, active theme, and store owner administrator credentials.
+ * Slug, status and database name are shown read-only because they are fixed database and routing coordinates.
  */
 export const EditStoreModal: React.FC<EditStoreModalProps> = ({ store, onClose, onSave }) => {
   const [name, setName] = useState(store.name);
@@ -43,6 +44,11 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({ store, onClose, 
   const [currency, setCurrency] = useState(store.currency);
   const [timezone, setTimezone] = useState('');
   const [dbName, setDbName] = useState('');
+
+  // Primary Domain & Theme State
+  const [primaryDomain, setPrimaryDomain] = useState(store.primary_domain || '');
+  const [activeTheme, setActiveTheme] = useState(store.active_theme || '');
+  const [availableThemes, setAvailableThemes] = useState<Array<{ id: string; name: string; slug: string }>>([]);
 
   // Store Owner Credentials State
   const [ownerEmail, setOwnerEmail] = useState('');
@@ -59,8 +65,12 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({ store, onClose, 
     let active = true;
     const load = async () => {
       try {
-        const res = await api.get<{ data: StoreDetailResponse }>(`/platform/stores/${store.id}`);
-        const detail = res.data?.data?.store;
+        const [storeRes, themesRes] = await Promise.all([
+          api.get<{ data: StoreDetailResponse }>(`/platform/stores/${store.id}`),
+          api.get<{ data: Array<{ id: string; name: string; slug: string }> }>('/platform/themes'),
+        ]);
+
+        const detail = storeRes.data?.data?.store;
         if (!detail) {
           throw new Error('The server returned store details in an unexpected format.');
         }
@@ -72,8 +82,17 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({ store, onClose, 
         setCurrency(detail.currency);
         setTimezone(detail.timezone);
         setDbName(detail.db_name);
+        const primary = storeRes.data?.data?.domains?.find((d) => d.is_primary)?.domain || store.primary_domain || '';
+        setPrimaryDomain(primary);
 
-        const owner = res.data?.data?.owner;
+        const themeVal = storeRes.data?.data?.active_theme?.slug || storeRes.data?.data?.active_theme?.name || store.active_theme || '';
+        setActiveTheme(themeVal);
+
+        if (Array.isArray(themesRes.data?.data)) {
+          setAvailableThemes(themesRes.data.data);
+        }
+
+        const owner = storeRes.data?.data?.owner;
         if (owner) {
           setOwnerEmail(owner.email ?? '');
           setOwnerFirstName(owner.first_name ?? '');
@@ -94,7 +113,7 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({ store, onClose, 
     return () => {
       active = false;
     };
-  }, [store.id]);
+  }, [store.id, store.primary_domain, store.active_theme]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,6 +135,12 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({ store, onClose, 
         timezone: timezone.trim(),
       };
 
+      if (primaryDomain.trim()) {
+        payload.primary_domain = primaryDomain.trim().toLowerCase();
+      }
+      if (activeTheme.trim()) {
+        payload.active_theme = activeTheme.trim();
+      }
       if (ownerEmail.trim()) {
         payload.owner_email = ownerEmail.trim().toLowerCase();
       }
@@ -248,6 +273,47 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({ store, onClose, 
             </div>
           </div>
 
+          {/* Primary Domain & Active Theme Section */}
+          <div className="rounded-md border border-slate-200 bg-slate-50/70 p-3 space-y-2.5">
+            <p className="flex items-center text-[11px] font-bold text-slate-800">
+              <Globe className="h-3.5 w-3.5 mr-1 text-teal-600" /> Storefront Routing & Design Theme
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-700 mb-1">Primary Storefront Domain</label>
+                <input
+                  type="text"
+                  required
+                  disabled={fieldsLocked}
+                  value={primaryDomain}
+                  onChange={(e) => setPrimaryDomain(e.target.value)}
+                  placeholder="e.g. mior.dropiobd.com"
+                  className={INPUT_CLASS}
+                />
+                <p className="text-[9px] text-slate-500 mt-0.5">Primary routing domain for storefront visitors.</p>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-700 mb-1 flex items-center">
+                  <Palette className="h-3 w-3 mr-0.5 text-slate-500" /> Active Design Theme
+                </label>
+                <select
+                  disabled={fieldsLocked}
+                  value={activeTheme}
+                  onChange={(e) => setActiveTheme(e.target.value)}
+                  className={INPUT_CLASS}
+                >
+                  {availableThemes.length === 0 && <option value={activeTheme}>{activeTheme || 'Default Theme'}</option>}
+                  {availableThemes.map((th) => (
+                    <option key={th.id} value={th.slug || th.name}>
+                      {th.name} ({th.slug})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[9px] text-slate-500 mt-0.5">Layout and design components applied to storefront.</p>
+              </div>
+            </div>
+          </div>
+
           {/* Store Owner Administrator Section */}
           <div className="rounded-md border border-teal-200 bg-teal-50/50 p-3 space-y-2.5">
             <p className="flex items-center text-[11px] font-bold text-teal-900">
@@ -310,22 +376,12 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({ store, onClose, 
           {/* Read-only registry fields */}
           <div className="rounded-md border border-slate-200 bg-slate-50/60 p-3 space-y-2">
             <p className="flex items-center text-[11px] font-semibold text-slate-600">
-              <Lock className="h-3 w-3 mr-1" /> Read-only here
+              <Lock className="h-3 w-3 mr-1" /> System Identifiers (Read-only)
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div>
                 <span className="block text-[10px] text-slate-500 mb-0.5">Status</span>
                 <input readOnly aria-readonly="true" aria-label="Status" value={store.status} className={READONLY_CLASS} />
-              </div>
-              <div>
-                <span className="block text-[10px] text-slate-500 mb-0.5">Primary domain</span>
-                <input
-                  readOnly
-                  aria-readonly="true"
-                  aria-label="Primary domain"
-                  value={store.primary_domain || '-'}
-                  className={READONLY_CLASS}
-                />
               </div>
               <div>
                 <span className="block text-[10px] text-slate-500 mb-0.5">Slug</span>
@@ -341,20 +397,9 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({ store, onClose, 
                   className={READONLY_CLASS}
                 />
               </div>
-              <div className="sm:col-span-2">
-                <span className="block text-[10px] text-slate-500 mb-0.5">Active theme</span>
-                <input
-                  readOnly
-                  aria-readonly="true"
-                  aria-label="Active theme"
-                  value={store.active_theme || '-'}
-                  className={READONLY_CLASS}
-                />
-              </div>
             </div>
             <p className="text-[10px] text-slate-500 leading-snug">
-              These are changed from their own controls: status and theme from the store detail drawer, the primary
-              domain from the Domains page. The slug and database name are fixed after creation.
+              Slug and database name are permanently isolated and fixed after creation.
             </p>
           </div>
 
