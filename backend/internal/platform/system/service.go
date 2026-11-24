@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"ecom-ventures/backend/internal/platform/models"
+	"ecom-ventures/backend/internal/worker"
 	storeDB "ecom-ventures/backend/internal/store/database"
 	"ecom-ventures/backend/pkg/hasher"
 
@@ -288,6 +289,22 @@ func (s *Service) GetClusterOverview(ctx context.Context) (*ClusterOverview, err
 		}
 		if pingErr := s.redis.Ping(ctx).Err(); pingErr == nil {
 			co.Redis.Status = "HEALTHY"
+			if pending, err := s.getStreamPendingCount(ctx, worker.DefaultStreamName, worker.DefaultGroupName); err == nil {
+				co.Redis.Streams = append(co.Redis.Streams, StreamQueueMetric{
+					StreamKey:      worker.DefaultStreamName,
+					ConsumerGroup:  worker.DefaultGroupName,
+					PendingEntries: pending,
+					Status:         "ACTIVE",
+				})
+			}
+			if dlqLen, err := s.redis.XLen(ctx, worker.DLQStreamName).Result(); err == nil {
+				co.Redis.Streams = append(co.Redis.Streams, StreamQueueMetric{
+					StreamKey:      worker.DLQStreamName,
+					ConsumerGroup:  "dlq",
+					PendingEntries: int(dlqLen),
+					Status:         "DLQ",
+				})
+			}
 		} else {
 			co.Redis.Status = "DEGRADED"
 			co.Redis.Error = pingErr.Error()
@@ -296,5 +313,27 @@ func (s *Service) GetClusterOverview(ctx context.Context) (*ClusterOverview, err
 		co.Redis.Status = "DISCONNECTED"
 	}
 
+	var maint bool
+	if err := s.platformDB.QueryRowContext(ctx, `SELECT maintenance_mode FROM platform_policies WHERE id = $1`, singletonPoliciesID).Scan(&maint); err == nil {
+		co.MaintenanceMode = maint
+	}
+
 	return &co, nil
+}
+
+func (s *Service) getStreamPendingCount(ctx context.Context, streamKey, groupName string) (int, error) {
+	groups, err := s.redis.XInfoGroups(ctx, streamKey).Result()
+	if err != nil {
+		xlen, lenErr := s.redis.XLen(ctx, streamKey).Result()
+		if lenErr != nil {
+			return 0, lenErr
+		}
+		return int(xlen), nil
+	}
+	for _, g := range groups {
+		if g.Name == groupName {
+			return int(g.Pending), nil
+		}
+	}
+	return 0, nil
 }

@@ -3,6 +3,8 @@ import { Activity, AlertCircle, Database, RefreshCw, Settings, Server, Cloud } f
 import { ClusterOverviewResponse } from '../types/system';
 import { api, apiErrorMessage } from '../lib/api';
 import { CloudflareR2Settings } from '../components/storage/CloudflareR2Settings';
+import { PlatformPoliciesPanel } from '../components/system/PlatformPoliciesPanel';
+import { WorkerTelemetryPanel } from '../components/system/WorkerTelemetryPanel';
 
 type SettingsTab = 'storage' | 'cluster' | 'platform' | 'workers';
 
@@ -80,8 +82,8 @@ export const SettingsPage: React.FC = () => {
       )}
 
       {activeTab === 'platform' && (
-        <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Platform policy settings are not backed by a configuration API yet. No unsaved or sample values are shown.
+        <section>
+          <PlatformPoliciesPanel />
         </section>
       )}
 
@@ -159,8 +161,8 @@ export const SettingsPage: React.FC = () => {
       )}
 
       {activeTab === 'workers' && (
-        <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Worker health and scheduler telemetry are not exposed by the backend yet. No simulated stream or job status is shown.
+        <section>
+          <WorkerTelemetryPanel />
         </section>
       )}
     </div>

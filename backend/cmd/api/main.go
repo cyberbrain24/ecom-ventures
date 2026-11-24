@@ -238,6 +238,10 @@ func buildRouter(
 					})
 					r.Get("/audit-logs", systemHandler.ListAuditLogs)
 					r.Get("/system/overview", systemHandler.GetClusterOverview)
+					r.Get("/system/policies", systemHandler.GetPolicies)
+					r.With(middleware.RequirePlatformRole(models.RoleSuperAdmin)).Put("/system/policies", systemHandler.UpdatePolicies)
+					r.Get("/system/workers", systemHandler.GetWorkerTelemetry)
+					r.With(middleware.RequirePlatformRole(models.RoleSuperAdmin)).Post("/system/workers/trigger", systemHandler.TriggerWorkerJob)
 				}
 
 				// Platform Accounts & Brand Billing Subsystem
