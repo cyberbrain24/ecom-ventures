@@ -28,7 +28,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, activePath, 
   const currentSection = SECTION_TITLES[activePath] || 'Master Admin';
 
   return (
-    <div className="min-h-screen bg-[#EAEEF2] flex flex-col lg:flex-row overflow-x-hidden">
+    <div className="min-h-screen lg:h-screen lg:overflow-hidden bg-[#EAEEF2] flex flex-col lg:flex-row">
       {/* Mobile/Tablet Header Top Bar (Viewports < 1024px) */}
       <header className="lg:hidden h-16 bg-white border-b border-slate-200 px-3.5 sm:px-5 flex items-center justify-between sticky top-0 z-40 shadow-xs flex-shrink-0">
         <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
@@ -89,8 +89,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, activePath, 
       )}
 
       {/* Main Content Area (Right-Side Page Area) */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden min-h-screen bg-[#EAEEF2]">
-        <main className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto w-full bg-[#EAEEF2]">
+      <div className="flex-1 flex flex-col min-w-0 lg:h-screen lg:overflow-hidden bg-[#EAEEF2]">
+        <main className="flex-1 p-3 sm:p-5 lg:p-6 overflow-y-auto overflow-x-hidden w-full bg-[#EAEEF2]">
           <div className="w-full max-w-[1920px] mx-auto min-w-0">{children}</div>
         </main>
       </div>
