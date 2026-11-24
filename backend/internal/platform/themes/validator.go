@@ -65,7 +65,15 @@ func (v *ThemeConfigValidator) ValidateCustomConfig(rawConfig json.RawMessage) e
 }
 
 // themeVariants lists the storefront design variants a platform theme may declare.
-var themeVariants = map[string]bool{"fashion": true, "streetculture": true, "innerwear": true, "jewelry": true}
+var themeVariants = map[string]bool{
+	"fashion":             true,
+	"streetculture":       true,
+	"innerwear":           true,
+	"jewelry":             true,
+	"gadget":              true,
+	"inner-fashion":       true,
+	"traditional-fashion": true,
+}
 
 // themeColorKeys are the colour tokens every platform theme must define.
 var themeColorKeys = []string{"primary", "secondary", "accent", "background", "surface", "text", "muted"}
@@ -74,7 +82,15 @@ var themeColorKeys = []string{"primary", "secondary", "accent", "background", "s
 var (
 	themeRadii     = map[string]bool{"none": true, "sm": true, "md": true, "lg": true, "xl": true, "full": true}
 	themeDensities = map[string]bool{"airy": true, "compact": true}
-	themeHeroes    = map[string]bool{"editorial": true, "bold-streetwear": true, "soft-minimal": true, "luxe-showcase": true}
+	themeHeroes    = map[string]bool{
+		"editorial":       true,
+		"bold-streetwear": true,
+		"soft-minimal":    true,
+		"luxe-showcase":   true,
+		"tech-matrix":     true,
+		"sensual-couture": true,
+		"royal-heritage":  true,
+	}
 )
 
 // maxFontNameLength bounds a font family name in a theme config.
