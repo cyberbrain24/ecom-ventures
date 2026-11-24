@@ -1,8 +1,7 @@
 import React from 'react';
-import { Palette, CheckCircle, Layers, Pencil, Power, PowerOff, Type, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Palette, CheckCircle, Layers, Pencil, Power, PowerOff } from 'lucide-react';
 import { ThemeItem } from '../../types/theme';
 import {
-  radiusToCss,
   readThemePreview,
   themeColor,
   variantLabel,
@@ -49,7 +48,6 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
   const background = themeColor(preview, 'background') ?? '#0f172a';
   const text = themeColor(preview, 'text') ?? '#ffffff';
   const primary = themeColor(preview, 'primary') ?? '#059669';
-  const radius = radiusToCss(preview.radius);
   const variant = variantLabel(preview.variant) ?? inferVariantFromSlug(theme.slug);
   const storeCount = typeof theme.active_stores_count === 'number' ? theme.active_stores_count : null;
   const previewImage = theme.preview_image_url || THEME_FALLBACK_IMAGES[theme.slug] || null;
@@ -148,49 +146,6 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
             <p className="text-xs text-slate-500 leading-relaxed line-clamp-2 min-h-[34px] mt-1.5">
               {theme.description || 'Modern, responsive ecommerce storefront blueprint optimized for conversion.'}
             </p>
-          </div>
-
-          {/* 2x2 Design Specifications Grid */}
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
-            <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center gap-2">
-              <Type className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-              <div className="min-w-0">
-                <div className="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider">Heading Font</div>
-                <div className="font-semibold text-slate-700 truncate" style={{ fontFamily: preview.headingFont ?? undefined }}>
-                  {preview.headingFont || 'Inter'}
-                </div>
-              </div>
-            </div>
-
-            <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center gap-2">
-              <Type className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-              <div className="min-w-0">
-                <div className="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider">Body Font</div>
-                <div className="font-semibold text-slate-700 truncate" style={{ fontFamily: preview.bodyFont ?? undefined }}>
-                  {preview.bodyFont || 'Inter'}
-                </div>
-              </div>
-            </div>
-
-            <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center gap-2">
-              <SlidersHorizontal className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-              <div className="min-w-0">
-                <div className="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider">Corner Radius</div>
-                <div className="font-semibold text-slate-700 truncate">
-                  {preview.radius ? `${preview.radius.toUpperCase()} (${radius})` : 'Medium (8px)'}
-                </div>
-              </div>
-            </div>
-
-            <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center gap-2">
-              <Sparkles className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-              <div className="min-w-0">
-                <div className="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider">Hero Layout</div>
-                <div className="font-semibold text-slate-700 truncate capitalize">
-                  {preview.hero ? preview.hero.replace(/-/g, ' ') : preview.density || 'Modern Split'}
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Store Usage Counter */}
