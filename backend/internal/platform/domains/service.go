@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -193,6 +195,28 @@ func (s *Service) VerifyDomain(ctx context.Context, domainID string) (*models.Do
 		return &d, nil
 	}
 
+	// When Cloudflare for SaaS Custom Hostnames is not configured (e.g. direct Cloudflare DNS A-records
+	// or VPS reverse proxy), verify via live DNS resolution + TLS/HTTPS reachability, or TXT fallback.
+	cfConfigured := false
+	if hc, ok := s.cfClient.(*HTTPCloudflareClient); ok && hc != nil {
+		cfConfigured = hc.apiToken != "" && hc.zoneID != ""
+	} else if s.cfClient != nil {
+		cfConfigured = true
+	}
+
+	if !cfConfigured {
+		if err := probeLiveDomainHTTPS(ctx, d.Domain); err != nil {
+			// Fallback to DNS TXT check if a verification token exists
+			if d.VerificationToken != "" && s.dnsVerifier != nil {
+				if matched, txtErr := s.dnsVerifier.VerifyTXTRecord(ctx, d.Domain, d.VerificationToken); txtErr == nil && matched {
+					return s.markDomainVerified(ctx, &d, storeSlug)
+				}
+			}
+			return nil, fmt.Errorf("domain is not yet reachable over HTTPS (%v); point your DNS A record to the server IP and enable SSL, then retry", err)
+		}
+		return s.markDomainVerified(ctx, &d, storeSlug)
+	}
+
 	// Perform live DNS TXT lookup
 	if s.dnsVerifier == nil {
 		return nil, fmt.Errorf("domain DNS verifier is unavailable")
@@ -252,6 +276,48 @@ func (s *Service) VerifyDomain(ctx context.Context, domainID string) (*models.Do
 	}
 
 	return &d, nil
+}
+
+func (s *Service) markDomainVerified(ctx context.Context, d *models.Domain, storeSlug string) (*models.Domain, error) {
+	now := time.Now().UTC()
+	updateSQL := `
+		UPDATE domains
+		SET ssl_status = $1, verified_at = $2, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $3
+		RETURNING updated_at;`
+	if err := s.db.QueryRowContext(ctx, updateSQL, models.SSLStatusActive, now, d.ID).Scan(&d.UpdatedAt); err != nil {
+		return nil, fmt.Errorf("save verified domain status: %w", err)
+	}
+	d.SSLStatus = models.SSLStatusActive
+	d.VerifiedAt = &now
+	if s.resolver != nil {
+		s.resolver.InvalidateCache(ctx, d.Domain, storeSlug)
+	}
+	return d, nil
+}
+
+func probeLiveDomainHTTPS(ctx context.Context, domain string) error {
+	lookupCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupHost(lookupCtx, domain)
+	if err != nil || len(addrs) == 0 {
+		return fmt.Errorf("DNS resolution failed")
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequestWithContext(lookupCtx, http.MethodGet, "https://"+domain+"/", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("origin returned HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func mapCloudflareSSLStatus(status string) models.DomainSSLStatus {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -243,19 +244,27 @@ func (s *Service) CreateStore(ctx context.Context, req *CreateStoreRequest, crea
 	}
 
 	// Step 8: Register Primary Domain in Platform DB.
-	// The domain is PENDING until DNS and edge verification succeed. The development-only
-	// .localhost shortcut is the single exception and only when APP_ENV is "development".
+	// Generate a verification token so Setup DNS always has one, and immediately mark ACTIVE
+	// if the domain already resolves over HTTPS (or .localhost in development).
 	primarySSL := models.SSLStatusPending
 	var primaryVerifiedAt *time.Time
+	tokenBytes := make([]byte, 16)
+	_, _ = rand.Read(tokenBytes)
+	verificationToken := fmt.Sprintf("ecom-verify-%s", hex.EncodeToString(tokenBytes))
+
 	if s.isDevelopment && strings.HasSuffix(cleanDomain, localhostSuffix) {
+		primarySSL = models.SSLStatusActive
+		now := time.Now().UTC()
+		primaryVerifiedAt = &now
+	} else if isDomainLiveHTTPS(ctx, cleanDomain) {
 		primarySSL = models.SSLStatusActive
 		now := time.Now().UTC()
 		primaryVerifiedAt = &now
 	}
 	insertDomainSQL := `
-		INSERT INTO domains (store_id, domain, is_primary, is_custom, ssl_status, verified_at)
-		VALUES ($1, $2, TRUE, TRUE, $3, $4);`
-	if _, err := s.platformDB.ExecContext(ctx, insertDomainSQL, store.ID, cleanDomain, primarySSL, primaryVerifiedAt); err != nil {
+		INSERT INTO domains (store_id, domain, is_primary, is_custom, ssl_status, verification_token, verified_at)
+		VALUES ($1, $2, TRUE, TRUE, $3, $4, $5);`
+	if _, err := s.platformDB.ExecContext(ctx, insertDomainSQL, store.ID, cleanDomain, primarySSL, verificationToken, primaryVerifiedAt); err != nil {
 		s.cleanupFailedStoreLogged(ctx, store.ID, store.DBName, store.DBUser)
 		return nil, fmt.Errorf("failed to register primary store domain: %w", err)
 	}
@@ -779,4 +788,20 @@ func randomHex(bytesLen int) (string, error) {
 		return "", fmt.Errorf("reading crypto/rand: %w", err)
 	}
 	return hex.EncodeToString(b), nil
+}
+
+func isDomainLiveHTTPS(ctx context.Context, domain string) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, "https://"+domain+"/", nil)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode < 500
 }
