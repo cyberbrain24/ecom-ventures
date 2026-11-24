@@ -1035,7 +1035,7 @@
   text-transform: uppercase;
 }
 :root[data-theme="jewelry"] .sf-spotlight {
-  background: radial-gradient(ellipse 60% 55% at 50% 30%, var(--brand-primary) 0%, transparent 70%);
+  background: radial-gradient(ellipse 60% 55% at 50% 30%, rgba(212, 175, 55, 0.14) 0%, transparent 70%);
   pointer-events: none;
 }
 :root[data-theme="jewelry"] .sf-hairline {
@@ -1043,14 +1043,14 @@
   background-color: var(--brand-secondary);
 }
 :root[data-theme="jewelry"] .sf-eyebrow {
-  color: var(--brand-secondary);
+  color: var(--t-accent);
   letter-spacing: 0.3em;
 }
 :root[data-theme="jewelry"] .sf-frame {
   outline: 1px solid var(--brand-secondary);
   outline-offset: 12px;
   border-radius: var(--brand-radius);
-  box-shadow: 0 30px 60px -30px rgb(0 0 0 / 0.6);
+  box-shadow: 0 24px 48px -24px rgb(30 27 75 / 0.18);
 }
 :root[data-theme="jewelry"] .sf-nav {
   background-color: color-mix(in srgb, var(--t-bg) 92%, transparent);
@@ -1080,20 +1080,20 @@
 }
 :root[data-theme="jewelry"] .sf-card-price {
   font-family: var(--brand-font-heading);
-  color: var(--brand-secondary);
+  color: var(--brand-primary);
   font-size: 1.05rem;
   letter-spacing: 0.03em;
 }
 :root[data-theme="jewelry"] .sf-quick {
   background-color: transparent;
-  border-color: var(--brand-secondary);
-  color: var(--brand-secondary);
+  border-color: var(--brand-primary);
+  color: var(--brand-primary);
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
 :root[data-theme="jewelry"] .sf-quick:hover {
-  background-color: var(--brand-secondary);
-  color: #0f0d1a;
+  background-color: var(--brand-primary);
+  color: #ffffff;
 }
 /* ---------- Jewelry Footer: Luxe Amethyst Onyx & 24K Gold ---------- */
 :root[data-theme="jewelry"] .sf-footer {
@@ -1202,12 +1202,7 @@
 }
 
 
-/* Dark variants: text that uses the brand primary (a dark colour on these backgrounds) switches to the
-   theme's accent so eyebrows, links and labels stay readable. Buttons keep the primary background. */
-:root[data-theme="jewelry"] .text-\[var\(--brand-primary\)\],
-:root[data-theme="gadget"] .text-\[var\(--brand-primary\)\] {
-  color: var(--brand-secondary);
-}
+/* Light background designs keep brand primary readable; only subtle border overrides needed. */
 
 /* ==========================================================================
    Gadget Theme: Tech Matrix & High-Performance Gadget Storefront
@@ -1228,9 +1223,9 @@
 
 :root[data-theme="gadget"] .sf-hero--tech-matrix {
   background:
-    radial-gradient(ellipse 70% 50% at 50% 0%, rgba(2, 132, 199, 0.22) 0%, transparent 75%),
-    linear-gradient(180deg, #090d16 0%, #0c1220 100%);
-  border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+    radial-gradient(ellipse 70% 50% at 50% 0%, rgba(2, 132, 199, 0.10) 0%, transparent 75%),
+    linear-gradient(180deg, #ffffff 0%, #f0f9ff 100%);
+  border-bottom: 1px solid rgba(2, 132, 199, 0.15);
 }
 
 :root[data-theme="gadget"] .sf-gadget-marquee {
@@ -1246,36 +1241,37 @@
 }
 
 :root[data-theme="gadget"] .sf-gadget-pill {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  background: rgba(2, 132, 199, 0.08);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+  color: #0369a1;
   padding: 0.25rem 0.75rem;
   border-radius: 9999px;
 }
 
 :root[data-theme="gadget"] .sf-card {
   border-radius: 0.75rem;
-  border: 1px solid rgba(56, 189, 248, 0.18);
-  background-color: #0f172a;
-  box-shadow: 0 4px 20px -6px rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background-color: #ffffff;
+  box-shadow: 0 4px 16px -6px rgba(15, 23, 42, 0.08);
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 :root[data-theme="gadget"] .sf-card:hover {
-  border-color: #06b6d4;
-  box-shadow: 0 10px 30px -8px rgba(6, 182, 212, 0.35);
+  border-color: #0284c7;
+  box-shadow: 0 10px 26px -8px rgba(2, 132, 199, 0.22);
   transform: translateY(-3px);
 }
 
 :root[data-theme="gadget"] .sf-card-media {
-  background-color: #090d16;
-  border-bottom: 1px solid rgba(56, 189, 248, 0.12);
+  background-color: #f8fafc;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
 }
 
 :root[data-theme="gadget"] .sf-card-title {
   font-family: var(--brand-font-heading);
   font-size: 1.05rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: #0f172a;
   letter-spacing: 0.01em;
 }
 
@@ -1283,7 +1279,7 @@
   font-family: var(--brand-font-heading);
   font-weight: 700;
   font-size: 1.1rem;
-  color: #38bdf8;
+  color: #0284c7;
 }
 
 :root[data-theme="gadget"] .sf-quick {

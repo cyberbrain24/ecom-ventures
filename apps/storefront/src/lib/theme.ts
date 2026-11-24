@@ -150,10 +150,10 @@ const VARIANT_DEFAULTS: Record<ThemeVariant, ThemeConfig> = {
       primary: '#1e1b4b',
       secondary: '#d4af37',
       accent: '#b8860b',
-      background: '#0f0d1a',
-      surface: '#17142b',
-      text: '#f8f4e8',
-      muted: '#b9b3cc',
+      background: '#ffffff',
+      surface: '#ffffff',
+      text: '#1e1b4b',
+      muted: '#64748b',
     },
     fonts: { heading: 'Cinzel', body: 'Lato' },
     radius: 'sm',
@@ -166,10 +166,10 @@ const VARIANT_DEFAULTS: Record<ThemeVariant, ThemeConfig> = {
       primary: '#0284c7', // Cyber Cyan / Electric Blue
       secondary: '#06b6d4', // Bright Teal
       accent: '#3b82f6', // Neon Cobalt
-      background: '#090d16', // Deep Obsidian Tech Dark
-      surface: '#0f172a', // Deep Slate Blue Surface
-      text: '#f8fafc', // Crisp White
-      muted: '#94a3b8', // Muted Chrome
+      background: '#ffffff', // Crisp White Canvas
+      surface: '#ffffff', // Clean White Card Surface
+      text: '#0f172a', // Deep Slate Ink
+      muted: '#64748b', // Slate Muted
     },
     fonts: { heading: 'Space Grotesk', body: 'Inter' },
     radius: 'md',

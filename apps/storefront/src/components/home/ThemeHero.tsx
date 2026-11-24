@@ -237,42 +237,42 @@ export const ThemeHero: React.FC<ThemeHeroProps> = ({ hero, storeName, imageUrl 
 
         <div className="sf-container relative z-10 grid grid-cols-1 md:grid-cols-12 gap-8 lg:gap-12 items-center py-12 sm:py-16">
           <div className="md:col-span-7 space-y-6">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-950/70 border border-cyan-500/30 text-cyan-300 font-mono text-xs font-semibold tracking-wider uppercase">
-              <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-50 border border-cyan-200 text-cyan-700 font-mono text-xs font-semibold tracking-wider uppercase">
+              <span className="h-2 w-2 rounded-full bg-cyan-500 animate-ping" />
               <span>NEXT-GEN GEAR & ELECTRONICS</span>
             </div>
 
-            <h1 id="hero-title" className="sf-hero-title font-extrabold text-3xl sm:text-5xl lg:text-6xl tracking-tight text-white">
-              Elevate Your Setup with <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">{storeName}</span>
+            <h1 id="hero-title" className="sf-hero-title font-extrabold text-3xl sm:text-5xl lg:text-6xl tracking-tight text-slate-900">
+              Elevate Your Setup with <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-600 to-blue-600">{storeName}</span>
             </h1>
 
-            <p className="sf-hero-lede max-w-xl text-slate-300 text-sm sm:text-base leading-relaxed">
+            <p className="sf-hero-lede max-w-xl text-slate-600 text-sm sm:text-base leading-relaxed">
               Curated premium tech, smart audio, workspace accessories, and high-performance electronics with verified warranty and express delivery across Bangladesh.
             </p>
 
             <div className="flex flex-wrap items-center gap-4 pt-2">
-              <ShopLink className="sf-cta-tech px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold rounded-lg transition shadow-lg shadow-cyan-500/20" />
+              <ShopLink className="sf-cta-tech px-6 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold rounded-lg transition shadow-lg shadow-cyan-500/20" />
               <Link
                 href="/catalog?category=accessories"
-                className="px-5 py-3 rounded-lg border border-slate-700 hover:border-cyan-500 text-slate-300 hover:text-white font-semibold text-xs tracking-wider uppercase transition bg-slate-900/60"
+                className="px-5 py-3 rounded-lg border border-slate-300 hover:border-cyan-500 text-slate-700 hover:text-cyan-700 font-semibold text-xs tracking-wider uppercase transition bg-white"
               >
                 View Best Sellers
               </Link>
             </div>
 
             {/* Quick Tech Specs / USPs */}
-            <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-800 max-w-md">
+            <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-200 max-w-md">
               <div>
-                <div className="text-base sm:text-lg font-mono font-bold text-cyan-400">100%</div>
-                <div className="text-[11px] text-slate-400 uppercase font-mono">Authentic</div>
+                <div className="text-base sm:text-lg font-mono font-bold text-cyan-700">100%</div>
+                <div className="text-[11px] text-slate-500 uppercase font-mono">Authentic</div>
               </div>
               <div>
-                <div className="text-base sm:text-lg font-mono font-bold text-cyan-400">Official</div>
-                <div className="text-[11px] text-slate-400 uppercase font-mono">Warranty</div>
+                <div className="text-base sm:text-lg font-mono font-bold text-cyan-700">Official</div>
+                <div className="text-[11px] text-slate-500 uppercase font-mono">Warranty</div>
               </div>
               <div>
-                <div className="text-base sm:text-lg font-mono font-bold text-cyan-400">24-48h</div>
-                <div className="text-[11px] text-slate-400 uppercase font-mono">Fast Delivery</div>
+                <div className="text-base sm:text-lg font-mono font-bold text-cyan-700">24-48h</div>
+                <div className="text-[11px] text-slate-500 uppercase font-mono">Fast Delivery</div>
               </div>
             </div>
           </div>
