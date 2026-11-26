@@ -1,4 +1,4 @@
-import { apiRequest } from './api';
+import { authorizedRequest } from './api';
 
 export interface SalesSnapshot {
   orders_qty: number;
@@ -53,11 +53,11 @@ export async function fetchSalesReport(params: {
     qs.set('date_from', params.date_from);
     qs.set('date_to', params.date_to);
   }
-  return apiRequest<SalesReportResponse>(`/reports/sales?${qs.toString()}`);
+  return authorizedRequest<SalesReportResponse>(`/reports/sales?${qs.toString()}`);
 }
 
 export async function updateUsdExchangeRate(usdRate: number): Promise<{ usd_rate: number }> {
-  return apiRequest<{ usd_rate: number }>('/reports/settings/usd-rate', {
+  return authorizedRequest<{ usd_rate: number }>('/reports/settings/usd-rate', {
     method: 'POST',
     body: JSON.stringify({ usd_rate: usdRate }),
   });

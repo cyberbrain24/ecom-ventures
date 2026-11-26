@@ -399,11 +399,11 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({ currentStore
             <MetricTile label="Total Products" value={String(liveSnapshot.product_qty)} />
             <MetricTile
               label="Total Orders Amount"
-              value={formatMoney(liveSnapshot.total_amount, currency)}
+              value={formatMoney(currency, liveSnapshot.total_amount)}
             />
             <MetricTile
               label="Average Order Value"
-              value={formatMoney(liveSnapshot.aov, currency)}
+              value={formatMoney(currency, liveSnapshot.aov)}
             />
           </div>
         </div>
@@ -518,20 +518,20 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({ currentStore
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <MetricTile
               label="Total Order Amounts"
-              value={formatMoney(liveSnapshot.total_amount, currency)}
+              value={formatMoney(currency, liveSnapshot.total_amount)}
             />
             <MetricTile
               label="Total Product Costing"
-              value={formatMoney(liveSnapshot.product_costing, currency)}
+              value={formatMoney(currency, liveSnapshot.product_costing)}
             />
             <MetricTile
               label="Meta Ads Costing"
-              value={formatMoney(liveSnapshot.meta_ads_costing, currency)}
+              value={formatMoney(currency, liveSnapshot.meta_ads_costing)}
               subtext={`($${liveSnapshot.meta_ads_usd.toFixed(2)} USD)`}
             />
             <MetricTile
               label="Total Profit"
-              value={`${isProfitPositive ? '+' : '-'}${formatMoney(Math.abs(liveSnapshot.total_profit), currency)}`}
+              value={`${isProfitPositive ? '+' : '-'}${formatMoney(currency, Math.abs(liveSnapshot.total_profit))}`}
               highlight={isProfitPositive ? 'positive' : 'negative'}
               icon={isProfitPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
             />
@@ -603,7 +603,7 @@ export const SalesReportsView: React.FC<SalesReportsViewProps> = ({ currentStore
                 <BreakdownRow label="Orders:" value={String(st.orders)} />
                 <BreakdownRow label="Products:" value={String(st.products)} />
                 <BreakdownRow label="Percentage Rate:" value={`${livePct}%`} />
-                <BreakdownRow label="Value:" value={formatMoney(st.value, currency)} bold />
+                <BreakdownRow label="Value:" value={formatMoney(currency, st.value)} bold />
               </label>
             );
           })}
