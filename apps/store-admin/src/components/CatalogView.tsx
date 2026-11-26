@@ -1282,6 +1282,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ currentStore }) => {
           product={productModal.product}
           categories={flatCategories}
           brands={data?.brands || []}
+          attributes={data?.attributes || []}
           careInstructions={data?.careInstructions || []}
           sizeGuides={data?.sizeGuides || []}
           currency={currentStore.currency}
@@ -1290,7 +1291,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ currentStore }) => {
             if (productModal.mode === 'create') {
               const created = await createProduct(input);
               setData((d) => (d ? { ...d, products: [created, ...d.products] } : d));
-            } else if (productModal.mode === 'edit' && productModal.product) {
+              return created;
+            }
+            if (productModal.mode === 'edit' && productModal.product) {
               const updated = await updateProduct(productModal.product.id, input);
               setData((d) =>
                 d
@@ -1301,7 +1304,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ currentStore }) => {
                     }
                   : d
               );
+              return updated;
             }
+            throw new Error('No product selected.');
           }}
         />
       )}

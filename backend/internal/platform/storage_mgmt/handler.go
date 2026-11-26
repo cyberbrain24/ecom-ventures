@@ -190,3 +190,26 @@ func (h *Handler) UploadStoreMedia(w http.ResponseWriter, r *http.Request) {
 
 	response.JSON(w, http.StatusCreated, res)
 }
+
+// DeleteStoreMedia handles DELETE /api/v1/store/{store_slug}/media?key=... for cleaning up unsaved/removed store uploads.
+func (h *Handler) DeleteStoreMedia(w http.ResponseWriter, r *http.Request) {
+	sc, err := storeCtx.GetStoreContext(r.Context())
+	if err != nil {
+		response.Problem(w, r, http.StatusBadRequest, "MISSING_STORE_CONTEXT", "Tenant store context missing", err.Error())
+		return
+	}
+
+	key := strings.TrimSpace(r.URL.Query().Get("key"))
+	expectedPrefix := fmt.Sprintf("stores/%s/", sc.Store.Slug)
+	if key == "" || !strings.HasPrefix(key, expectedPrefix) || strings.Contains(key, "..") {
+		response.Problem(w, r, http.StatusBadRequest, "INVALID_MEDIA_KEY", "A valid store-scoped media key is required", "")
+		return
+	}
+
+	if err := h.service.GetDynamicProvider().Delete(r.Context(), key); err != nil {
+		response.Problem(w, r, http.StatusBadRequest, "DELETE_FAILED", "Failed to delete store media", err.Error())
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]string{"deleted_key": key})
+}

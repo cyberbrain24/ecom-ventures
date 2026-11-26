@@ -176,6 +176,16 @@ export async function uploadStoreMedia(
 }
 
 /**
+ * Deletes an uploaded store media file by storage key (e.g., when cancelling an unsaved product).
+ */
+export async function deleteStoreMedia(key: string): Promise<void> {
+  if (!key) return;
+  await authorizedRequest<{ deleted_key: string }>(`/media?key=${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  });
+}
+
+/**
  * Fetches the current staff member and store for the stored session.
  * Throws ApiError: 401 invalid or expired token, 404 or 410 store no longer available.
  */

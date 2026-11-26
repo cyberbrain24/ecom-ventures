@@ -279,6 +279,48 @@ export async function fetchProducts(featuredOnly: boolean): Promise<CatalogProdu
   }
 }
 
+export interface ProductVariantSummary {
+  id: string;
+  sku: string;
+  title: string;
+  price: number;
+  isActive: boolean;
+}
+
+export async function fetchProductVariants(productId: string): Promise<ProductVariantSummary[]> {
+  try {
+    const raw = await authorizedRequest<Array<Record<string, unknown>>>(`/catalog/products/${encodeURIComponent(productId)}/variants`, {
+      method: 'GET',
+    });
+    if (!Array.isArray(raw)) return [];
+    return raw.map((v) => ({
+      id: String(v.id ?? ''),
+      sku: String(v.sku ?? ''),
+      title: String(v.title ?? ''),
+      price: typeof v.price === 'number' ? v.price : Number(v.price ?? 0),
+      isActive: Boolean(v.is_active ?? true),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function generateProductVariants(
+  productId: string,
+  attributes: Array<{ attribute_id: string; value_ids: string[] }>,
+  basePrice?: number,
+  skuPrefix?: string,
+): Promise<void> {
+  await authorizedRequest<unknown>(`/catalog/products/${encodeURIComponent(productId)}/variants/generate`, {
+    method: 'POST',
+    body: JSON.stringify({
+      attributes,
+      base_price: basePrice,
+      sku_prefix: skuPrefix || undefined,
+    }),
+  });
+}
+
 /** Creates a product. */
 export async function createProduct(input: ProductInput): Promise<CatalogProduct> {
   const data = await authorizedRequest<unknown>('/catalog/products', {

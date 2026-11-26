@@ -912,6 +912,7 @@ func buildRouter(
 				// Tenant Media Upload Endpoint (Partitioned into stores/{store_slug}/{module})
 				if storageHandler != nil {
 					r.Post("/media/upload", storageHandler.UploadStoreMedia)
+					r.Delete("/media", storageHandler.DeleteStoreMedia)
 				}
 			})
 		})
@@ -1345,6 +1346,7 @@ Sitemap: %s/sitemap.xml
 			// Public Storefront Media Upload (e.g. customer review photos)
 			if storageHandler != nil {
 				r.Post("/media/upload", storageHandler.UploadStoreMedia)
+				r.Delete("/media", storageHandler.DeleteStoreMedia)
 			}
 		})
 	})

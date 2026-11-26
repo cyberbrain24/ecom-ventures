@@ -1,6 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Upload, X, HelpCircle, Film, Sparkles, Check, Info, Search } from 'lucide-react';
-import { CatalogProduct, ProductInput } from '../lib/catalog-api';
+import {
+  CatalogAttribute,
+  CatalogProduct,
+  ProductInput,
+  ProductVariantSummary,
+  fetchProductVariants,
+  generateProductVariants,
+} from '../lib/catalog-api';
+import { deleteStoreMedia, uploadStoreMedia } from '../lib/api';
 import { AdvancedSeoEditor, SeoState } from './AdvancedSeoEditor';
 
 export interface CategoryOption {
@@ -29,11 +37,12 @@ interface ProductUploadModalProps {
   product: CatalogProduct | null;
   categories: CategoryOption[];
   brands: BrandOption[];
+  attributes?: CatalogAttribute[];
   careInstructions: CareInstructionOption[];
   sizeGuides?: SizeGuideOption[];
   currency: string;
   onClose: () => void;
-  onSubmit: (input: ProductInput) => Promise<void>;
+  onSubmit: (input: ProductInput) => Promise<CatalogProduct>;
 }
 
 type TabKey = 'basic' | 'media' | 'categorization' | 'pricing' | 'templates' | 'seo';
@@ -44,6 +53,7 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
   product,
   categories,
   brands,
+  attributes = [],
   careInstructions,
   sizeGuides = [],
   currency,
@@ -68,6 +78,9 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
   // Form Fields - Tab 2: Media Gallery
   const [featuredImageUrl, setFeaturedImageUrl] = useState(product?.imageUrl || '');
   const [galleryFilenames, setGalleryFilenames] = useState('');
+  const [pendingUploads, setPendingUploads] = useState<Array<{ url: string; key: string }>>([]);
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState(product?.videoUrl || '');
   const [videoAutoplay, setVideoAutoplay] = useState(product?.videoAutoplay || false);
   const [videoMuted, setVideoMuted] = useState(product?.videoMuted ?? true);
@@ -93,9 +106,136 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
   const [compareAtPrice, setCompareAtPrice] = useState<string>(product?.compareAtPrice ? String(product.compareAtPrice) : '');
   const [stockQuantity, setStockQuantity] = useState<string>('50');
   const [lowStockAlert, setLowStockAlert] = useState<string>('5');
-  const [selectedSizes, setSelectedSizes] = useState<string[]>(['S', 'M', 'L', 'XL']);
-  const [selectedColors, setSelectedColors] = useState<string[]>(['Black', 'Washed Grey']);
-  const [selectedGsm, setSelectedGsm] = useState<string>('240 GSM');
+  const [selectedAttrValues, setSelectedAttrValues] = useState<Record<string, string[]>>({});
+  const [existingVariants, setExistingVariants] = useState<ProductVariantSummary[]>([]);
+
+  useEffect(() => {
+    if (isOpen && mode === 'edit' && product?.id) {
+      void fetchProductVariants(product.id).then(setExistingVariants);
+    } else {
+      setExistingVariants([]);
+    }
+  }, [isOpen, mode, product?.id]);
+
+  const plannedCombinations = useMemo(() => {
+    const activeAttrs = attributes
+      .map((attr) => {
+        const chosenIds = selectedAttrValues[attr.id] || [];
+        const chosenVals = attr.values.filter((v) => chosenIds.includes(v.id));
+        return { attr, values: chosenVals };
+      })
+      .filter((entry) => entry.values.length > 0);
+
+    if (activeAttrs.length === 0) return [] as Array<{ label: string; skuSuffix: string }>;
+
+    let combos: Array<{ label: string; skuSuffix: string }> = [{ label: '', skuSuffix: '' }];
+    for (const { attr, values } of activeAttrs) {
+      const next: Array<{ label: string; skuSuffix: string }> = [];
+      for (const c of combos) {
+        for (const v of values) {
+          const valLabel = v.displayValue || v.value;
+          const part = `${attr.name}: ${valLabel}`;
+          const codePart = valLabel.toUpperCase().replace(/[^A-Z0-9]+/g, '');
+          next.push({
+            label: c.label ? `${c.label} / ${part}` : part,
+            skuSuffix: c.skuSuffix ? `${c.skuSuffix}-${codePart}` : codePart,
+          });
+        }
+      }
+      combos = next;
+    }
+    return combos;
+  }, [attributes, selectedAttrValues]);
+
+  const toggleAttrValue = (attrId: string, valueId: string) => {
+    setSelectedAttrValues((prev) => {
+      const current = prev[attrId] || [];
+      const exists = current.includes(valueId);
+      const updated = exists ? current.filter((id) => id !== valueId) : [...current, valueId];
+      return { ...prev, [attrId]: updated };
+    });
+  };
+
+  const galleryList = useMemo(
+    () =>
+      galleryFilenames
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [galleryFilenames],
+  );
+
+  const handleMultiPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    setIsUploadingPhotos(true);
+    setPhotoUploadError(null);
+    try {
+      const uploadedItems: Array<{ url: string; key: string }> = [];
+      for (const file of files) {
+        const res = await uploadStoreMedia(file, 'products');
+        uploadedItems.push({ url: res.url, key: res.key || '' });
+      }
+      setPendingUploads((prev) => [...prev, ...uploadedItems]);
+
+      let nextFeatured = featuredImageUrl.trim();
+      const extraUrls: string[] = [];
+      for (const item of uploadedItems) {
+        if (!nextFeatured) {
+          nextFeatured = item.url;
+        } else if (item.url !== nextFeatured) {
+          extraUrls.push(item.url);
+        }
+      }
+      if (nextFeatured !== featuredImageUrl.trim()) {
+        setFeaturedImageUrl(nextFeatured);
+      }
+      if (extraUrls.length > 0) {
+        setGalleryFilenames((prev) => {
+          const existing = prev
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          const merged = Array.from(new Set([...existing, ...extraUrls]));
+          return merged.join(', ');
+        });
+      }
+    } catch (err) {
+      setPhotoUploadError(err instanceof Error ? err.message : 'Failed to upload product photos.');
+    } finally {
+      setIsUploadingPhotos(false);
+    }
+  };
+
+  const handleRemoveImage = async (urlToRemove: string) => {
+    if (featuredImageUrl.trim() === urlToRemove) {
+      const remainingGallery = galleryList.filter((u) => u !== urlToRemove);
+      setFeaturedImageUrl(remainingGallery[0] || '');
+      setGalleryFilenames(remainingGallery.slice(1).join(', '));
+    } else {
+      setGalleryFilenames(galleryList.filter((u) => u !== urlToRemove).join(', '));
+    }
+
+    const pending = pendingUploads.find((p) => p.url === urlToRemove);
+    if (pending) {
+      setPendingUploads((prev) => prev.filter((p) => p.url !== urlToRemove));
+      if (pending.key) {
+        try {
+          await deleteStoreMedia(pending.key);
+        } catch {
+          // Ignore cleanup errors on already-deleted keys
+        }
+      }
+    }
+  };
+
+  const handleCancelAndCleanup = async () => {
+    const toDelete = pendingUploads.filter((p) => p.key);
+    setPendingUploads([]);
+    await Promise.allSettled(toDelete.map((p) => deleteStoreMedia(p.key)));
+    onClose();
+  };
 
   // Form Fields - Tab 5: Content Templates
   const [sizeGuideTemplate, setSizeGuideTemplate] = useState(product?.sizeGuideTemplate || '');
@@ -149,7 +289,16 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
         ogImageUrl: seo.ogImageUrl.trim(),
       };
 
-      await onSubmit(payload);
+      const savedProduct = await onSubmit(payload);
+      if (optionLayout === 'variants' && savedProduct?.id) {
+        const selectors = Object.entries(selectedAttrValues)
+          .filter(([, valueIds]) => valueIds.length > 0)
+          .map(([attributeId, valueIds]) => ({ attribute_id: attributeId, value_ids: valueIds }));
+        if (selectors.length > 0) {
+          await generateProductVariants(savedProduct.id, selectors, priceNum, sku.trim() || undefined);
+        }
+      }
+      setPendingUploads([]);
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Failed to save product drop entry.');
@@ -405,54 +554,150 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 <div className="form-group">
                   <label className="form-label" style={{ fontWeight: 700 }}>
-                    Featured Primary Image URL
+                    Product Photos (Upload Multiple or Paste Primary URL)
                   </label>
                   <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                    <div
+                    <label
                       style={{
-                        width: '64px',
+                        minWidth: '110px',
                         height: '64px',
+                        padding: '0 12px',
                         borderRadius: 'var(--radius-md)',
-                        border: '1px dashed #94a3b8',
+                        border: '1.5px dashed #0d9488',
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '2px',
-                        color: 'var(--text-muted)',
-                        backgroundColor: '#f8fafc',
+                        gap: '3px',
+                        color: '#0f766e',
+                        backgroundColor: '#f0fdfa',
                         flexShrink: 0,
+                        cursor: isUploadingPhotos ? 'not-allowed' : 'pointer',
+                        opacity: isUploadingPhotos ? 0.6 : 1,
                       }}
+                      title="Select one or multiple photos from your computer"
                     >
                       <Upload size={16} />
-                      <span style={{ fontSize: '0.68rem', fontWeight: 700 }}>Upload</span>
-                    </div>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        {isUploadingPhotos ? 'Uploading...' : 'Upload Photos'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        disabled={isUploadingPhotos}
+                        onChange={handleMultiPhotoUpload}
+                        style={{ display: 'none' }}
+                      />
+                    </label>
                     <input
                       type="text"
-                      placeholder="e.g. https://cdn.yourdomain.com/products/acid-wash-hoodie.webp"
+                      placeholder="e.g. https://cdn.yourdomain.com/products/product.webp"
                       value={featuredImageUrl}
                       onChange={(e) => setFeaturedImageUrl(e.target.value)}
                       className="form-input"
                       style={{ flex: 1 }}
                     />
                   </div>
+                  <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                    You can select multiple photos at once. Uploaded photos are saved only when you click OK; clicking Cancel deletes unsaved uploads automatically.
+                  </span>
+                  {photoUploadError && (
+                    <p style={{ color: '#e11d48', fontSize: '0.78rem', marginTop: '6px' }}>{photoUploadError}</p>
+                  )}
                 </div>
+
+                {(featuredImageUrl.trim() || galleryList.length > 0) && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                    {Array.from(new Set([featuredImageUrl.trim(), ...galleryList].filter(Boolean))).map((imgUrl) => {
+                      const isPrimary = imgUrl === featuredImageUrl.trim();
+                      return (
+                        <div
+                          key={imgUrl}
+                          style={{
+                            width: '104px',
+                            border: isPrimary ? '2px solid #0d9488' : '1px solid var(--border)',
+                            borderRadius: '8px',
+                            overflow: 'hidden',
+                            background: '#fff',
+                            display: 'flex',
+                            flexDirection: 'column',
+                          }}
+                        >
+                          <div style={{ position: 'relative', width: '100%', height: '80px', background: '#f8fafc' }}>
+                            <img
+                              src={imgUrl}
+                              alt="Product"
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void handleRemoveImage(imgUrl)}
+                              title="Remove photo"
+                              style={{
+                                position: 'absolute',
+                                top: '4px',
+                                right: '4px',
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '9999px',
+                                background: 'rgba(15, 23, 42, 0.75)',
+                                color: '#fff',
+                                border: 'none',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                          <div style={{ padding: '4px 6px', textAlign: 'center', fontSize: '0.68rem', fontWeight: 700 }}>
+                            {isPrimary ? (
+                              <span style={{ color: '#0f766e' }}>Primary</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const prevPrimary = featuredImageUrl.trim();
+                                  const nextGallery = galleryList.filter((u) => u !== imgUrl);
+                                  if (prevPrimary) nextGallery.unshift(prevPrimary);
+                                  setFeaturedImageUrl(imgUrl);
+                                  setGalleryFilenames(Array.from(new Set(nextGallery)).join(', '));
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#475569',
+                                  cursor: 'pointer',
+                                  textDecoration: 'underline',
+                                  fontSize: '0.68rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Set Primary
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 <div className="form-group">
                   <label className="form-label" style={{ fontWeight: 700 }}>
-                    Associated Media Library Image Filenames
+                    Additional Gallery Image URLs / Filenames
                   </label>
                   <textarea
-                    rows={3}
-                    placeholder="e.g. 1781024294094.webp, 17810242940s94.webp"
+                    rows={2}
+                    placeholder="Comma-separated image URLs or filenames"
                     value={galleryFilenames}
                     onChange={(e) => setGalleryFilenames(e.target.value)}
                     className="form-input"
                     style={{ resize: 'vertical', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}
                   />
-                  <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                    Type or paste filenames of images already uploaded in the central Media Library (separated by commas). This will automatically link them to the product gallery.
-                  </span>
                 </div>
 
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
@@ -677,26 +922,121 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
                 </div>
 
                 {optionLayout === 'variants' && (
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '12px', background: '#f8fafc' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '14px', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                       <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                        Variant Combinations Matrix (Permutations Generator)
+                        Variant Combinations Matrix (Store Attributes)
                       </span>
                       <span className="badge badge-active" style={{ fontSize: '0.7rem' }}>
-                        {selectedSizes.length * selectedColors.length} SKUs Planned
+                        {plannedCombinations.length > 0
+                          ? `${plannedCombinations.length} SKUs Planned`
+                          : existingVariants.length > 0
+                            ? `${existingVariants.length} Saved Variants`
+                            : 'Select attribute values below'}
                       </span>
                     </div>
-                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', fontSize: '0.78rem' }}>
-                      <div style={{ background: '#fff', border: '1px solid var(--border)', padding: '6px 10px', borderRadius: 'var(--radius-sm)' }}>
-                        <strong>Sizes:</strong> {selectedSizes.join(', ')}
+
+                    {attributes.length === 0 ? (
+                      <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        No attributes defined yet. Create attributes (e.g., Ring Size, Color) in the Attributes tab first.
+                      </p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {attributes.map((attr) => {
+                          const chosen = selectedAttrValues[attr.id] || [];
+                          return (
+                            <div key={attr.id} style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px' }}>
+                              <div style={{ fontSize: '0.76rem', fontWeight: 700, marginBottom: '6px', color: 'var(--text-main)' }}>
+                                {attr.name} <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>({attr.code})</span>
+                              </div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {attr.values.map((val) => {
+                                  const active = chosen.includes(val.id);
+                                  return (
+                                    <button
+                                      key={val.id}
+                                      type="button"
+                                      onClick={() => toggleAttrValue(attr.id, val.id)}
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        padding: '4px 10px',
+                                        borderRadius: '9999px',
+                                        fontSize: '0.74rem',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        border: active ? '1.5px solid #0d9488' : '1px solid #cbd5e1',
+                                        background: active ? '#f0fdfa' : '#fff',
+                                        color: active ? '#0f766e' : '#334155',
+                                      }}
+                                    >
+                                      {val.colorHex && (
+                                        <span style={{ width: '10px', height: '10px', borderRadius: '9999px', backgroundColor: val.colorHex, border: '1px solid rgba(0,0,0,0.15)' }} />
+                                      )}
+                                      <span>{val.displayValue || val.value}</span>
+                                    </button>
+                                  );
+                                })}
+                                {attr.values.length === 0 && (
+                                  <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>No values configured for this attribute.</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <div style={{ background: '#fff', border: '1px solid var(--border)', padding: '6px 10px', borderRadius: 'var(--radius-sm)' }}>
-                        <strong>Colors:</strong> {selectedColors.join(', ')}
+                    )}
+
+                    {plannedCombinations.length > 0 && (
+                      <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 10px', maxHeight: '150px', overflowY: 'auto' }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                          Generated Combinations Preview (saved when you click OK):
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          {plannedCombinations.map((combo) => (
+                            <span
+                              key={combo.label}
+                              style={{
+                                fontSize: '0.72rem',
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                background: '#f1f5f9',
+                                border: '1px solid #e2e8f0',
+                                color: '#0f172a',
+                              }}
+                            >
+                              {combo.label}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                      <div style={{ background: '#fff', border: '1px solid var(--border)', padding: '6px 10px', borderRadius: 'var(--radius-sm)' }}>
-                        <strong>Fabric Weight:</strong> {selectedGsm}
+                    )}
+
+                    {plannedCombinations.length === 0 && existingVariants.length > 0 && (
+                      <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 10px', maxHeight: '140px', overflowY: 'auto' }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                          Current Saved Variants:
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          {existingVariants.map((v) => (
+                            <span
+                              key={v.id}
+                              style={{
+                                fontSize: '0.72rem',
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                background: '#ecfdf5',
+                                border: '1px solid #a7f3d0',
+                                color: '#065f46',
+                              }}
+                            >
+                              {v.title} ({v.sku})
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 )}
 
@@ -727,13 +1067,12 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
                         {sg.name}
                       </option>
                     ))}
-                    <optgroup label="Standard Templates">
-                      <option value="apparel-standard-unisex">Apparel Standard Unisex Chart (S, M, L, XL, XXL)</option>
-                      <option value="oversized-streetwear-tee">Oversized Streetwear Tee Spec Sheet</option>
-                      <option value="pants-denim-measurements">Pants & Denim Waist/Inseam Chart</option>
-                      <option value="jewelry-ring-sizer">Jewelry Ring Circumference Sizer</option>
-                    </optgroup>
                   </select>
+                  {sizeGuides.length === 0 && (
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                      No size guide templates uploaded yet. Create one in the Size Guides tab.
+                    </span>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -791,7 +1130,7 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
           >
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => void handleCancelAndCleanup()}
               className="btn btn-secondary btn-sm"
               style={{ padding: '7px 18px', fontWeight: 600 }}
             >
