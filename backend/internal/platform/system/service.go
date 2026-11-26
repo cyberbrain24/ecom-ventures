@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"ecom-ventures/backend/internal/platform/models"
-	"ecom-ventures/backend/internal/worker"
 	storeDB "ecom-ventures/backend/internal/store/database"
+	"ecom-ventures/backend/internal/worker"
 	"ecom-ventures/backend/pkg/hasher"
 
 	"github.com/redis/go-redis/v9"
