@@ -5,7 +5,7 @@ import { StorefrontApiError, fetchStorefrontData } from './api';
 /** Fetches the categories that are active in the database for the resolved store. */
 export async function getStorefrontCategories(host: string): Promise<PublicCategory[]> {
   const categories = await fetchStorefrontData<PublicCategory[]>(host, '/storefront/catalog/categories', {
-    next: { revalidate: 300, tags: [`storefront-categories-${host}`] },
+    cache: 'no-store',
   });
   if (!Array.isArray(categories)) {
     throw new StorefrontApiError('The store API returned an invalid category list.', 502);
@@ -44,7 +44,7 @@ export async function getStorefrontProducts(
   const result = await fetchStorefrontData<CatalogSearchResponse>(
     host,
     `/storefront/catalog/products?${query.toString()}`,
-    { next: { revalidate: 60, tags: [`storefront-products-${host}`] } }
+    { cache: 'no-store' }
   );
   if (!result || !Array.isArray(result.products)) {
     throw new StorefrontApiError('The store API returned an invalid product list.', 502);
@@ -58,7 +58,7 @@ export async function getStorefrontProductBySlug(host: string, slug: string): Pr
     const product = await fetchStorefrontData<PublicProductDetail>(
       host,
       `/storefront/catalog/products/${encodeURIComponent(slug)}`,
-      { next: { revalidate: 60, tags: [`product-${slug}-${host}`] } }
+      { cache: 'no-store' }
     );
     if (!product || !product.title) {
       throw new StorefrontApiError('The store API returned an invalid product.', 502);

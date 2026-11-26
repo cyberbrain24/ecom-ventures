@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Upload, X, HelpCircle, Film, Sparkles, Check, Info, Search } from 'lucide-react';
+import { Upload, X, HelpCircle, Film, Sparkles, Check, Info, Search, GripVertical } from 'lucide-react';
 import {
   CatalogAttribute,
   CatalogProduct,
@@ -81,6 +81,8 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
   const [pendingUploads, setPendingUploads] = useState<Array<{ url: string; key: string }>>([]);
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+  const [draggedImageIndex, setDraggedImageIndex] = useState<number | null>(null);
+  const [dragOverImageIndex, setDragOverImageIndex] = useState<number | null>(null);
   const [videoUrl, setVideoUrl] = useState(product?.videoUrl || '');
   const [videoAutoplay, setVideoAutoplay] = useState(product?.videoAutoplay || false);
   const [videoMuted, setVideoMuted] = useState(product?.videoMuted ?? true);
@@ -607,84 +609,153 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
                   )}
                 </div>
 
-                {(featuredImageUrl.trim() || galleryList.length > 0) && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                    {Array.from(new Set([featuredImageUrl.trim(), ...galleryList].filter(Boolean))).map((imgUrl) => {
-                      const isPrimary = imgUrl === featuredImageUrl.trim();
-                      return (
-                        <div
-                          key={imgUrl}
-                          style={{
-                            width: '104px',
-                            border: isPrimary ? '2px solid #0d9488' : '1px solid var(--border)',
-                            borderRadius: '8px',
-                            overflow: 'hidden',
-                            background: '#fff',
-                            display: 'flex',
-                            flexDirection: 'column',
-                          }}
-                        >
-                          <div style={{ position: 'relative', width: '100%', height: '80px', background: '#f8fafc' }}>
-                            <img
-                              src={imgUrl}
-                              alt="Product"
-                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => void handleRemoveImage(imgUrl)}
-                              title="Remove photo"
+                {(featuredImageUrl.trim() || galleryList.length > 0) && (() => {
+                  const orderedImages = Array.from(new Set([featuredImageUrl.trim(), ...galleryList].filter(Boolean)));
+                  const handleDropReorder = (targetIdx: number) => {
+                    if (draggedImageIndex === null || draggedImageIndex === targetIdx) {
+                      setDraggedImageIndex(null);
+                      setDragOverImageIndex(null);
+                      return;
+                    }
+                    const next = [...orderedImages];
+                    const [moved] = next.splice(draggedImageIndex, 1);
+                    next.splice(targetIdx, 0, moved);
+                    setFeaturedImageUrl(next[0] || '');
+                    setGalleryFilenames(next.slice(1).join(', '));
+                    setDraggedImageIndex(null);
+                    setDragOverImageIndex(null);
+                  };
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                        Drag &amp; drop photos with your mouse to reorder (1st image is Primary):
+                      </span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                        {orderedImages.map((imgUrl, idx) => {
+                          const isPrimary = idx === 0;
+                          const isDragTarget = dragOverImageIndex === idx && draggedImageIndex !== idx;
+                          return (
+                            <div
+                              key={imgUrl}
+                              draggable
+                              onDragStart={(e) => {
+                                setDraggedImageIndex(idx);
+                                e.dataTransfer.effectAllowed = 'move';
+                              }}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
+                                if (dragOverImageIndex !== idx) setDragOverImageIndex(idx);
+                              }}
+                              onDragLeave={() => {
+                                if (dragOverImageIndex === idx) setDragOverImageIndex(null);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                handleDropReorder(idx);
+                              }}
+                              onDragEnd={() => {
+                                setDraggedImageIndex(null);
+                                setDragOverImageIndex(null);
+                              }}
                               style={{
-                                position: 'absolute',
-                                top: '4px',
-                                right: '4px',
-                                width: '20px',
-                                height: '20px',
-                                borderRadius: '9999px',
-                                background: 'rgba(15, 23, 42, 0.75)',
-                                color: '#fff',
-                                border: 'none',
+                                width: '108px',
+                                border: isDragTarget
+                                  ? '2px dashed #0284c7'
+                                  : isPrimary
+                                    ? '2px solid #0d9488'
+                                    : '1px solid var(--border)',
+                                borderRadius: '8px',
+                                overflow: 'hidden',
+                                background: '#fff',
                                 display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
+                                flexDirection: 'column',
+                                cursor: 'grab',
+                                opacity: draggedImageIndex === idx ? 0.5 : 1,
+                                transition: 'transform 0.15s ease, border-color 0.15s ease',
                               }}
                             >
-                              <X size={12} />
-                            </button>
-                          </div>
-                          <div style={{ padding: '4px 6px', textAlign: 'center', fontSize: '0.68rem', fontWeight: 700 }}>
-                            {isPrimary ? (
-                              <span style={{ color: '#0f766e' }}>Primary</span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const prevPrimary = featuredImageUrl.trim();
-                                  const nextGallery = galleryList.filter((u) => u !== imgUrl);
-                                  if (prevPrimary) nextGallery.unshift(prevPrimary);
-                                  setFeaturedImageUrl(imgUrl);
-                                  setGalleryFilenames(Array.from(new Set(nextGallery)).join(', '));
-                                }}
-                                style={{
-                                  background: 'none',
-                                  border: 'none',
-                                  color: '#475569',
-                                  cursor: 'pointer',
-                                  textDecoration: 'underline',
-                                  fontSize: '0.68rem',
-                                  fontWeight: 600,
-                                }}
-                              >
-                                Set Primary
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                              <div style={{ position: 'relative', width: '100%', height: '82px', background: '#f8fafc' }}>
+                                <img
+                                  src={imgUrl}
+                                  alt={`Product ${idx + 1}`}
+                                  draggable={false}
+                                  style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                                />
+                                <span
+                                  style={{
+                                    position: 'absolute',
+                                    top: '4px',
+                                    left: '4px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '2px',
+                                    padding: '2px 5px',
+                                    borderRadius: '4px',
+                                    background: 'rgba(15, 23, 42, 0.75)',
+                                    color: '#fff',
+                                    fontSize: '0.65rem',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  <GripVertical size={10} />#{idx + 1}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRemoveImage(imgUrl)}
+                                  title="Remove photo"
+                                  style={{
+                                    position: 'absolute',
+                                    top: '4px',
+                                    right: '4px',
+                                    width: '20px',
+                                    height: '20px',
+                                    borderRadius: '9999px',
+                                    background: 'rgba(15, 23, 42, 0.75)',
+                                    color: '#fff',
+                                    border: 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                              <div style={{ padding: '4px 6px', textAlign: 'center', fontSize: '0.68rem', fontWeight: 700 }}>
+                                {isPrimary ? (
+                                  <span style={{ color: '#0f766e' }}>Primary</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextGallery = orderedImages.filter((u) => u !== imgUrl);
+                                      setFeaturedImageUrl(imgUrl);
+                                      setGalleryFilenames(nextGallery.join(', '));
+                                    }}
+                                    style={{
+                                      background: 'none',
+                                      border: 'none',
+                                      color: '#475569',
+                                      cursor: 'pointer',
+                                      textDecoration: 'underline',
+                                      fontSize: '0.68rem',
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    Set Primary
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="form-group">
                   <label className="form-label" style={{ fontWeight: 700 }}>
