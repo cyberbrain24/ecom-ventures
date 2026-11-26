@@ -138,7 +138,7 @@ export async function authorizedRequest<T>(path: string, init: RequestInit = {})
   const headers = new Headers(init.headers);
   headers.set('Authorization', `Bearer ${session.accessToken}`);
   headers.set('Accept', 'application/json');
-  if (init.body !== undefined && init.body !== null && !headers.has('Content-Type')) {
+  if (init.body !== undefined && init.body !== null && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -147,6 +147,32 @@ export async function authorizedRequest<T>(path: string, init: RequestInit = {})
     clearSession('expired');
   }
   return parseEnvelope<T>(response);
+}
+
+export interface UploadedMediaResult {
+  url: string;
+  key?: string;
+  size?: number;
+}
+
+/**
+ * Uploads an image/media file for the active store to Cloudflare R2 (or configured storage).
+ */
+export async function uploadStoreMedia(
+  file: File,
+  module: 'categories' | 'products' | 'brand' | 'reviews' | 'blog' | 'general' = 'general',
+  subPath = '',
+): Promise<UploadedMediaResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('module', module);
+  if (subPath) {
+    formData.append('sub_path', subPath);
+  }
+  return authorizedRequest<UploadedMediaResult>('/media/upload', {
+    method: 'POST',
+    body: formData,
+  });
 }
 
 /**

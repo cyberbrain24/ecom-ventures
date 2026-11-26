@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ImageOff, Pencil, Plus, Star, Trash2, LayoutGrid, List, Copy, Eye, AlertTriangle } from 'lucide-react';
+import { ImageOff, Pencil, Plus, Star, Trash2, LayoutGrid, List, Copy, Eye, AlertTriangle, Upload, X } from 'lucide-react';
 import { StoreBrand } from '../types/store';
+import { uploadStoreMedia } from '../lib/api';
 import {
   AttributeInput,
   BrandInput,
@@ -154,6 +155,24 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ currentStore }) => {
     metaRobots: 'index, follow',
     ogImageUrl: '',
   });
+  const [isUploadingCategoryImage, setIsUploadingCategoryImage] = useState(false);
+  const [categoryImageUploadError, setCategoryImageUploadError] = useState<string | null>(null);
+
+  const handleCategoryImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setIsUploadingCategoryImage(true);
+    setCategoryImageUploadError(null);
+    try {
+      const uploaded = await uploadStoreMedia(file, 'categories');
+      setCategoryForm((prev) => ({ ...prev, imageUrl: uploaded.url }));
+    } catch (err) {
+      setCategoryImageUploadError(err instanceof Error ? err.message : 'Failed to upload category image.');
+    } finally {
+      setIsUploadingCategoryImage(false);
+    }
+  };
 
   const [attributeForm, setAttributeForm] = useState<{ name: string; code: string; displayType: string; valuesStr: string }>({
     name: '',
@@ -1480,13 +1499,64 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ currentStore }) => {
               </div>
 
               <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                <label className="form-label">Banner / Image URL</label>
-                <input
-                  className="form-input"
-                  value={categoryForm.imageUrl || ''}
-                  onChange={(e) => setCategoryForm({ ...categoryForm, imageUrl: e.target.value })}
-                  placeholder="https://images.unsplash.com/..."
-                />
+                <label className="form-label">Banner / Image (Upload or URL)</label>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    className="form-input"
+                    style={{ flex: 1 }}
+                    value={categoryForm.imageUrl || ''}
+                    onChange={(e) => setCategoryForm({ ...categoryForm, imageUrl: e.target.value })}
+                    placeholder="https://images.unsplash.com/... or upload an image"
+                  />
+                  <label
+                    className="btn btn-secondary"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      cursor: isUploadingCategoryImage ? 'not-allowed' : 'pointer',
+                      whiteSpace: 'nowrap',
+                      opacity: isUploadingCategoryImage ? 0.6 : 1,
+                    }}
+                  >
+                    <Upload size={14} />
+                    <span>{isUploadingCategoryImage ? 'Uploading...' : 'Upload Image'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={isUploadingCategoryImage}
+                      onChange={handleCategoryImageUpload}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                </div>
+                {categoryImageUploadError && (
+                  <p style={{ color: '#e11d48', fontSize: '0.78rem', marginTop: '6px' }}>{categoryImageUploadError}</p>
+                )}
+                {categoryForm.imageUrl && (
+                  <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <img
+                      src={categoryForm.imageUrl}
+                      alt="Category preview"
+                      style={{
+                        width: '64px',
+                        height: '64px',
+                        objectFit: 'cover',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setCategoryForm({ ...categoryForm, imageUrl: '' })}
+                      className="btn btn-secondary"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '4px 10px' }}
+                    >
+                      <X size={12} />
+                      <span>Remove</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="form-group" style={{ gridColumn: '1 / -1' }}>
