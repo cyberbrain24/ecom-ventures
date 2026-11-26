@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2, Upload, X } from 'lucide-react';
+import { uploadStoreMedia } from '../lib/api';
 import { BrandInput, CatalogBrand } from '../lib/catalog-api';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { RecordModal } from './RecordModal';
@@ -44,6 +45,24 @@ const BrandModal: React.FC<BrandModalProps> = ({ brand, onSave, onClose }) => {
         },
   );
   const set = <K extends keyof BrandInput>(key: K, value: BrandInput[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setIsUploadingLogo(true);
+    setLogoUploadError(null);
+    try {
+      const uploaded = await uploadStoreMedia(file, 'brand');
+      set('logoUrl', uploaded.url);
+    } catch (err) {
+      setLogoUploadError(err instanceof Error ? err.message : 'Failed to upload brand logo.');
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
 
   return (
     <RecordModal
@@ -73,8 +92,67 @@ const BrandModal: React.FC<BrandModalProps> = ({ brand, onSave, onClose }) => {
           <input id="brand-website" className="form-input" value={form.websiteUrl} placeholder="https://" onChange={(e) => set('websiteUrl', e.target.value)} />
         </div>
         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-          <label className="form-label" htmlFor="brand-logo">Logo address</label>
-          <input id="brand-logo" className="form-input" value={form.logoUrl} placeholder="https://" onChange={(e) => set('logoUrl', e.target.value)} />
+          <label className="form-label" htmlFor="brand-logo">Logo (Upload or URL)</label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              id="brand-logo"
+              className="form-input"
+              style={{ flex: 1 }}
+              value={form.logoUrl}
+              placeholder="https://... or upload a logo"
+              onChange={(e) => set('logoUrl', e.target.value)}
+            />
+            <label
+              className="btn btn-secondary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: isUploadingLogo ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap',
+                opacity: isUploadingLogo ? 0.6 : 1,
+              }}
+            >
+              <Upload size={14} />
+              <span>{isUploadingLogo ? 'Uploading...' : 'Upload Logo'}</span>
+              <input
+                type="file"
+                accept="image/*"
+                disabled={isUploadingLogo}
+                onChange={handleLogoUpload}
+                style={{ display: 'none' }}
+              />
+            </label>
+          </div>
+          {logoUploadError && (
+            <p style={{ color: '#e11d48', fontSize: '0.78rem', marginTop: '6px' }}>{logoUploadError}</p>
+          )}
+          {form.logoUrl && (
+            <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <img
+                src={form.logoUrl}
+                alt="Brand logo preview"
+                style={{
+                  width: '56px',
+                  height: '56px',
+                  objectFit: 'contain',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  background: '#ffffff',
+                  padding: '4px',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => set('logoUrl', '')}
+                className="btn btn-secondary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '4px 10px' }}
+              >
+                <X size={12} />
+                <span>Remove</span>
+              </button>
+            </div>
+          )}
         </div>
         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
           <label className="form-label" htmlFor="brand-description">Description</label>
