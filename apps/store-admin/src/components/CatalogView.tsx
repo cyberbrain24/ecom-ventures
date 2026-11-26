@@ -117,7 +117,6 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ currentStore }) => {
   const [categoryTab, setCategoryTab] = useState<'general' | 'seo'>('general');
 
   // Modals for Attributes
-  const [attributeModal, setAttributeModal] = useState<{ mode: 'create' | 'edit'; attribute: CatalogAttribute | null } | null>(null);
   const [deleteAttributeTarget, setDeleteAttributeTarget] = useState<CatalogAttribute | null>(null);
 
   // Forms State
@@ -173,13 +172,6 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ currentStore }) => {
       setIsUploadingCategoryImage(false);
     }
   };
-
-  const [attributeForm, setAttributeForm] = useState<{ name: string; code: string; displayType: string; valuesStr: string }>({
-    name: '',
-    code: '',
-    displayType: 'SELECT',
-    valuesStr: '',
-  });
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -565,52 +557,6 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ currentStore }) => {
     setData((d) => (d ? { ...d, categories } : d));
   };
 
-  // Attribute CRUD
-  const openCreateAttribute = () => {
-    setAttributeForm({
-      name: '',
-      code: '',
-      displayType: 'SELECT',
-      valuesStr: '',
-    });
-    setAttributeModal({ mode: 'create', attribute: null });
-  };
-
-  const openEditAttribute = (a: CatalogAttribute) => {
-    setAttributeForm({
-      name: a.name,
-      code: a.code,
-      displayType: a.displayType,
-      valuesStr: a.values.map((v) => v.displayValue || v.value).join(', '),
-    });
-    setAttributeModal({ mode: 'edit', attribute: a });
-  };
-
-  const handleSaveAttribute = async () => {
-    if (!attributeForm.name.trim()) throw new Error('Attribute name is required.');
-    if (attributeModal?.mode === 'create') {
-      const rawValues = attributeForm.valuesStr
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((val) => ({ value: val, displayValue: val }));
-
-      await createAttribute({
-        name: attributeForm.name.trim(),
-        code: attributeForm.code.trim() || undefined,
-        displayType: attributeForm.displayType,
-        values: rawValues,
-      });
-    } else if (attributeModal?.mode === 'edit' && attributeModal.attribute) {
-      await updateAttribute(attributeModal.attribute.id, {
-        name: attributeForm.name.trim(),
-        displayType: attributeForm.displayType,
-      });
-    }
-    const attributes = await fetchAttributes();
-    setData((d) => (d ? { ...d, attributes } : d));
-  };
-
   const tabs: { id: CatalogTab; label: string; count: number | null }[] = [
     { id: 'products', label: 'Products', count: data?.products.length ?? null },
     { id: 'featured', label: 'Featured', count: data?.featured.length ?? null },
@@ -642,11 +588,6 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ currentStore }) => {
           {activeTab === 'categories' && (
             <button onClick={() => openCreateCategory(null)} className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Plus size={14} /> Add Category
-            </button>
-          )}
-          {activeTab === 'attributes' && (
-            <button onClick={openCreateAttribute} className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Plus size={14} /> Add Attribute
             </button>
           )}
         </div>
@@ -1610,66 +1551,6 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ currentStore }) => {
             setDeleteCategoryTarget(null);
           }}
         />
-      )}
-
-      {/* ATTRIBUTE CREATE/EDIT MODAL */}
-      {attributeModal && (
-        <RecordModal
-          title={attributeModal.mode === 'create' ? 'Add Variation Attribute' : `Edit Attribute: ${attributeModal.attribute?.name}`}
-          submitLabel={attributeModal.mode === 'create' ? 'Create Attribute' : 'Save Changes'}
-          onClose={() => setAttributeModal(null)}
-          onSubmit={handleSaveAttribute}
-        >
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">Attribute Name *</label>
-              <input
-                className="form-input"
-                required
-                value={attributeForm.name}
-                onChange={(e) => setAttributeForm({ ...attributeForm, name: e.target.value })}
-                placeholder="e.g. Size or Color"
-                autoFocus
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Code</label>
-              <input
-                className="form-input mono"
-                disabled={attributeModal.mode === 'edit'}
-                value={attributeForm.code}
-                onChange={(e) => setAttributeForm({ ...attributeForm, code: e.target.value })}
-                placeholder="e.g. size or color"
-              />
-            </div>
-
-            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-              <label className="form-label">Display Type</label>
-              <select
-                className="form-select"
-                value={attributeForm.displayType}
-                onChange={(e) => setAttributeForm({ ...attributeForm, displayType: e.target.value })}
-              >
-                <option value="SELECT">Dropdown Selection (SELECT)</option>
-                <option value="BUTTON">Pill Buttons (BUTTON)</option>
-                <option value="COLOR">Color Swatch (COLOR)</option>
-              </select>
-            </div>
-
-            {attributeModal.mode === 'create' && (
-              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                <label className="form-label">Initial Values (comma-separated)</label>
-                <input
-                  className="form-input"
-                  value={attributeForm.valuesStr}
-                  onChange={(e) => setAttributeForm({ ...attributeForm, valuesStr: e.target.value })}
-                  placeholder="e.g. Small, Medium, Large, XL"
-                />
-              </div>
-            )}
-          </div>
-        </RecordModal>
       )}
 
       {/* CONFIRM DELETE ATTRIBUTE MODAL */}
