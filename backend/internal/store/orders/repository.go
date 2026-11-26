@@ -104,8 +104,12 @@ func (r *SQLRepository) CreateOrderTx(ctx context.Context, tx *sql.Tx, o *storeM
 
 	queryItem := `
 		INSERT INTO order_items (
-			order_id, variant_id, product_title, variant_title, sku, unit_price, quantity, total_price, created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+			order_id, variant_id, product_title, variant_title, sku, unit_price, unit_cost, quantity, total_price, created_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6,
+			COALESCE($7, (SELECT COALESCE(pv.cost_price, p.cost_price, 0) FROM product_variants pv LEFT JOIN products p ON p.id = pv.product_id WHERE pv.id = $2)),
+			$8, $9, NOW()
+		)
 		RETURNING id, created_at
 	`
 	for i := range items {
@@ -113,7 +117,7 @@ func (r *SQLRepository) CreateOrderTx(ctx context.Context, tx *sql.Tx, o *storeM
 		it.OrderID = o.ID
 		err := tx.QueryRowContext(ctx, queryItem,
 			it.OrderID, it.VariantID, it.ProductTitle, it.VariantTitle, it.SKU,
-			it.UnitPrice, it.Quantity, it.TotalPrice,
+			it.UnitPrice, it.UnitCost, it.Quantity, it.TotalPrice,
 		).Scan(&it.ID, &it.CreatedAt)
 		if err != nil {
 			return fmt.Errorf("failed to insert order item %s: %w", it.SKU, err)

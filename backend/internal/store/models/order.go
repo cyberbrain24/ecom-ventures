@@ -116,6 +116,7 @@ type OrderItem struct {
 	Title        string    `json:"title,omitempty"`
 	SKU          string    `json:"sku"`
 	UnitPrice    float64   `json:"unit_price"`
+	UnitCost     *float64  `json:"unit_cost,omitempty"`
 	Quantity     int       `json:"quantity"`
 	TotalPrice   float64   `json:"total_price"`
 	ImageURL     *string   `json:"image_url,omitempty"`

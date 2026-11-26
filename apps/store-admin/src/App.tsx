@@ -22,6 +22,7 @@ import {
   MapPin,
   TrendingUp,
   LogOut,
+  FileBarChart2,
 } from 'lucide-react';
 
 import { StoreTab } from './types/store';
@@ -44,6 +45,7 @@ const InventoryView = lazy(() => import('./components/InventoryView').then((m) =
 const OrdersView = lazy(() => import('./components/OrdersView').then((m) => ({ default: m.OrdersView })));
 const TasksWorkstation = lazy(() => import('./components/TasksWorkstation').then((m) => ({ default: m.TasksWorkstation })));
 const BusinessAnalyticsView = lazy(() => import('./components/BusinessAnalyticsView').then((m) => ({ default: m.BusinessAnalyticsView })));
+const SalesReportsView = lazy(() => import('./components/SalesReportsView').then((m) => ({ default: m.SalesReportsView })));
 const MetaAdsModule = lazy(() => import('./components/MetaAdsModule').then((m) => ({ default: m.MetaAdsModule })));
 const CustomersView = lazy(() => import('./components/CustomersView').then((m) => ({ default: m.CustomersView })));
 const PromotionsView = lazy(() => import('./components/PromotionsView').then((m) => ({ default: m.PromotionsView })));
@@ -403,6 +405,13 @@ const StoreWorkspace: React.FC<StoreWorkspaceProps> = ({
             </div>
           </button>
 
+          <button onClick={() => handleTabSelect('sales-reports')} className={`nav-item ${activeTab === 'sales-reports' ? 'active' : ''}`}>
+            <div className="nav-item-inner">
+              <FileBarChart2 size={14} />
+              <span>Sales Reports</span>
+            </div>
+          </button>
+
           <button onClick={() => handleTabSelect('analytics')} className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`}>
             <div className="nav-item-inner">
               <BarChart3 size={14} />
@@ -562,6 +571,8 @@ const StoreWorkspace: React.FC<StoreWorkspaceProps> = ({
                 userRole={session.staff.role}
               />
             )}
+
+            {activeTab === 'sales-reports' && <SalesReportsView currentStore={currentStore} />}
 
             {activeTab === 'analytics' && <BusinessAnalyticsView currentStore={currentStore} />}
 

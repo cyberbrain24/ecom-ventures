@@ -15,6 +15,7 @@ export type StoreTab =
   | 'inventory'
   | 'orders'
   | 'tasks'
+  | 'sales-reports'
   | 'analytics'
   | 'meta-ads'
   | 'customers'

@@ -41,6 +41,7 @@ import (
 	"ecom-ventures/backend/internal/store/orders"
 	"ecom-ventures/backend/internal/store/payments"
 	"ecom-ventures/backend/internal/store/promotions"
+	"ecom-ventures/backend/internal/store/reports"
 	"ecom-ventures/backend/internal/store/resolver"
 	"ecom-ventures/backend/internal/store/reviews"
 	"ecom-ventures/backend/internal/store/settings"
@@ -95,6 +96,7 @@ func buildRouter(
 ) http.Handler {
 	var musicHandler *music.Handler
 	var tasksHandler *tasks.Handler
+	var reportsHandler *reports.Handler
 	var platformSessions middleware.PlatformSessionChecker
 	var storageHandler *platformStorage.Handler
 
@@ -107,6 +109,8 @@ func buildRouter(
 			musicHandler = v
 		case *tasks.Handler:
 			tasksHandler = v
+		case *reports.Handler:
+			reportsHandler = v
 		case middleware.PlatformSessionChecker:
 			platformSessions = v
 		case *platformStorage.Handler:
@@ -402,6 +406,14 @@ func buildRouter(
 						r.Get("/movements", inventoryHandler.ListMovements)
 						r.Patch("/{variant_id}/threshold", inventoryHandler.UpdateThreshold)
 						r.Get("/alerts/low-stock", inventoryHandler.GetLowStockAlerts)
+					})
+				}
+
+				// Phase 31: Executive Sales Reports & Live P&L
+				if reportsHandler != nil {
+					r.Route("/reports", func(repR chi.Router) {
+						repR.Get("/sales", reportsHandler.GetSalesReport)
+						repR.Post("/settings/usd-rate", reportsHandler.UpdateUSDRate)
 					})
 				}
 
@@ -1575,6 +1587,11 @@ func main() {
 	tasksService := tasks.NewService(tasksRepo)
 	tasksHandler := tasks.NewHandler(tasksService)
 
+	// Executive Sales Reports Subsystem
+	reportsRepo := reports.NewSQLRepository()
+	reportsService := reports.NewService(reportsRepo)
+	reportsHandler := reports.NewHandler(reportsService)
+
 	router := buildRouter(
 		cfg, logger, storeResolver, tokenManager,
 		pAuthHandler, sAuthHandler, storeMgmtHandler,
@@ -1595,6 +1612,7 @@ func main() {
 		shippingHandler,
 		musicHandler,
 		tasksHandler,
+		reportsHandler,
 		sessionManager,
 		storageHandler,
 	)
