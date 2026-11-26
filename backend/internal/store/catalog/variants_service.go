@@ -287,6 +287,11 @@ func (s *VariantsService) CreateVariant(ctx context.Context, productID string, r
 		return nil, fmt.Errorf("failed to commit variant creation: %w", err)
 	}
 
+	if strings.TrimSpace(req.ImageURL) != "" {
+		_ = s.repo.BindVariantImageByURL(ctx, stCtx.TenantDB, productID, v.ID, req.ImageURL)
+	}
+	_ = s.repo.SyncProductMinBasePrice(ctx, stCtx.TenantDB, productID)
+
 	return s.repo.GetVariantByID(ctx, stCtx.TenantDB, v.ID)
 }
 
@@ -320,7 +325,17 @@ func (s *VariantsService) UpdateVariant(ctx context.Context, id string, req *Upd
 		return nil, fmt.Errorf("failed to update variant: %w", err)
 	}
 
-	return s.repo.GetVariantByID(ctx, stCtx.TenantDB, id)
+	detail, err := s.repo.GetVariantByID(ctx, stCtx.TenantDB, id)
+	if err != nil {
+		return nil, err
+	}
+	if req.ImageURL != nil {
+		_ = s.repo.BindVariantImageByURL(ctx, stCtx.TenantDB, detail.ProductID, id, *req.ImageURL)
+		detail, _ = s.repo.GetVariantByID(ctx, stCtx.TenantDB, id)
+	}
+	_ = s.repo.SyncProductMinBasePrice(ctx, stCtx.TenantDB, detail.ProductID)
+
+	return detail, nil
 }
 
 // DeleteVariant removes a variant SKU from the catalog.
@@ -329,11 +344,15 @@ func (s *VariantsService) DeleteVariant(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	existing, _ := s.repo.GetVariantByID(ctx, stCtx.TenantDB, id)
 	if err := s.repo.DeleteVariant(ctx, stCtx.TenantDB, id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrVariantNotFound
 		}
 		return fmt.Errorf("failed to delete variant: %w", err)
+	}
+	if existing != nil {
+		_ = s.repo.SyncProductMinBasePrice(ctx, stCtx.TenantDB, existing.ProductID)
 	}
 	return nil
 }

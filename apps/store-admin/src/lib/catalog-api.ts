@@ -285,6 +285,7 @@ export interface ProductVariantSummary {
   title: string;
   price: number;
   costPrice?: number;
+  imageUrl?: string;
   isActive: boolean;
   attributeValueIds: string[];
 }
@@ -294,6 +295,7 @@ export interface UpsertVariantPayload {
   title: string;
   price: number;
   costPrice?: number;
+  imageUrl?: string;
   isActive: boolean;
   attributeValueIds?: string[];
 }
@@ -306,12 +308,15 @@ export async function fetchProductVariants(productId: string): Promise<ProductVa
     if (!Array.isArray(raw)) return [];
     return raw.map((v) => {
       const attrs = Array.isArray(v.attributes) ? (v.attributes as Array<Record<string, unknown>>) : [];
+      const imgs = Array.isArray(v.images) ? (v.images as Array<Record<string, unknown>>) : [];
+      const imgUrl = typeof v.image_url === 'string' && v.image_url ? v.image_url : (imgs[0]?.url ? String(imgs[0].url) : undefined);
       return {
         id: String(v.id ?? ''),
         sku: String(v.sku ?? ''),
         title: String(v.title ?? ''),
         price: typeof v.price === 'number' ? v.price : Number(v.price ?? 0),
         costPrice: v.cost_price !== undefined && v.cost_price !== null ? Number(v.cost_price) : undefined,
+        imageUrl: imgUrl,
         isActive: Boolean(v.is_active ?? true),
         attributeValueIds: attrs.map((a) => String(a.id ?? '')).filter(Boolean),
       };
@@ -329,6 +334,7 @@ export async function createProductVariant(productId: string, payload: UpsertVar
       title: payload.title,
       price: payload.price,
       cost_price: payload.costPrice,
+      image_url: payload.imageUrl || undefined,
       is_active: payload.isActive,
       attribute_value_ids: payload.attributeValueIds || [],
     }),
@@ -343,6 +349,7 @@ export async function updateProductVariant(variantId: string, payload: UpsertVar
       title: payload.title,
       price: payload.price,
       cost_price: payload.costPrice,
+      image_url: payload.imageUrl ?? '',
       is_active: payload.isActive,
     }),
   });

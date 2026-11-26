@@ -36,6 +36,8 @@ type VariantsRepository interface {
 
 	BatchUpdateVariants(ctx context.Context, db *sql.DB, req *BatchUpdateVariantsRequest) (int64, error)
 	BindVariantImages(ctx context.Context, db *sql.DB, variantID string, imageIDs []string) error
+	BindVariantImageByURL(ctx context.Context, db *sql.DB, productID, variantID, imageURL string) error
+	SyncProductMinBasePrice(ctx context.Context, db *sql.DB, productID string) error
 }
 
 // SQLVariantsRepository implements VariantsRepository.
@@ -373,6 +375,8 @@ func (r *SQLVariantsRepository) GetVariantByID(ctx context.Context, db *sql.DB, 
 	}
 	if resp.Images == nil {
 		resp.Images = []storeModels.ProductImage{}
+	} else if len(resp.Images) > 0 {
+		resp.ImageURL = resp.Images[0].URL
 	}
 
 	return resp, nil
@@ -488,6 +492,54 @@ func (r *SQLVariantsRepository) BatchUpdateVariants(ctx context.Context, db *sql
 		return 0, fmt.Errorf("failed to batch update variants: %w", err)
 	}
 	return res.RowsAffected()
+}
+
+func (r *SQLVariantsRepository) BindVariantImageByURL(ctx context.Context, db *sql.DB, productID, variantID, imageURL string) error {
+	cleanURL := strings.TrimSpace(imageURL)
+	if cleanURL == "" {
+		_, err := db.ExecContext(ctx, `DELETE FROM variant_images WHERE variant_id = $1`, variantID)
+		return err
+	}
+
+	var imageID string
+	err := db.QueryRowContext(ctx, `SELECT id FROM product_images WHERE product_id = $1 AND url = $2 LIMIT 1`, productID, cleanURL).Scan(&imageID)
+	if err == sql.ErrNoRows {
+		err = db.QueryRowContext(ctx, `
+			INSERT INTO product_images (product_id, url, alt_text, sort_order, is_primary, created_at, updated_at)
+			VALUES ($1, $2, '', 0, FALSE, NOW(), NOW())
+			RETURNING id
+		`, productID, cleanURL).Scan(&imageID)
+	}
+	if err != nil {
+		return fmt.Errorf("resolve product image for variant: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `DELETE FROM variant_images WHERE variant_id = $1`, variantID); err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO variant_images (variant_id, image_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, variantID, imageID)
+	return err
+}
+
+func (r *SQLVariantsRepository) SyncProductMinBasePrice(ctx context.Context, db *sql.DB, productID string) error {
+	if productID == "" {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, `
+		UPDATE products
+		SET base_price = sub.min_price, updated_at = NOW()
+		FROM (
+			SELECT MIN(price) AS min_price
+			FROM product_variants
+			WHERE product_id = $1 AND is_active = TRUE
+		) sub
+		WHERE id = $1 AND sub.min_price IS NOT NULL
+	`, productID)
+	return err
 }
 
 func (r *SQLVariantsRepository) BindVariantImages(ctx context.Context, db *sql.DB, variantID string, imageIDs []string) error {

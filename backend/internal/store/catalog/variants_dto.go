@@ -75,6 +75,7 @@ type CreateVariantRequest struct {
 	IsActive          bool     `json:"is_active"`
 	AttributeValueIDs []string `json:"attribute_value_ids"`
 	ImageIDs          []string `json:"image_ids,omitempty"`
+	ImageURL          string   `json:"image_url,omitempty"`
 }
 
 // UpdateVariantRequest defines payload to modify variant pricing, SKU, and weight.
@@ -87,6 +88,7 @@ type UpdateVariantRequest struct {
 	CostPrice      *float64 `json:"cost_price,omitempty"`
 	WeightGrams    float64  `json:"weight_grams"`
 	IsActive       bool     `json:"is_active"`
+	ImageURL       *string  `json:"image_url,omitempty"`
 }
 
 // BatchUpdateVariantsRequest defines payload for bulk updating multiple SKUs.
@@ -107,6 +109,7 @@ type VariantDetailResponse struct {
 	storeModels.ProductVariant
 	Attributes []storeModels.AttributeValue `json:"attributes"`
 	Images     []storeModels.ProductImage   `json:"images"`
+	ImageURL   string                       `json:"image_url,omitempty"`
 }
 
 // AttributeDetailResponse represents an attribute dimension with its registered values.

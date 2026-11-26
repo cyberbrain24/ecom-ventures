@@ -138,7 +138,7 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
             sku: v.sku,
             costPrice: v.costPrice !== undefined ? String(v.costPrice) : '',
             price: String(v.price),
-            imageUrl: '',
+            imageUrl: v.imageUrl || '',
             isActive: v.isActive,
             attributeValueIds: v.attributeValueIds || [],
           })),
@@ -397,6 +397,7 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
             title: row.title.trim(),
             price: isNaN(sellNum) ? effectiveBasePrice : sellNum,
             costPrice: costNum !== undefined && !isNaN(costNum) ? costNum : undefined,
+            imageUrl: row.imageUrl,
             isActive: row.isActive,
             attributeValueIds: row.attributeValueIds,
           };

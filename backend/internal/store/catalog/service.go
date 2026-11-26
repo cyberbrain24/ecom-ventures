@@ -223,6 +223,29 @@ func (s *Service) CreateProduct(ctx context.Context, req CreateProductRequest) (
 		}
 	}
 
+	// Ensure Simple products automatically have a 1:1 default variant + inventory baseline
+	if product.OptionLayout == "" || product.OptionLayout == "simple" {
+		defaultSKU := product.SKU
+		if defaultSKU == "" {
+			defaultSKU = strings.ToUpper(strings.ReplaceAll(product.Slug, "-", ""))
+		}
+		var defaultVariantID string
+		err := tenantDB.QueryRowContext(ctx, `
+			INSERT INTO product_variants (
+				product_id, sku, title, price, compare_at_price, cost_price, weight_grams, is_active, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, 0, TRUE, NOW(), NOW())
+			ON CONFLICT (sku) DO NOTHING
+			RETURNING id
+		`, product.ID, defaultSKU, product.Title, product.BasePrice, product.CompareAtPrice, product.CostPrice).Scan(&defaultVariantID)
+		if err == nil && defaultVariantID != "" {
+			_, _ = tenantDB.ExecContext(ctx, `
+				INSERT INTO variant_inventory (variant_id, quantity_available, quantity_reserved, low_stock_threshold, updated_at)
+				VALUES ($1, 50, 0, 5, NOW())
+				ON CONFLICT (variant_id) DO NOTHING
+			`, defaultVariantID)
+		}
+	}
+
 	return product, nil
 }
 

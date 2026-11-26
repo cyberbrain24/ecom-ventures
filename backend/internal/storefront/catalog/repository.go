@@ -388,14 +388,23 @@ func (r *SQLRepository) GetPublicProductBySlug(ctx context.Context, db *sql.DB, 
 				avRows.Close()
 			}
 
-			// Fetch bound images
-			imgQuery := `SELECT image_id FROM variant_images WHERE variant_id = $1`
+			// Fetch bound images (IDs + primary variant image URL)
+			imgQuery := `
+				SELECT pi.id, pi.url
+				FROM product_images pi
+				JOIN variant_images vi ON vi.image_id = pi.id
+				WHERE vi.variant_id = $1
+				ORDER BY pi.sort_order ASC, pi.created_at ASC
+			`
 			viRows, _ := db.QueryContext(ctx, imgQuery, v.ID)
 			if viRows != nil {
 				for viRows.Next() {
-					var iID string
-					if viRows.Scan(&iID) == nil {
+					var iID, iURL string
+					if viRows.Scan(&iID, &iURL) == nil {
 						v.ImageIDs = append(v.ImageIDs, iID)
+						if v.ImageURL == "" {
+							v.ImageURL = iURL
+						}
 					}
 				}
 				viRows.Close()

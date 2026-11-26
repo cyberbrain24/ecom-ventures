@@ -82,6 +82,7 @@ type PublicVariantDetail struct {
 	AvailableQuantity int      `json:"available_quantity"`
 	AttributeValueIDs []string `json:"attribute_value_ids"`
 	ImageIDs          []string `json:"image_ids"`
+	ImageURL          string   `json:"image_url,omitempty"`
 }
 
 // PublicAttributeOption represents a selectable variation axis (e.g. Color, Size).
