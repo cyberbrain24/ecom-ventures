@@ -143,12 +143,26 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
             attributeValueIds: v.attributeValueIds || [],
           })),
         );
+
+        const usedValueIds = new Set<string>();
+        list.forEach((v) => (v.attributeValueIds || []).forEach((id) => usedValueIds.add(id)));
+        const preselected: Record<string, string[]> = {};
+        attributes.forEach((attr) => {
+          const matchedIds = (attr.values || [])
+            .map((val) => val.id)
+            .filter((valId) => usedValueIds.has(valId));
+          if (matchedIds.length > 0) {
+            preselected[attr.id] = matchedIds;
+          }
+        });
+        setSelectedAttrValues(preselected);
       });
     } else {
       setVariantRows([]);
+      setSelectedAttrValues({});
     }
     setDeletedVariantIds([]);
-  }, [isOpen, mode, product?.id]);
+  }, [isOpen, mode, product?.id, attributes]);
 
   const sortedAttributes = useMemo(
     () => [...attributes].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),

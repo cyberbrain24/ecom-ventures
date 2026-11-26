@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -203,48 +204,10 @@ func (s *Service) CreateProduct(ctx context.Context, req CreateProductRequest) (
 	}
 
 	// Handle media gallery filenames if provided (separated by commas)
-	if strings.TrimSpace(req.GalleryFilenames) != "" {
-		names := strings.Split(req.GalleryFilenames, ",")
-		for i, name := range names {
-			cleanName := strings.TrimSpace(name)
-			if cleanName != "" {
-				imgURL := cleanName
-				if !strings.HasPrefix(cleanName, "http") && !strings.HasPrefix(cleanName, "/") {
-					imgURL = "/media/" + cleanName
-				}
-				_ = s.repo.InsertProductImage(ctx, tenantDB, &storeModels.ProductImage{
-					ProductID: product.ID,
-					URL:       imgURL,
-					AltText:   product.Title,
-					SortOrder: i,
-					IsPrimary: i == 0 && product.FeaturedImageURL == "",
-				})
-			}
-		}
-	}
+	s.syncGalleryImages(ctx, tenantDB, product, req.GalleryFilenames)
 
 	// Ensure Simple products automatically have a 1:1 default variant + inventory baseline
-	if product.OptionLayout == "" || product.OptionLayout == "simple" {
-		defaultSKU := product.SKU
-		if defaultSKU == "" {
-			defaultSKU = strings.ToUpper(strings.ReplaceAll(product.Slug, "-", ""))
-		}
-		var defaultVariantID string
-		err := tenantDB.QueryRowContext(ctx, `
-			INSERT INTO product_variants (
-				product_id, sku, title, price, compare_at_price, cost_price, weight_grams, is_active, created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, 0, TRUE, NOW(), NOW())
-			ON CONFLICT (sku) DO NOTHING
-			RETURNING id
-		`, product.ID, defaultSKU, product.Title, product.BasePrice, product.CompareAtPrice, product.CostPrice).Scan(&defaultVariantID)
-		if err == nil && defaultVariantID != "" {
-			_, _ = tenantDB.ExecContext(ctx, `
-				INSERT INTO variant_inventory (variant_id, quantity_available, quantity_reserved, low_stock_threshold, updated_at)
-				VALUES ($1, 50, 0, 5, NOW())
-				ON CONFLICT (variant_id) DO NOTHING
-			`, defaultVariantID)
-		}
-	}
+	s.ensureDefaultVariant(ctx, tenantDB, product, false)
 
 	return product, nil
 }
@@ -326,7 +289,88 @@ func (s *Service) UpdateProduct(ctx context.Context, id string, req UpdateProduc
 	if err := s.repo.UpdateProduct(ctx, tenantDB, existing); err != nil {
 		return nil, err
 	}
+
+	s.syncGalleryImages(ctx, tenantDB, existing, req.GalleryFilenames)
+	s.ensureDefaultVariant(ctx, tenantDB, existing, true)
+
 	return existing, nil
+}
+
+// syncGalleryImages parses comma-separated gallery image URLs/filenames and inserts any new ones.
+func (s *Service) syncGalleryImages(ctx context.Context, tenantDB *sql.DB, product *storeModels.Product, galleryFilenames string) {
+	if strings.TrimSpace(galleryFilenames) == "" {
+		return
+	}
+	names := strings.Split(galleryFilenames, ",")
+	for i, name := range names {
+		cleanName := strings.TrimSpace(name)
+		if cleanName == "" {
+			continue
+		}
+		imgURL := cleanName
+		if !strings.HasPrefix(cleanName, "http") && !strings.HasPrefix(cleanName, "/") {
+			imgURL = "/media/" + cleanName
+		}
+		var exists int
+		_ = tenantDB.QueryRowContext(ctx, `SELECT COUNT(1) FROM product_images WHERE product_id = $1 AND url = $2`, product.ID, imgURL).Scan(&exists)
+		if exists > 0 {
+			continue
+		}
+		_ = s.repo.InsertProductImage(ctx, tenantDB, &storeModels.ProductImage{
+			ProductID: product.ID,
+			URL:       imgURL,
+			AltText:   product.Title,
+			SortOrder: i,
+			IsPrimary: i == 0 && product.FeaturedImageURL == "",
+		})
+	}
+}
+
+// ensureDefaultVariant maintains a 1:1 default variant + inventory row for simple products.
+func (s *Service) ensureDefaultVariant(ctx context.Context, tenantDB *sql.DB, product *storeModels.Product, syncExisting bool) {
+	if product.OptionLayout != "" && product.OptionLayout != "simple" {
+		return
+	}
+	defaultSKU := product.SKU
+	if defaultSKU == "" {
+		defaultSKU = strings.ToUpper(strings.ReplaceAll(product.Slug, "-", ""))
+	}
+
+	if syncExisting {
+		var existingVariantID string
+		err := tenantDB.QueryRowContext(ctx, `
+			SELECT id FROM product_variants WHERE product_id = $1 ORDER BY created_at ASC LIMIT 1
+		`, product.ID).Scan(&existingVariantID)
+		if err == nil && existingVariantID != "" {
+			_, _ = tenantDB.ExecContext(ctx, `
+				UPDATE product_variants
+				SET title = $1,
+				    price = $2,
+				    compare_at_price = $3,
+				    cost_price = $4,
+				    sku = CASE WHEN $5 <> '' THEN $5 ELSE sku END,
+				    updated_at = NOW()
+				WHERE id = $6
+			`, product.Title, product.BasePrice, product.CompareAtPrice, product.CostPrice, defaultSKU, existingVariantID)
+			return
+		}
+	}
+
+	var defaultVariantID string
+	err := tenantDB.QueryRowContext(ctx, `
+		INSERT INTO product_variants (
+			product_id, sku, title, price, compare_at_price, cost_price, weight_grams, is_active, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, 0, TRUE, NOW(), NOW())
+		ON CONFLICT (sku) DO NOTHING
+		RETURNING id
+	`, product.ID, defaultSKU, product.Title, product.BasePrice, product.CompareAtPrice, product.CostPrice).Scan(&defaultVariantID)
+	if err == nil && defaultVariantID != "" {
+		_, _ = tenantDB.ExecContext(ctx, `
+			INSERT INTO variant_inventory (variant_id, quantity_available, quantity_reserved, low_stock_threshold, updated_at)
+			VALUES ($1, 50, 0, 5, NOW())
+			ON CONFLICT (variant_id) DO NOTHING
+		`, defaultVariantID)
+	}
 }
 
 // DeleteProduct removes a product from the database.
