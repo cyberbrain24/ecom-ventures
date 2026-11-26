@@ -316,8 +316,10 @@ func (h *Handler) GetFulfillmentQueue(w http.ResponseWriter, r *http.Request) {
 		limit = 20
 	}
 	urgentOnly := r.URL.Query().Get("urgent_only") == "true"
+	statusFilter := r.URL.Query().Get("status")
+	search := r.URL.Query().Get("search")
 
-	res, err := h.service.GetFulfillmentQueue(r.Context(), page, limit, urgentOnly)
+	res, err := h.service.GetFulfillmentQueue(r.Context(), page, limit, urgentOnly, statusFilter, search)
 	if err != nil {
 		response.WriteInternalError(w, r, "Failed to retrieve fulfillment queue: "+err.Error())
 		return

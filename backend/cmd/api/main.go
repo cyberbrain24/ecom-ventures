@@ -518,6 +518,7 @@ func buildRouter(
 				if logisticsHandler != nil {
 					r.Route("/logistics", func(logR chi.Router) {
 						logR.Post("/dispatch/{order_id}", logisticsHandler.DispatchOrder)
+						logR.Post("/sync-couriers", logisticsHandler.SyncCouriers)
 						logR.Get("/shipments", func(w http.ResponseWriter, r *http.Request) {
 							stCtx, err := storeCtx.FromContext(r.Context())
 							if err != nil {

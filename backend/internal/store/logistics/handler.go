@@ -57,6 +57,16 @@ func (h *Handler) TrackShipment(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusOK, timeline)
 }
 
+// SyncCouriers handles POST /api/v1/store/{store_slug}/logistics/sync-couriers
+func (h *Handler) SyncCouriers(w http.ResponseWriter, r *http.Request) {
+	res, err := h.service.SyncCouriers(r.Context())
+	if err != nil {
+		response.WriteInternalError(w, r, "Courier sync failed: "+err.Error())
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, res)
+}
+
 // CarrierWebhook handles POST /api/v1/storefront/logistics/{carrier}/webhook
 func (h *Handler) CarrierWebhook(w http.ResponseWriter, r *http.Request) {
 	carrierStr := strings.ToUpper(chi.URLParam(r, "carrier"))

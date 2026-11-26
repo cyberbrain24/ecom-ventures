@@ -286,6 +286,7 @@ export type OrderStatus =
 export interface OrderItem {
   id: string;
   productTitle: string;
+  variantTitle?: string;
   sku: string;
   quantity: number;
   unitPrice: number;
@@ -337,6 +338,7 @@ export interface StoreOrder {
   is_urgent?: boolean;
   is_ready?: boolean;
   is_print_ready?: boolean;
+  issue_status?: string;
   courier_risk_level?: string;
   courier_delivery_ratio?: number;
   delay_blocker_reason?: string;

@@ -37,7 +37,7 @@ type Repository interface {
 	DeleteOrder(ctx context.Context, db *sql.DB, orderID string) error
 	UpdateCourierConsignment(ctx context.Context, db *sql.DB, orderID string, consignmentID, trackingCode string) error
 	UpdateFulfillmentFlags(ctx context.Context, db *sql.DB, orderID string, req *UpdateFulfillmentFlagsRequest) error
-	GetFulfillmentQueue(ctx context.Context, db *sql.DB, page, limit int, urgentOnly bool) (*FulfillmentQueueResponse, error)
+	GetFulfillmentQueue(ctx context.Context, db *sql.DB, page, limit int, urgentOnly bool, statusFilter, search string) (*FulfillmentQueueResponse, error)
 	HasRecentOrderPlaced(ctx context.Context, db *sql.DB, phone string, minutes int) (bool, error)
 	UpsertAbandonedCheckout(ctx context.Context, db *sql.DB, drop *storeModels.AbandonedCheckout) error
 	PurgeAbandonedCheckout(ctx context.Context, db *sql.DB, sessionToken, phone string) error

@@ -445,8 +445,15 @@ func (s *Service) UpdateCourierConsignment(ctx context.Context, orderID string, 
 	return s.repo.UpdateCourierConsignment(ctx, stCtx.TenantDB, orderID, consignmentID, trackingCode)
 }
 
-// UpdateFulfillmentFlags updates warehouse dispatch flags (is_ready, is_print_ready).
+// UpdateFulfillmentFlags updates warehouse dispatch flags (is_ready, is_print_ready, is_urgent, issue_status).
 func (s *Service) UpdateFulfillmentFlags(ctx context.Context, orderID string, req *UpdateFulfillmentFlagsRequest) error {
+	if req.IssueStatus != nil {
+		switch strings.ToUpper(strings.TrimSpace(*req.IssueStatus)) {
+		case "", "NONE", "STOCK_OUT", "PRINT_ISSUES", "COURIER_ISSUES", "OTHERS":
+		default:
+			return errors.New("invalid issue_status; allowed: NONE, STOCK_OUT, PRINT_ISSUES, COURIER_ISSUES, OTHERS")
+		}
+	}
 	stCtx, err := storeCtx.FromContext(ctx)
 	if err != nil {
 		return err
@@ -455,12 +462,12 @@ func (s *Service) UpdateFulfillmentFlags(ctx context.Context, orderID string, re
 }
 
 // GetFulfillmentQueue retrieves actionable dispatch queue orders with two-tier priority.
-func (s *Service) GetFulfillmentQueue(ctx context.Context, page, limit int, urgentOnly bool) (*FulfillmentQueueResponse, error) {
+func (s *Service) GetFulfillmentQueue(ctx context.Context, page, limit int, urgentOnly bool, statusFilter, search string) (*FulfillmentQueueResponse, error) {
 	stCtx, err := storeCtx.FromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.GetFulfillmentQueue(ctx, stCtx.TenantDB, page, limit, urgentOnly)
+	return s.repo.GetFulfillmentQueue(ctx, stCtx.TenantDB, page, limit, urgentOnly, statusFilter, search)
 }
 
 // CaptureAbandonedCheckout handles silent background telemetry from the storefront checkout.

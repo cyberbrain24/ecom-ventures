@@ -164,6 +164,68 @@ func (s *Service) TrackShipment(ctx context.Context, trackingNumber string) (*Tr
 	return driver.TrackConsignment(ctx, trackingNumber, config)
 }
 
+// SyncCouriersResult summarizes a batch courier status refresh.
+type SyncCouriersResult struct {
+	SyncedCount  int `json:"synced_count"`
+	UpdatedCount int `json:"updated_count"`
+}
+
+// SyncCouriers refreshes tracking statuses for up to 50 active non-terminal shipments.
+func (s *Service) SyncCouriers(ctx context.Context) (*SyncCouriersResult, error) {
+	stCtx, err := storeCtx.FromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.EnsureSchema(ctx, stCtx.TenantDB); err != nil {
+		return nil, err
+	}
+
+	rows, err := stCtx.TenantDB.QueryContext(ctx, `
+		SELECT order_id, tracking_number, status
+		FROM order_shipments
+		WHERE status NOT IN ('DELIVERED', 'RETURNED')
+		  AND COALESCE(tracking_number, '') <> ''
+		ORDER BY updated_at ASC
+		LIMIT 50
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("querying pending shipments: %w", err)
+	}
+	defer rows.Close()
+
+	type pendingRow struct {
+		orderID        string
+		trackingNumber string
+		status         string
+	}
+	var pending []pendingRow
+	for rows.Next() {
+		var p pendingRow
+		if scanErr := rows.Scan(&p.orderID, &p.trackingNumber, &p.status); scanErr == nil {
+			pending = append(pending, p)
+		}
+	}
+
+	res := &SyncCouriersResult{}
+	for _, p := range pending {
+		timeline, trackErr := s.TrackShipment(ctx, p.trackingNumber)
+		if trackErr != nil || timeline == nil {
+			continue
+		}
+		res.SyncedCount++
+		if timeline.CurrentStatus != "" && string(timeline.CurrentStatus) != p.status {
+			_, _ = stCtx.TenantDB.ExecContext(ctx, `
+				UPDATE order_shipments SET status = $1, updated_at = NOW() WHERE tracking_number = $2
+			`, string(timeline.CurrentStatus), p.trackingNumber)
+			_, _ = stCtx.TenantDB.ExecContext(ctx, `
+				UPDATE orders SET courier_status_sync_at = NOW(), updated_at = NOW() WHERE id = $1
+			`, p.orderID)
+			res.UpdatedCount++
+		}
+	}
+	return res, nil
+}
+
 // ProcessCourierWebhook processes automated milestone updates from shipping carriers.
 // Carrier webhook authentication is not yet implemented (see the open decision on carrier webhook
 // verification); configuration errors are returned rather than ignored.

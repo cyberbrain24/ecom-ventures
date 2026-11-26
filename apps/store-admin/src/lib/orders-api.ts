@@ -97,7 +97,9 @@ export async function fetchStoreOrders(
 export async function fetchFulfillmentQueue(
   urgentOnly = false,
   page = 1,
-  limit = 50
+  limit = 50,
+  status = '',
+  search = ''
 ): Promise<FulfillmentQueueResponse> {
   const query = new URLSearchParams({
     page: String(page),
@@ -105,6 +107,12 @@ export async function fetchFulfillmentQueue(
   });
   if (urgentOnly) {
     query.set('urgent_only', 'true');
+  }
+  if (status) {
+    query.set('status', status);
+  }
+  if (search.trim()) {
+    query.set('search', search.trim());
   }
 
   const res = await authorizedRequest<any>(
@@ -120,14 +128,23 @@ export async function fetchFulfillmentQueue(
       order: {
         id: o.id,
         orderNumber: o.order_number,
-        customerName: o.shipping_address?.recipient_name || o.customer_email || 'Customer',
+        customerName: o.shipping_address?.recipient_name || o.shipping_address?.full_name || o.customer_email || 'Customer',
         customerEmail: o.customer_email || '',
         customerPhone: o.customer_phone || o.shipping_address?.phone || '',
-        shippingAddress: o.shipping_address?.street_address || '',
+        shippingAddress: o.shipping_address?.street_address || o.shipping_address?.address_line1 || '',
         city: o.shipping_address?.city || '',
-        district: o.shipping_address?.city || '',
-        thana: o.shipping_address?.state_province || '',
-        items: [],
+        district: o.shipping_district || o.shipping_address?.district || o.shipping_address?.city || '',
+        thana: o.shipping_thana || o.shipping_address?.thana || o.shipping_address?.state_province || '',
+        items: (o.items || []).map((oi: any) => ({
+          id: oi.id,
+          productTitle: oi.product_title || oi.title || 'Product',
+          variantTitle: oi.variant_title || '',
+          sku: oi.sku || '',
+          quantity: oi.quantity || 1,
+          unitPrice: oi.unit_price || 0,
+          totalPrice: oi.total_price || 0,
+          productImage: oi.image_url || undefined,
+        })),
         subtotal: o.subtotal || 0,
         shippingFee: o.shipping_fee || 0,
         discountAmount: o.discount_amount || 0,
@@ -137,9 +154,19 @@ export async function fetchFulfillmentQueue(
         status: o.status as OrderStatus,
         paymentMethod: o.payment_method || 'COD',
         paymentStatus: o.payment_status || 'PENDING',
+        consignmentId: o.courier_consignment_id || undefined,
+        trackingNumber: o.courier_tracking_code || undefined,
+        specialNote: o.special_note || o.notes || undefined,
+        callNotes: (o.call_notes || []).map((cn: any) => ({
+          id: cn.id,
+          staffName: cn.staff_name || cn.performed_by || 'Staff',
+          note: cn.note || '',
+          createdAt: cn.created_at,
+        })),
         is_urgent: o.is_urgent,
         is_ready: o.is_ready,
         is_print_ready: o.is_print_ready,
+        issue_status: o.issue_status || 'NONE',
         courier_risk_level: o.courier_risk_level,
         courier_delivery_ratio: o.courier_delivery_ratio,
         createdAt: o.created_at,
@@ -170,13 +197,25 @@ export async function fetchFulfillmentQueue(
  */
 export async function updateFulfillmentFlags(
   orderId: string,
-  flags: { is_ready?: boolean; is_print_ready?: boolean; is_urgent?: boolean }
+  flags: { is_ready?: boolean; is_print_ready?: boolean; is_urgent?: boolean; issue_status?: string }
 ): Promise<void> {
   await authorizedRequest<void>(
     `/orders/${encodeURIComponent(orderId)}/fulfillment-flags`,
     {
       method: 'PATCH',
       body: JSON.stringify(flags),
+    }
+  );
+}
+
+/**
+ * Triggers batch tracking status sync for pending courier shipments.
+ */
+export async function syncCouriers(): Promise<{ synced_count: number; updated_count: number }> {
+  return authorizedRequest<{ synced_count: number; updated_count: number }>(
+    '/logistics/sync-couriers',
+    {
+      method: 'POST',
     }
   );
 }

@@ -78,11 +78,12 @@ type RecordPaymentRequest struct {
 	RawResponse   string  `json:"raw_response,omitempty"`
 }
 
-// UpdateFulfillmentFlagsRequest defines the payload to toggle is_ready and is_print_ready flags.
+// UpdateFulfillmentFlagsRequest defines the payload to toggle is_ready, is_print_ready, is_urgent, and issue_status.
 type UpdateFulfillmentFlagsRequest struct {
-	IsReady      *bool `json:"is_ready,omitempty"`
-	IsPrintReady *bool `json:"is_print_ready,omitempty"`
-	IsUrgent     *bool `json:"is_urgent,omitempty"`
+	IsReady      *bool   `json:"is_ready,omitempty"`
+	IsPrintReady *bool   `json:"is_print_ready,omitempty"`
+	IsUrgent     *bool   `json:"is_urgent,omitempty"`
+	IssueStatus  *string `json:"issue_status,omitempty"`
 }
 
 // FulfillmentQueueItem wraps an order in the actionable warehouse fulfillment queue with OrderPulse aging metrics.

@@ -6,13 +6,32 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	storeModels "ecom-ventures/backend/internal/store/models"
 )
 
-// UpdateFulfillmentFlags updates ready and urgent flags on an order.
+var fulfillmentSchemaSynced sync.Map
+
+func ensureFulfillmentIssueColumn(ctx context.Context, db *sql.DB) {
+	if db == nil {
+		return
+	}
+	key := fmt.Sprintf("%p", db)
+	if _, ok := fulfillmentSchemaSynced.Load(key); ok {
+		return
+	}
+	_, _ = db.ExecContext(ctx, `
+		ALTER TABLE orders
+			ADD COLUMN IF NOT EXISTS issue_status VARCHAR(32) NOT NULL DEFAULT 'NONE';
+	`)
+	fulfillmentSchemaSynced.Store(key, true)
+}
+
+// UpdateFulfillmentFlags updates ready, print, urgent, and issue_status flags on an order.
 func (r *SQLRepository) UpdateFulfillmentFlags(ctx context.Context, db *sql.DB, orderID string, req *UpdateFulfillmentFlagsRequest) error {
+	ensureFulfillmentIssueColumn(ctx, db)
 	sets := []string{}
 	args := []interface{}{}
 	argIdx := 1
@@ -30,6 +49,15 @@ func (r *SQLRepository) UpdateFulfillmentFlags(ctx context.Context, db *sql.DB, 
 	if req.IsUrgent != nil {
 		sets = append(sets, fmt.Sprintf("is_urgent = $%d", argIdx))
 		args = append(args, *req.IsUrgent)
+		argIdx++
+	}
+	if req.IssueStatus != nil {
+		normalized := strings.ToUpper(strings.TrimSpace(*req.IssueStatus))
+		if normalized == "" {
+			normalized = "NONE"
+		}
+		sets = append(sets, fmt.Sprintf("issue_status = $%d", argIdx))
+		args = append(args, normalized)
 		argIdx++
 	}
 
@@ -56,7 +84,8 @@ func (r *SQLRepository) UpdateFulfillmentFlags(ctx context.Context, db *sql.DB, 
 }
 
 // GetFulfillmentQueue retrieves actionable orders sorted by urgent-first and FIFO aging.
-func (r *SQLRepository) GetFulfillmentQueue(ctx context.Context, db *sql.DB, page, limit int, urgentOnly bool) (*FulfillmentQueueResponse, error) {
+func (r *SQLRepository) GetFulfillmentQueue(ctx context.Context, db *sql.DB, page, limit int, urgentOnly bool, statusFilter, search string) (*FulfillmentQueueResponse, error) {
+	ensureFulfillmentIssueColumn(ctx, db)
 	if page < 1 {
 		page = 1
 	}
@@ -65,12 +94,29 @@ func (r *SQLRepository) GetFulfillmentQueue(ctx context.Context, db *sql.DB, pag
 	}
 	offset := (page - 1) * limit
 
-	where := []string{"status IN ('PENDING', 'CONFIRMED', 'PROCESSING')"}
+	where := []string{}
 	args := []interface{}{}
 	argIdx := 1
 
+	cleanStatus := strings.ToUpper(strings.TrimSpace(statusFilter))
+	switch cleanStatus {
+	case "REVIEW", "PENDING", "CONFIRMED", "PROCESSING":
+		where = append(where, fmt.Sprintf("status = $%d", argIdx))
+		args = append(args, cleanStatus)
+		argIdx++
+	default:
+		where = append(where, "status IN ('PENDING', 'CONFIRMED', 'PROCESSING', 'REVIEW')")
+	}
+
 	if urgentOnly {
 		where = append(where, "is_urgent = TRUE")
+	}
+
+	if cleanSearch := strings.TrimSpace(search); cleanSearch != "" {
+		like := "%" + cleanSearch + "%"
+		where = append(where, fmt.Sprintf("(order_number ILIKE $%d OR COALESCE(customer_phone, '') ILIKE $%d OR COALESCE(courier_tracking_code, '') ILIKE $%d OR COALESCE(shipping_address::text, '') ILIKE $%d)", argIdx, argIdx, argIdx, argIdx))
+		args = append(args, like)
+		argIdx++
 	}
 
 	whereClause := strings.Join(where, " AND ")
@@ -84,7 +130,7 @@ func (r *SQLRepository) GetFulfillmentQueue(ctx context.Context, db *sql.DB, pag
 			COUNT(*) FILTER (WHERE is_print_ready = FALSE) as print_pending_count,
 			COUNT(*) FILTER (WHERE created_at <= NOW() - INTERVAL '24 hours') as delayed_count
 		FROM orders
-		WHERE status IN ('PENDING', 'CONFIRMED', 'PROCESSING');
+		WHERE status IN ('PENDING', 'CONFIRMED', 'PROCESSING', 'REVIEW');
 	`
 	_ = db.QueryRowContext(ctx, summaryQuery).Scan(
 		&summary.TotalQueueCount,
@@ -103,7 +149,7 @@ func (r *SQLRepository) GetFulfillmentQueue(ctx context.Context, db *sql.DB, pag
 	query := fmt.Sprintf(`
 		SELECT id, order_number, customer_id, customer_email, customer_phone,
 		       status, payment_status, currency, subtotal, shipping_fee, discount_amount, total_amount,
-		       paid_amount, due_amount, is_urgent, is_ready, is_print_ready,
+		       paid_amount, due_amount, is_urgent, is_ready, is_print_ready, COALESCE(issue_status, 'NONE'),
 		       COALESCE(courier_risk_level, 'LOW'), COALESCE(courier_delivery_ratio, 0.00),
 		       risk_score_flags, courier_consignment_id, courier_tracking_code,
 		       courier_status_sync_at, special_note, shipping_district, shipping_thana,
@@ -136,7 +182,7 @@ func (r *SQLRepository) GetFulfillmentQueue(ctx context.Context, db *sql.DB, pag
 		if err := rows.Scan(
 			&o.ID, &o.OrderNumber, &customerID, &customerEmail, &customerPhone,
 			&o.Status, &o.PaymentStatus, &o.Currency, &o.Subtotal, &o.ShippingFee, &o.DiscountAmount, &o.TotalAmount,
-			&o.PaidAmount, &o.DueAmount, &o.IsUrgent, &o.IsReady, &o.IsPrintReady,
+			&o.PaidAmount, &o.DueAmount, &o.IsUrgent, &o.IsReady, &o.IsPrintReady, &o.IssueStatus,
 			&o.CourierRiskLevel, &o.CourierDeliveryRatio,
 			&riskFlagsStr, &courierConsignmentID, &courierTrackingCode,
 			&courierStatusSyncAt, &specialNote, &shippingDistrict, &shippingThana,

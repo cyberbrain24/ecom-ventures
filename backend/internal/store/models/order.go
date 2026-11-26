@@ -85,6 +85,7 @@ type Order struct {
 	IsUrgent              bool                 `json:"is_urgent"`
 	IsReady               bool                 `json:"is_ready"`
 	IsPrintReady          bool                 `json:"is_print_ready"`
+	IssueStatus           string               `json:"issue_status"`
 	CourierRiskLevel      string               `json:"courier_risk_level"`
 	CourierDeliveryRatio  float64              `json:"courier_delivery_ratio"`
 	RiskScoreFlags        []RiskFlag           `json:"risk_score_flags"`
