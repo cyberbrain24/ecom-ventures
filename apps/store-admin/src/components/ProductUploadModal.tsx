@@ -4,9 +4,10 @@ import {
   CatalogAttribute,
   CatalogProduct,
   ProductInput,
-  ProductVariantSummary,
+  createProductVariant,
+  deleteProductVariant,
   fetchProductVariants,
-  generateProductVariants,
+  updateProductVariant,
 } from '../lib/catalog-api';
 import { deleteStoreMedia, uploadStoreMedia } from '../lib/api';
 import { AdvancedSeoEditor, SeoState } from './AdvancedSeoEditor';
@@ -109,18 +110,53 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
   const [stockQuantity, setStockQuantity] = useState<string>('50');
   const [lowStockAlert, setLowStockAlert] = useState<string>('5');
   const [selectedAttrValues, setSelectedAttrValues] = useState<Record<string, string[]>>({});
-  const [existingVariants, setExistingVariants] = useState<ProductVariantSummary[]>([]);
+  const [bulkCostInput, setBulkCostInput] = useState<string>('');
+  const [bulkSellInput, setBulkSellInput] = useState<string>('');
+
+  interface VariantMatrixRow {
+    localKey: string;
+    id?: string;
+    title: string;
+    sku: string;
+    costPrice: string;
+    price: string;
+    imageUrl: string;
+    isActive: boolean;
+    attributeValueIds: string[];
+  }
+  const [variantRows, setVariantRows] = useState<VariantMatrixRow[]>([]);
+  const [deletedVariantIds, setDeletedVariantIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (isOpen && mode === 'edit' && product?.id) {
-      void fetchProductVariants(product.id).then(setExistingVariants);
+      void fetchProductVariants(product.id).then((list) => {
+        setVariantRows(
+          list.map((v) => ({
+            localKey: v.id || v.sku,
+            id: v.id,
+            title: v.title,
+            sku: v.sku,
+            costPrice: v.costPrice !== undefined ? String(v.costPrice) : '',
+            price: String(v.price),
+            imageUrl: '',
+            isActive: v.isActive,
+            attributeValueIds: v.attributeValueIds || [],
+          })),
+        );
+      });
     } else {
-      setExistingVariants([]);
+      setVariantRows([]);
     }
+    setDeletedVariantIds([]);
   }, [isOpen, mode, product?.id]);
 
+  const sortedAttributes = useMemo(
+    () => [...attributes].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+    [attributes],
+  );
+
   const plannedCombinations = useMemo(() => {
-    const activeAttrs = attributes
+    const activeAttrs = sortedAttributes
       .map((attr) => {
         const chosenIds = selectedAttrValues[attr.id] || [];
         const chosenVals = attr.values.filter((v) => chosenIds.includes(v.id));
@@ -128,26 +164,82 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
       })
       .filter((entry) => entry.values.length > 0);
 
-    if (activeAttrs.length === 0) return [] as Array<{ label: string; skuSuffix: string }>;
+    if (activeAttrs.length === 0) return [] as Array<{ title: string; skuSuffix: string; valueIds: string[] }>;
 
-    let combos: Array<{ label: string; skuSuffix: string }> = [{ label: '', skuSuffix: '' }];
-    for (const { attr, values } of activeAttrs) {
-      const next: Array<{ label: string; skuSuffix: string }> = [];
+    let combos: Array<{ title: string; skuSuffix: string; valueIds: string[] }> = [
+      { title: '', skuSuffix: '', valueIds: [] },
+    ];
+    for (const { values } of activeAttrs) {
+      const next: Array<{ title: string; skuSuffix: string; valueIds: string[] }> = [];
       for (const c of combos) {
         for (const v of values) {
           const valLabel = v.displayValue || v.value;
-          const part = `${attr.name}: ${valLabel}`;
           const codePart = valLabel.toUpperCase().replace(/[^A-Z0-9]+/g, '');
           next.push({
-            label: c.label ? `${c.label} / ${part}` : part,
+            title: c.title ? `${c.title} / ${valLabel}` : valLabel,
             skuSuffix: c.skuSuffix ? `${c.skuSuffix}-${codePart}` : codePart,
+            valueIds: [...c.valueIds, v.id],
           });
         }
       }
       combos = next;
     }
     return combos;
-  }, [attributes, selectedAttrValues]);
+  }, [sortedAttributes, selectedAttrValues]);
+
+  const handleAutoGenerateCombinations = () => {
+    if (plannedCombinations.length === 0) return;
+    const prefixBase = (sku.trim() || title.trim() || 'ITEM')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+    const defaultSell = basePrice.trim() || '0';
+    const defaultCost = costPrice.trim() || '';
+
+    setVariantRows((prev) => {
+      const existingComboKeys = new Set(
+        prev.map((r) =>
+          r.attributeValueIds.length > 0 ? [...r.attributeValueIds].sort().join('|') : r.title.toLowerCase(),
+        ),
+      );
+      const existingSkus = new Set(prev.map((r) => r.sku.toUpperCase()));
+      const additions: VariantMatrixRow[] = [];
+
+      for (const combo of plannedCombinations) {
+        const comboKey = [...combo.valueIds].sort().join('|');
+        if (existingComboKeys.has(comboKey) || existingComboKeys.has(combo.title.toLowerCase())) {
+          continue;
+        }
+        let candidateSku = `${prefixBase}-${combo.skuSuffix}`;
+        let counter = 2;
+        while (existingSkus.has(candidateSku.toUpperCase())) {
+          candidateSku = `${prefixBase}-${combo.skuSuffix}-${counter++}`;
+        }
+        existingSkus.add(candidateSku.toUpperCase());
+        existingComboKeys.add(comboKey);
+        additions.push({
+          localKey: `new-${comboKey}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          title: combo.title,
+          sku: candidateSku,
+          costPrice: defaultCost,
+          price: defaultSell,
+          imageUrl: '',
+          isActive: true,
+          attributeValueIds: combo.valueIds,
+        });
+      }
+      return [...prev, ...additions];
+    });
+  };
+
+  const minActiveVariantPrice = useMemo(() => {
+    const activePrices = variantRows
+      .filter((r) => r.isActive)
+      .map((r) => parseFloat(r.price))
+      .filter((n) => !isNaN(n) && n >= 0);
+    if (activePrices.length === 0) return null;
+    return Math.min(...activePrices);
+  }, [variantRows]);
 
   const toggleAttrValue = (attrId: string, valueId: string) => {
     setSelectedAttrValues((prev) => {
@@ -252,9 +344,10 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
       setActiveTab('basic');
       return;
     }
-    const priceNum = parseFloat(basePrice);
-    if (isNaN(priceNum) || priceNum < 0) {
-      setError('A valid Base Retail Price is required.');
+    const effectiveBasePrice =
+      optionLayout === 'variants' && minActiveVariantPrice !== null ? minActiveVariantPrice : parseFloat(basePrice);
+    if (isNaN(effectiveBasePrice) || effectiveBasePrice < 0) {
+      setError('A valid Base Retail Price (or active variant selling price) is required.');
       setActiveTab('pricing');
       return;
     }
@@ -265,7 +358,7 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
       const payload: ProductInput = {
         title: title.trim(),
         sku: sku.trim() || undefined,
-        basePrice: priceNum,
+        basePrice: effectiveBasePrice,
         costPrice: costPrice.trim() ? parseFloat(costPrice) : undefined,
         compareAtPrice: compareAtPrice.trim() ? parseFloat(compareAtPrice) : undefined,
         categoryId: selectedCategoryId || null,
@@ -293,11 +386,25 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
 
       const savedProduct = await onSubmit(payload);
       if (optionLayout === 'variants' && savedProduct?.id) {
-        const selectors = Object.entries(selectedAttrValues)
-          .filter(([, valueIds]) => valueIds.length > 0)
-          .map(([attributeId, valueIds]) => ({ attribute_id: attributeId, value_ids: valueIds }));
-        if (selectors.length > 0) {
-          await generateProductVariants(savedProduct.id, selectors, priceNum, sku.trim() || undefined);
+        for (const delId of deletedVariantIds) {
+          await deleteProductVariant(delId);
+        }
+        for (const row of variantRows) {
+          const sellNum = parseFloat(row.price);
+          const costNum = row.costPrice.trim() ? parseFloat(row.costPrice) : undefined;
+          const varPayload = {
+            sku: row.sku.trim(),
+            title: row.title.trim(),
+            price: isNaN(sellNum) ? effectiveBasePrice : sellNum,
+            costPrice: costNum !== undefined && !isNaN(costNum) ? costNum : undefined,
+            isActive: row.isActive,
+            attributeValueIds: row.attributeValueIds,
+          };
+          if (row.id) {
+            await updateProductVariant(row.id, varPayload);
+          } else {
+            await createProductVariant(savedProduct.id, varPayload);
+          }
         }
       }
       setPendingUploads([]);

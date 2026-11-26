@@ -284,7 +284,18 @@ export interface ProductVariantSummary {
   sku: string;
   title: string;
   price: number;
+  costPrice?: number;
   isActive: boolean;
+  attributeValueIds: string[];
+}
+
+export interface UpsertVariantPayload {
+  sku: string;
+  title: string;
+  price: number;
+  costPrice?: number;
+  isActive: boolean;
+  attributeValueIds?: string[];
 }
 
 export async function fetchProductVariants(productId: string): Promise<ProductVariantSummary[]> {
@@ -293,31 +304,53 @@ export async function fetchProductVariants(productId: string): Promise<ProductVa
       method: 'GET',
     });
     if (!Array.isArray(raw)) return [];
-    return raw.map((v) => ({
-      id: String(v.id ?? ''),
-      sku: String(v.sku ?? ''),
-      title: String(v.title ?? ''),
-      price: typeof v.price === 'number' ? v.price : Number(v.price ?? 0),
-      isActive: Boolean(v.is_active ?? true),
-    }));
+    return raw.map((v) => {
+      const attrs = Array.isArray(v.attributes) ? (v.attributes as Array<Record<string, unknown>>) : [];
+      return {
+        id: String(v.id ?? ''),
+        sku: String(v.sku ?? ''),
+        title: String(v.title ?? ''),
+        price: typeof v.price === 'number' ? v.price : Number(v.price ?? 0),
+        costPrice: v.cost_price !== undefined && v.cost_price !== null ? Number(v.cost_price) : undefined,
+        isActive: Boolean(v.is_active ?? true),
+        attributeValueIds: attrs.map((a) => String(a.id ?? '')).filter(Boolean),
+      };
+    });
   } catch {
     return [];
   }
 }
 
-export async function generateProductVariants(
-  productId: string,
-  attributes: Array<{ attribute_id: string; value_ids: string[] }>,
-  basePrice?: number,
-  skuPrefix?: string,
-): Promise<void> {
-  await authorizedRequest<unknown>(`/catalog/products/${encodeURIComponent(productId)}/variants/generate`, {
+export async function createProductVariant(productId: string, payload: UpsertVariantPayload): Promise<void> {
+  await authorizedRequest<unknown>(`/catalog/products/${encodeURIComponent(productId)}/variants`, {
     method: 'POST',
     body: JSON.stringify({
-      attributes,
-      base_price: basePrice,
-      sku_prefix: skuPrefix || undefined,
+      sku: payload.sku,
+      title: payload.title,
+      price: payload.price,
+      cost_price: payload.costPrice,
+      is_active: payload.isActive,
+      attribute_value_ids: payload.attributeValueIds || [],
     }),
+  });
+}
+
+export async function updateProductVariant(variantId: string, payload: UpsertVariantPayload): Promise<void> {
+  await authorizedRequest<unknown>(`/catalog/variants/${encodeURIComponent(variantId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      sku: payload.sku,
+      title: payload.title,
+      price: payload.price,
+      cost_price: payload.costPrice,
+      is_active: payload.isActive,
+    }),
+  });
+}
+
+export async function deleteProductVariant(variantId: string): Promise<void> {
+  await authorizedRequest<unknown>(`/catalog/variants/${encodeURIComponent(variantId)}`, {
+    method: 'DELETE',
   });
 }
 
