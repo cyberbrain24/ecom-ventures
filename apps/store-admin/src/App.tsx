@@ -432,6 +432,21 @@ const StoreWorkspace: React.FC<StoreWorkspaceProps> = ({
             </div>
           </button>
 
+          <button onClick={() => handleTabSelect('accounts')} className={`nav-item ${activeTab === 'accounts' ? 'active' : ''}`}>
+            <div className="nav-item-inner">
+              <DollarSign size={14} />
+              <span>Accounts & P&L</span>
+            </div>
+          </button>
+
+          <button onClick={() => handleTabSelect('blog')} className={`nav-item ${activeTab === 'blog' ? 'active' : ''}`}>
+            <div className="nav-item-inner">
+              <FileText size={14} />
+              <span>Blog & SEO Hub</span>
+            </div>
+          </button>
+
+          <div className="nav-section-title">API & Integrations</div>
           <button onClick={() => handleTabSelect('logistics')} className={`nav-item ${activeTab === 'logistics' ? 'active' : ''}`}>
             <div className="nav-item-inner">
               <Truck size={14} />
@@ -442,35 +457,21 @@ const StoreWorkspace: React.FC<StoreWorkspaceProps> = ({
           <button onClick={() => handleTabSelect('shipping')} className={`nav-item ${activeTab === 'shipping' ? 'active' : ''}`}>
             <div className="nav-item-inner">
               <MapPin size={14} />
-              <span>Delivery Zones</span>
+              <span>Locations & Delivery Zones</span>
             </div>
           </button>
 
           <button onClick={() => handleTabSelect('payments')} className={`nav-item ${activeTab === 'payments' ? 'active' : ''}`}>
             <div className="nav-item-inner">
               <CreditCard size={14} />
-              <span>Gateways & Ledger</span>
-            </div>
-          </button>
-
-          <button onClick={() => handleTabSelect('accounts')} className={`nav-item ${activeTab === 'accounts' ? 'active' : ''}`}>
-            <div className="nav-item-inner">
-              <DollarSign size={14} />
-              <span>Accounts & P&L</span>
+              <span>Payment Gateways & Ledger</span>
             </div>
           </button>
 
           <button onClick={() => handleTabSelect('marketing')} className={`nav-item ${activeTab === 'marketing' ? 'active' : ''}`}>
             <div className="nav-item-inner">
               <BarChart3 size={14} />
-              <span>Marketing Telemetry</span>
-            </div>
-          </button>
-
-          <button onClick={() => handleTabSelect('blog')} className={`nav-item ${activeTab === 'blog' ? 'active' : ''}`}>
-            <div className="nav-item-inner">
-              <FileText size={14} />
-              <span>Blog & SEO Hub</span>
+              <span>Marketing Telemetry & Pixels</span>
             </div>
           </button>
 

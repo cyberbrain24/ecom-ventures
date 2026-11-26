@@ -1099,124 +1099,305 @@ export const ProductUploadModal: React.FC<ProductUploadModalProps> = ({
                   </span>
                 </div>
 
-                {optionLayout === 'variants' && (
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '14px', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                      <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                        Variant Combinations Matrix (Store Attributes)
-                      </span>
-                      <span className="badge badge-active" style={{ fontSize: '0.7rem' }}>
-                        {plannedCombinations.length > 0
-                          ? `${plannedCombinations.length} SKUs Planned`
-                          : existingVariants.length > 0
-                            ? `${existingVariants.length} Saved Variants`
-                            : 'Select attribute values below'}
-                      </span>
+                {/* Real-Time Gross Profit Preview (Simple Mode) */}
+                {optionLayout === 'simple' && (() => {
+                  const retail = parseFloat(basePrice);
+                  const cost = parseFloat(costPrice);
+                  const hasValid = !isNaN(retail) && retail > 0 && !isNaN(cost) && cost >= 0;
+                  const margin = hasValid ? retail - cost : 0;
+                  const pct = hasValid ? (margin / retail) * 100 : 0;
+                  const profitable = margin >= 0;
+                  return (
+                    <div
+                      style={{
+                        border: `1px solid ${!hasValid ? 'var(--border)' : profitable ? '#a7f3d0' : '#fecdd3'}`,
+                        background: !hasValid ? '#f8fafc' : profitable ? '#ecfdf5' : '#fff1f2',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '12px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: !hasValid ? 'var(--text-muted)' : profitable ? '#065f46' : '#9f1239' }}>
+                        {hasValid
+                          ? `Estimated Gross Profit per Unit: ${currency} ${margin.toFixed(2)} (${pct.toFixed(1)}%)`
+                          : 'Enter Base Retail Price and Purchase / Costing Price to preview real-time gross margin.'}
+                      </div>
+                      {hasValid && (
+                        <span
+                          className={`badge ${profitable ? 'badge-active' : 'badge-danger'}`}
+                          style={{ fontSize: '0.7rem', fontWeight: 800 }}
+                        >
+                          {profitable ? 'PROFITABLE' : 'LOSS'}
+                        </span>
+                      )}
                     </div>
+                  );
+                })()}
 
-                    {attributes.length === 0 ? (
-                      <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                        No attributes defined yet. Create attributes (e.g., Ring Size, Color) in the Attributes tab first.
-                      </p>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        {attributes.map((attr) => {
-                          const chosen = selectedAttrValues[attr.id] || [];
-                          return (
-                            <div key={attr.id} style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px' }}>
-                              <div style={{ fontSize: '0.76rem', fontWeight: 700, marginBottom: '6px', color: 'var(--text-main)' }}>
-                                {attr.name} <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>({attr.code})</span>
-                              </div>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                {attr.values.map((val) => {
-                                  const active = chosen.includes(val.id);
-                                  return (
-                                    <button
-                                      key={val.id}
-                                      type="button"
-                                      onClick={() => toggleAttrValue(attr.id, val.id)}
-                                      style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '5px',
-                                        padding: '4px 10px',
-                                        borderRadius: '9999px',
-                                        fontSize: '0.74rem',
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        border: active ? '1.5px solid #0d9488' : '1px solid #cbd5e1',
-                                        background: active ? '#f0fdfa' : '#fff',
-                                        color: active ? '#0f766e' : '#334155',
-                                      }}
-                                    >
-                                      {val.colorHex && (
-                                        <span style={{ width: '10px', height: '10px', borderRadius: '9999px', backgroundColor: val.colorHex, border: '1px solid rgba(0,0,0,0.15)' }} />
-                                      )}
-                                      <span>{val.displayValue || val.value}</span>
-                                    </button>
-                                  );
-                                })}
-                                {attr.values.length === 0 && (
-                                  <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>No values configured for this attribute.</span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {plannedCombinations.length > 0 && (
-                      <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 10px', maxHeight: '150px', overflowY: 'auto' }}>
-                        <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                          Generated Combinations Preview (saved when you click OK):
+                {/* Combinatorial Variant Builder Matrix (Variable Mode) */}
+                {optionLayout === 'variants' && (() => {
+                  const uploadedImages = Array.from(new Set([featuredImageUrl.trim(), ...galleryList].filter(Boolean)));
+                  return (
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '14px', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      {/* 1. Attribute Selection */}
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                            1. Attribute Selection &amp; Permutation Generator
+                          </span>
+                          <span className="badge badge-active" style={{ fontSize: '0.7rem' }}>
+                            {variantRows.length} Active Matrix Row(s)
+                          </span>
                         </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                          {plannedCombinations.map((combo) => (
-                            <span
-                              key={combo.label}
-                              style={{
-                                fontSize: '0.72rem',
-                                padding: '3px 8px',
-                                borderRadius: '6px',
-                                background: '#f1f5f9',
-                                border: '1px solid #e2e8f0',
-                                color: '#0f172a',
-                              }}
-                            >
-                              {combo.label}
+
+                        {sortedAttributes.length === 0 ? (
+                          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            No attributes defined yet. Create attributes (e.g., Ring Size, Color) in the Attributes tab first.
+                          </p>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {sortedAttributes.map((attr) => {
+                              const chosen = selectedAttrValues[attr.id] || [];
+                              return (
+                                <div key={attr.id} style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px' }}>
+                                  <div style={{ fontSize: '0.76rem', fontWeight: 700, marginBottom: '6px', color: 'var(--text-main)' }}>
+                                    {attr.name} <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>({attr.code})</span>
+                                  </div>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                    {attr.values.map((val) => {
+                                      const active = chosen.includes(val.id);
+                                      return (
+                                        <button
+                                          key={val.id}
+                                          type="button"
+                                          onClick={() => toggleAttrValue(attr.id, val.id)}
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '5px',
+                                            padding: '4px 10px',
+                                            borderRadius: '9999px',
+                                            fontSize: '0.74rem',
+                                            fontWeight: 600,
+                                            cursor: 'pointer',
+                                            border: active ? '1.5px solid #0d9488' : '1px solid #cbd5e1',
+                                            background: active ? '#f0fdfa' : '#fff',
+                                            color: active ? '#0f766e' : '#334155',
+                                          }}
+                                        >
+                                          {val.colorHex && (
+                                            <span style={{ width: '10px', height: '10px', borderRadius: '9999px', backgroundColor: val.colorHex, border: '1px solid rgba(0,0,0,0.15)' }} />
+                                          )}
+                                          <span>{val.displayValue || val.value}</span>
+                                        </button>
+                                      );
+                                    })}
+                                    {attr.values.length === 0 && (
+                                      <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>No values configured for this attribute.</span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={handleAutoGenerateCombinations}
+                            disabled={plannedCombinations.length === 0}
+                            className="btn btn-primary btn-sm"
+                            style={{ fontWeight: 700, fontSize: '0.76rem' }}
+                          >
+                            AUTO-GENERATE COMBINATIONS ({plannedCombinations.length} Variants)
+                          </button>
+                          {minActiveVariantPrice !== null && (
+                            <span style={{ fontSize: '0.74rem', color: '#0f766e', fontWeight: 700 }}>
+                              Parent Base Price auto-roll-up: {currency} {minActiveVariantPrice.toFixed(2)}
                             </span>
-                          ))}
+                          )}
                         </div>
                       </div>
-                    )}
 
-                    {plannedCombinations.length === 0 && existingVariants.length > 0 && (
-                      <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 10px', maxHeight: '140px', overflowY: 'auto' }}>
-                        <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                          Current Saved Variants:
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                          {existingVariants.map((v) => (
-                            <span
-                              key={v.id}
-                              style={{
-                                fontSize: '0.72rem',
-                                padding: '3px 8px',
-                                borderRadius: '6px',
-                                background: '#ecfdf5',
-                                border: '1px solid #a7f3d0',
-                                color: '#065f46',
-                              }}
+                      {/* 2. Bulk Pricing Toolbar */}
+                      {variantRows.length > 0 && (
+                        <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px 12px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px' }}>
+                          <span style={{ fontSize: '0.74rem', fontWeight: 800, color: 'var(--text-main)' }}>2. Bulk Pricing Toolbar:</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Purchase Cost:</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              value={bulkCostInput}
+                              onChange={(e) => setBulkCostInput(e.target.value)}
+                              className="form-input"
+                              style={{ width: '90px', padding: '4px 8px', fontSize: '0.76rem' }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setVariantRows((prev) => prev.map((r) => ({ ...r, costPrice: bulkCostInput })))}
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: '0.72rem', padding: '4px 10px' }}
                             >
-                              {v.title} ({v.sku})
-                            </span>
-                          ))}
+                              Apply
+                            </button>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Selling Price:</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              value={bulkSellInput}
+                              onChange={(e) => setBulkSellInput(e.target.value)}
+                              className="form-input"
+                              style={{ width: '90px', padding: '4px 8px', fontSize: '0.76rem' }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setVariantRows((prev) => prev.map((r) => ({ ...r, price: bulkSellInput })))}
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: '0.72rem', padding: '4px 10px' }}
+                            >
+                              Apply
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
+                      )}
+
+                      {/* 3. Variant Matrix Table */}
+                      {variantRows.length > 0 && (
+                        <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: '8px', overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem', textAlign: 'left' }}>
+                            <thead style={{ background: '#f1f5f9', color: '#475569' }}>
+                              <tr>
+                                <th style={{ padding: '8px' }}>Img</th>
+                                <th style={{ padding: '8px' }}>Attributes Combo</th>
+                                <th style={{ padding: '8px' }}>Variant SKU</th>
+                                <th style={{ padding: '8px' }}>Cost ({currency})</th>
+                                <th style={{ padding: '8px' }}>Sell ({currency})</th>
+                                <th style={{ padding: '8px' }}>Profit</th>
+                                <th style={{ padding: '8px', textAlign: 'center' }}>Active</th>
+                                <th style={{ padding: '8px' }} />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {variantRows.map((row, idx) => {
+                                const sell = parseFloat(row.price);
+                                const cost = parseFloat(row.costPrice);
+                                const hasProfit = !isNaN(sell) && !isNaN(cost);
+                                const profit = hasProfit ? sell - cost : null;
+                                return (
+                                  <tr key={row.localKey} style={{ borderTop: '1px solid #e2e8f0' }}>
+                                    <td style={{ padding: '6px 8px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        {row.imageUrl && (
+                                          <img src={row.imageUrl} alt="" style={{ width: '24px', height: '24px', borderRadius: '4px', objectFit: 'cover' }} />
+                                        )}
+                                        <select
+                                          value={row.imageUrl}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setVariantRows((prev) => prev.map((r, i) => (i === idx ? { ...r, imageUrl: val } : r)));
+                                          }}
+                                          className="form-select"
+                                          style={{ width: '76px', padding: '3px 4px', fontSize: '0.7rem' }}
+                                        >
+                                          <option value="">Default</option>
+                                          {uploadedImages.map((u, imgIdx) => (
+                                            <option key={u} value={u}>
+                                              Photo #{imgIdx + 1}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '6px 8px', fontWeight: 600 }}>{row.title}</td>
+                                    <td style={{ padding: '6px 8px' }}>
+                                      <input
+                                        type="text"
+                                        value={row.sku}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setVariantRows((prev) => prev.map((r, i) => (i === idx ? { ...r, sku: val } : r)));
+                                        }}
+                                        className="form-input"
+                                        style={{ width: '130px', padding: '4px 6px', fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }}
+                                      />
+                                    </td>
+                                    <td style={{ padding: '6px 8px' }}>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={row.costPrice}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setVariantRows((prev) => prev.map((r, i) => (i === idx ? { ...r, costPrice: val } : r)));
+                                        }}
+                                        className="form-input"
+                                        style={{ width: '78px', padding: '4px 6px', fontSize: '0.72rem' }}
+                                      />
+                                    </td>
+                                    <td style={{ padding: '6px 8px' }}>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={row.price}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setVariantRows((prev) => prev.map((r, i) => (i === idx ? { ...r, price: val } : r)));
+                                        }}
+                                        className="form-input"
+                                        style={{ width: '78px', padding: '4px 6px', fontSize: '0.72rem' }}
+                                      />
+                                    </td>
+                                    <td style={{ padding: '6px 8px', fontWeight: 700, color: profit === null ? '#64748b' : profit >= 0 ? '#059669' : '#e11d48' }}>
+                                      {profit === null ? '—' : `${profit.toFixed(0)}`}
+                                    </td>
+                                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={row.isActive}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          setVariantRows((prev) => prev.map((r, i) => (i === idx ? { ...r, isActive: checked } : r)));
+                                        }}
+                                      />
+                                    </td>
+                                    <td style={{ padding: '6px 8px' }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (row.id) setDeletedVariantIds((prev) => [...prev, row.id!]);
+                                          setVariantRows((prev) => prev.filter((_, i) => i !== idx));
+                                        }}
+                                        title="Remove variant"
+                                        style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+                                      >
+                                        <X size={13} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="notice notice-info" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>
                   <Info size={15} style={{ flexShrink: 0 }} />
